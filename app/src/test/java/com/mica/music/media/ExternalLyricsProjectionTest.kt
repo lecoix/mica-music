@@ -3,6 +3,7 @@ package com.mica.music.media
 import com.mica.music.lyrics.LyricsDisplayOptions
 import com.mica.music.data.LyricCue
 import com.mica.music.ui.overlay.externalLyricsFillFraction
+import com.mica.music.ui.overlay.externalLyricsFramePositionMs
 import com.mica.music.ui.overlay.statusBarLyricsWindowFlags
 import com.mica.music.data.LyricLine
 import com.mica.music.data.LyricsBilingualDisplayMode
@@ -315,6 +316,49 @@ class ExternalLyricsProjectionTest {
         store.updatePosition(1_500)
 
         assertEquals(1_500, store.state.value.desktop.positionMs)
+    }
+
+    @Test
+    fun wordFillAccountsForSeparatorsOutsideCueText() {
+        val text = ExternalLyricsText(
+            text = "A B",
+            cues = listOf(
+                LyricCue(1_000, "A"),
+                LyricCue(1_500, "B"),
+            ),
+        )
+        val line = ExternalLyricsLine(
+            lineIndex = 0,
+            startMs = 1_000,
+            endMs = 2_000,
+            original = text,
+        )
+
+        assertEquals(
+            2f / 3f,
+            externalLyricsFillFraction(text, line, positionMs = 1_500),
+            0.001f,
+        )
+    }
+
+    @Test
+    fun frameClockExtrapolatesPlaybackAnchorsWithoutAddingTweenLag() {
+        assertEquals(
+            1_150L,
+            externalLyricsFramePositionMs(
+                anchorPositionMs = 1_000L,
+                elapsedFrameNanos = 100_000_000L,
+                playbackSpeed = 1.5f,
+            ),
+        )
+        assertEquals(
+            1_200L,
+            externalLyricsFramePositionMs(
+                anchorPositionMs = 1_000L,
+                elapsedFrameNanos = 100_000_000L,
+                playbackSpeed = 2f,
+            ),
+        )
     }
 
     @Test

@@ -83,4 +83,30 @@ class NotificationLyricsBoundaryPlannerTest {
         assertEquals(null, plan.publishIndex)
         assertEquals(150L, plan.wakeInMs)
     }
+
+    @Test
+    fun externalSurfaceKeepsExactDenseLineBoundariesWithoutNotificationCooldown() {
+        val plan = ExternalLyricsBoundaryPlanner.plan(
+            lineStartTimesMs = intArrayOf(0, 100, 200),
+            positionMs = 100,
+            playbackSpeed = 1f,
+            isAdvancing = true,
+        )
+
+        assertEquals(1, plan.activeIndex)
+        assertEquals(100L, plan.wakeInMs)
+    }
+
+    @Test
+    fun externalSurfaceBoundaryClockStillRespectsPlaybackSpeed() {
+        val plan = ExternalLyricsBoundaryPlanner.plan(
+            lineStartTimesMs = intArrayOf(0, 1_000),
+            positionMs = 400,
+            playbackSpeed = 2f,
+            isAdvancing = true,
+        )
+
+        assertEquals(0, plan.activeIndex)
+        assertEquals(300L, plan.wakeInMs)
+    }
 }

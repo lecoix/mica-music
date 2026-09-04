@@ -37,6 +37,7 @@ data class ExternalLyricsSurfaceState(
     val line: ExternalLyricsLine? = null,
     val positionMs: Int = 0,
     val isPlaying: Boolean = false,
+    val playbackSpeed: Float = 1f,
     val enabled: Boolean = false,
 ) {
     val visible: Boolean
@@ -47,7 +48,8 @@ data class ExternalLyricsSurfaceState(
  * Process-lifetime projection for the desktop and status-bar lyric surfaces.
  *
  * The media-service coordinator owns lyric interpretation. Both windows observe this bounded
- * snapshot and therefore never parse the library or run their own position ticker.
+ * snapshot and never parse the library. Cue-timed rendering may extrapolate between these
+ * low-frequency playback anchors on the display frame clock.
  */
 data class DesktopLyricsOverlayState(
     val desktop: ExternalLyricsSurfaceState = ExternalLyricsSurfaceState(),
@@ -127,6 +129,27 @@ class DesktopLyricsOverlayStateStore {
         )
     }
 
+    fun setPlaybackState(isPlaying: Boolean, playbackSpeed: Float) {
+        val safeSpeed = playbackSpeed
+            .takeIf { it.isFinite() && it > 0f }
+            ?: 1f
+        val current = _state.value
+        val desktop = current.desktop.copy(
+            isPlaying = isPlaying,
+            playbackSpeed = safeSpeed,
+        )
+        val statusBar = current.statusBar.copy(
+            isPlaying = isPlaying,
+            playbackSpeed = safeSpeed,
+        )
+        if (desktop != current.desktop || statusBar != current.statusBar) {
+            _state.value = current.copy(
+                desktop = desktop,
+                statusBar = statusBar,
+            )
+        }
+    }
+
     fun updatePosition(positionMs: Int) {
         val current = _state.value
         if (!current.desktop.needsPositionUpdates() && !current.statusBar.needsPositionUpdates()) return
@@ -141,6 +164,11 @@ class DesktopLyricsOverlayStateStore {
         if (desktop != current.desktop || statusBar != current.statusBar) {
             _state.value = current.copy(desktop = desktop, statusBar = statusBar)
         }
+    }
+
+    fun needsPositionUpdates(): Boolean {
+        val current = _state.value
+        return current.desktop.needsPositionUpdates() || current.statusBar.needsPositionUpdates()
     }
 
     fun setStyle(style: ExternalLyricsStyle) {

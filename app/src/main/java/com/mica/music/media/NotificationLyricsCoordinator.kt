@@ -106,6 +106,7 @@ internal class NotificationLyricsCoordinator(
     private var lineStartTimesMs = IntArray(0)
 
     private var lastPublishedIndex: Int? = null
+    private var lastExternalPublishedIndex: Int? = null
     private var lastPublishedRealtimeMs: Long? = null
     private var lastSignature: String? = null
     private var lastOverlayToken: String? = null
@@ -175,6 +176,7 @@ internal class NotificationLyricsCoordinator(
                 when (change) {
                     LyricsPreferences.NotificationLyricsChange.DISPLAY -> {
                         lastPublishedIndex = null
+                        lastExternalPublishedIndex = null
                         lastSignature = null
                     }
                     LyricsPreferences.NotificationLyricsChange.SOURCE -> resetPendingLoad()
@@ -183,6 +185,7 @@ internal class NotificationLyricsCoordinator(
                     LyricsPreferences.NotificationLyricsChange.STATUS_BAR_ENABLED,
                     -> {
                         lastPublishedIndex = null
+                        lastExternalPublishedIndex = null
                         lastSignature = null
                     }
                     LyricsPreferences.NotificationLyricsChange.LYRICON_ENABLED -> {
@@ -256,7 +259,10 @@ internal class NotificationLyricsCoordinator(
         val externalLyricsEnabled = desktopLyricsEnabled || statusBarLyricsEnabled
         desktopLyrics?.setStyle(LyricsPreferences.externalLyricsStyle(appContext))
         desktopLyrics?.setSurfaceEnabled(desktopLyricsEnabled, statusBarLyricsEnabled)
-        desktopLyrics?.setPlaying(player.isPlaying)
+        desktopLyrics?.setPlaybackState(
+            isPlaying = player.isPlaying,
+            playbackSpeed = player.playbackParameters.speed,
+        )
         // The car surface shares the notification lyric load and boundary schedule. Its
         // legacy session is enabled with the notification lyric setting so the two outputs
         // cannot drift or perform duplicate lyric work.
@@ -284,6 +290,7 @@ internal class NotificationLyricsCoordinator(
         }
         val localLyricsEnabled = notificationEnabled || externalLyricsEnabled
         if (!localLyricsEnabled) {
+            lastExternalPublishedIndex = null
             desktopLyrics?.clear()
         }
         if (!localLyricsEnabled && !lyriconEnabled) {
@@ -326,37 +333,65 @@ internal class NotificationLyricsCoordinator(
             )
         }
 
-        var plannedWakeInMs: Long? = null
+        var notificationWakeInMs: Long? = null
+        var externalBoundaryWakeInMs: Long? = null
         if (document != null && localLyricsEnabled) {
             val session = sessionFor(document)
-            val plan = NotificationLyricsBoundaryPlanner.plan(
-                lineStartTimesMs = lineStartTimesMs,
-                positionMs = player.currentPosition.coerceAtLeast(0L),
-                playbackSpeed = player.playbackParameters.speed,
-                isAdvancing = player.isPlaying,
-                publishedIndex = lastPublishedIndex,
-                nowRealtimeMs = nowRealtimeMs,
-                lastPublishedRealtimeMs = lastPublishedRealtimeMs,
-                effectiveOffsetMs = effectiveLyricsOffsetMs,
-            )
-            plan.publishIndex?.let { index ->
-                publish(
-                    song = decoded,
-                    item = item,
-                    spec = activeSpec ?: spec,
-                    session = session,
-                    index = index,
-                    nowRealtimeMs = nowRealtimeMs,
-                    notificationEnabled = notificationEnabled,
-                    desktopLyricsEnabled = desktopLyricsEnabled,
-                    statusBarLyricsEnabled = statusBarLyricsEnabled,
-                    effectiveLyricsOffsetMs = effectiveLyricsOffsetMs,
+            val currentPositionMs = player.currentPosition.coerceAtLeast(0L)
+
+            if (externalLyricsEnabled) {
+                val externalPlan = ExternalLyricsBoundaryPlanner.plan(
+                    lineStartTimesMs = lineStartTimesMs,
+                    positionMs = currentPositionMs,
+                    playbackSpeed = player.playbackParameters.speed,
+                    isAdvancing = player.isPlaying,
+                    effectiveOffsetMs = effectiveLyricsOffsetMs,
                 )
+                if (
+                    externalPlan.activeIndex >= 0 &&
+                    externalPlan.activeIndex != lastExternalPublishedIndex
+                ) {
+                    publishExternalLyrics(
+                        session = session,
+                        index = externalPlan.activeIndex,
+                        desktopLyricsEnabled = desktopLyricsEnabled,
+                        statusBarLyricsEnabled = statusBarLyricsEnabled,
+                        effectiveLyricsOffsetMs = effectiveLyricsOffsetMs,
+                    )
+                }
+                externalBoundaryWakeInMs = externalPlan.wakeInMs
+            } else {
+                lastExternalPublishedIndex = null
             }
-            plannedWakeInMs = plan.wakeInMs
+
+            if (notificationEnabled) {
+                val notificationPlan = NotificationLyricsBoundaryPlanner.plan(
+                    lineStartTimesMs = lineStartTimesMs,
+                    positionMs = currentPositionMs,
+                    playbackSpeed = player.playbackParameters.speed,
+                    isAdvancing = player.isPlaying,
+                    publishedIndex = lastPublishedIndex,
+                    nowRealtimeMs = nowRealtimeMs,
+                    lastPublishedRealtimeMs = lastPublishedRealtimeMs,
+                    effectiveOffsetMs = effectiveLyricsOffsetMs,
+                )
+                notificationPlan.publishIndex?.let { index ->
+                    publishNotificationLyrics(
+                        song = decoded,
+                        item = item,
+                        spec = activeSpec ?: spec,
+                        session = session,
+                        index = index,
+                        nowRealtimeMs = nowRealtimeMs,
+                        effectiveLyricsOffsetMs = effectiveLyricsOffsetMs,
+                    )
+                }
+                notificationWakeInMs = notificationPlan.wakeInMs
+            }
         } else {
             if (notificationEnabled) restoreDefaultMetadataIfNeeded(decoded, item)
             if (notificationEnabled) carBluetoothLyrics?.publishDefault(decoded)
+            lastExternalPublishedIndex = null
             desktopLyrics?.clear()
         }
 
@@ -367,7 +402,10 @@ internal class NotificationLyricsCoordinator(
             (localLyricsEnabled && player.isPlaying) || pendingSpec != null || retryWakeInMs != null
         }
         val externalLyricsWakeInMs = WORD_SYNC_TICK_MS.takeIf {
-            player.isPlaying && externalLyricsEnabled && document != null
+            player.isPlaying &&
+                externalLyricsEnabled &&
+                document != null &&
+                desktopLyrics?.needsPositionUpdates() == true
         }
         desktopLyrics?.updatePosition(
             LyricsTiming.effectivePositionMs(
@@ -375,7 +413,13 @@ internal class NotificationLyricsCoordinator(
                 effectiveLyricsOffsetMs,
             ),
         )
-        scheduleEarliest(plannedWakeInMs, retryWakeInMs, watchdogWakeInMs, externalLyricsWakeInMs)
+        scheduleEarliest(
+            notificationWakeInMs,
+            externalBoundaryWakeInMs,
+            retryWakeInMs,
+            watchdogWakeInMs,
+            externalLyricsWakeInMs,
+        )
     }
 
     private fun ensureLyrics(decoded: Song, spec: LyricsLoadSpec, nowRealtimeMs: Long) {
@@ -430,6 +474,7 @@ internal class NotificationLyricsCoordinator(
         loadFailureCount = 0
         retryAtRealtimeMs = null
         lastPublishedIndex = null
+        lastExternalPublishedIndex = null
         lastSignature = null
     }
 
@@ -445,6 +490,7 @@ internal class NotificationLyricsCoordinator(
         loadFailureCount = 0
         retryAtRealtimeMs = null
         lastPublishedIndex = null
+        lastExternalPublishedIndex = null
         lastSignature = null
     }
 
@@ -463,26 +509,14 @@ internal class NotificationLyricsCoordinator(
         }
     }
 
-    private fun publish(
-        song: Song,
-        item: MediaItem,
-        spec: LyricsLoadSpec,
+    private fun publishExternalLyrics(
         session: LyricsSession,
         index: Int,
-        nowRealtimeMs: Long,
-        notificationEnabled: Boolean,
         desktopLyricsEnabled: Boolean,
         statusBarLyricsEnabled: Boolean,
         effectiveLyricsOffsetMs: Int,
     ) {
         val display = NotificationLyrics.displayOptions(appContext)
-        val displayLine = LyricsDisplayProjection.lyricLineText(session.lyrics, index, display)
-        if (displayLine == null) {
-            // Preserve phase-one behavior: a blank line keeps the previous notification lyric.
-            desktopLyrics?.clear()
-            lastPublishedIndex = index
-            return
-        }
         val externalDisplay = when {
             desktopLyricsEnabled -> display.copy(
                 bilingualMode = LyricsPreferences.desktopLyricsBilingualDisplayMode(appContext),
@@ -511,6 +545,25 @@ internal class NotificationLyricsCoordinator(
         } else {
             desktopLyrics?.clear()
         }
+        lastExternalPublishedIndex = index
+    }
+
+    private fun publishNotificationLyrics(
+        song: Song,
+        item: MediaItem,
+        spec: LyricsLoadSpec,
+        session: LyricsSession,
+        index: Int,
+        nowRealtimeMs: Long,
+        effectiveLyricsOffsetMs: Int,
+    ) {
+        val display = NotificationLyrics.displayOptions(appContext)
+        val displayLine = LyricsDisplayProjection.lyricLineText(session.lyrics, index, display)
+        if (displayLine == null) {
+            // Preserve phase-one behavior: a blank line keeps the previous notification lyric.
+            lastPublishedIndex = index
+            return
+        }
         val inputRevision = listOf(
             SongMediaItemCodec.metadataRevision(item).orEmpty(),
             spec.lyricsRevision,
@@ -525,13 +578,7 @@ internal class NotificationLyricsCoordinator(
             lastPublishedIndex = index
             return
         }
-        if (notificationEnabled) carBluetoothLyrics?.publishLyric(song, displayLine)
-        if (!notificationEnabled) {
-            lastPublishedIndex = index
-            lastPublishedRealtimeMs = nowRealtimeMs
-            lastSignature = signature
-            return
-        }
+        carBluetoothLyrics?.publishLyric(song, displayLine)
         val currentMetadata = item.mediaMetadata
         val visibleMetadataAlreadyMatches =
             NotificationLyrics.overlayToken(currentMetadata) != null &&
@@ -569,7 +616,6 @@ internal class NotificationLyricsCoordinator(
         lastPublishedRealtimeMs = null
         lastSignature = null
         lastOverlayToken = null
-        desktopLyrics?.clear()
     }
 
     private fun replaceCurrentItem(item: MediaItem, metadata: MediaMetadata) {
@@ -615,6 +661,7 @@ internal class NotificationLyricsCoordinator(
         offsetSongKey = key
         songLyricsOffsetMs = 0
         lastPublishedIndex = null
+        lastExternalPublishedIndex = null
         lastSignature = null
         offsetLoadJob?.cancel()
         val requestGeneration = ++offsetGeneration
@@ -633,6 +680,7 @@ internal class NotificationLyricsCoordinator(
                 }
                 songLyricsOffsetMs = loadedOffset
                 lastPublishedIndex = null
+                lastExternalPublishedIndex = null
                 lastSignature = null
                 reconcile()
             }
@@ -646,6 +694,7 @@ internal class NotificationLyricsCoordinator(
         offsetSongKey = null
         songLyricsOffsetMs = 0
         lastPublishedIndex = null
+        lastExternalPublishedIndex = null
         lastSignature = null
     }
 
@@ -665,6 +714,7 @@ internal class NotificationLyricsCoordinator(
         lyricsSession = null
         lineStartTimesMs = IntArray(0)
         lastPublishedIndex = null
+        lastExternalPublishedIndex = null
         lastPublishedRealtimeMs = null
         lastSignature = null
         lastOverlayToken = null

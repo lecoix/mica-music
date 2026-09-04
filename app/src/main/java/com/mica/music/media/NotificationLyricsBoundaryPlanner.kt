@@ -47,3 +47,35 @@ internal object NotificationLyricsBoundaryPlanner {
 
     const val MIN_PUBLISH_INTERVAL_MS = 250L
 }
+
+/**
+ * External lyric surfaces are visual playback surfaces, not notification metadata. They must
+ * switch on the exact lyric boundary and therefore intentionally do not inherit notification
+ * publish throttling.
+ */
+internal object ExternalLyricsBoundaryPlanner {
+    data class Plan(
+        val activeIndex: Int,
+        val wakeInMs: Long?,
+    )
+
+    fun plan(
+        lineStartTimesMs: IntArray,
+        positionMs: Long,
+        playbackSpeed: Float,
+        isAdvancing: Boolean,
+        effectiveOffsetMs: Int = 0,
+    ): Plan {
+        val boundaryPlan = LyricsBoundaryClock.plan(
+            lineStartTimesMs = lineStartTimesMs,
+            positionMs = positionMs,
+            playbackSpeed = playbackSpeed,
+            isAdvancing = isAdvancing,
+            effectiveOffsetMs = effectiveOffsetMs,
+        )
+        return Plan(
+            activeIndex = boundaryPlan.activeIndex,
+            wakeInMs = boundaryPlan.wakeInMs,
+        )
+    }
+}

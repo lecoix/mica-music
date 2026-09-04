@@ -15,8 +15,6 @@ import android.view.WindowManager
 import android.widget.ImageButton
 import android.widget.LinearLayout
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.tween
@@ -32,11 +30,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
@@ -466,6 +467,10 @@ private fun DesktopLyricsOverlayContent(
     val hiddenInApp = style.visibilityMode == ExternalLyricsVisibilityMode.HIDE_WHEN_APP_FOREGROUND &&
         renderState.appInForeground
     val visible = surfaceState.visible && !hiddenInApp
+    val displayPositionMs = rememberExternalLyricsFramePosition(
+        surfaceState = surfaceState,
+        active = visible,
+    )
     val originalFontSize = if (surface == ExternalLyricsSurface.DESKTOP) {
         style.desktopOriginalFontSizeSp
     } else {
@@ -541,7 +546,7 @@ private fun DesktopLyricsOverlayContent(
                                 ExternalLyricsLineText(
                                     text = text,
                                     line = line,
-                                    positionMs = surfaceState.positionMs,
+                                    positionMs = displayPositionMs,
                                     fontSizeSp = originalFontSize,
                                     style = style,
                                     marquee = true,
@@ -554,7 +559,7 @@ private fun DesktopLyricsOverlayContent(
                                 ExternalLyricsLineText(
                                     text = text,
                                     line = line,
-                                    positionMs = surfaceState.positionMs,
+                                    positionMs = displayPositionMs,
                                     fontSizeSp = translationFontSize,
                                     style = style,
                                     marquee = true,
@@ -567,6 +572,63 @@ private fun DesktopLyricsOverlayContent(
             }
         }
     }
+}
+
+@Composable
+private fun rememberExternalLyricsFramePosition(
+    surfaceState: ExternalLyricsSurfaceState,
+    active: Boolean,
+): Int {
+    val line = surfaceState.line
+    val hasTimedCues =
+        line?.original?.cues?.isNotEmpty() == true ||
+            line?.translation?.cues?.isNotEmpty() == true
+    var framePositionMs by remember(line?.lineIndex, line?.startMs) {
+        mutableLongStateOf(surfaceState.positionMs.toLong())
+    }
+
+    LaunchedEffect(
+        surfaceState.positionMs,
+        surfaceState.isPlaying,
+        surfaceState.playbackSpeed,
+        line?.lineIndex,
+        line?.startMs,
+        active,
+        hasTimedCues,
+    ) {
+        val anchorPositionMs = surfaceState.positionMs.toLong()
+        framePositionMs = anchorPositionMs
+        if (!active || !surfaceState.isPlaying || !hasTimedCues) return@LaunchedEffect
+
+        val anchorFrameNanos = withFrameNanos { it }
+        while (true) {
+            val frameNanos = withFrameNanos { it }
+            framePositionMs = externalLyricsFramePositionMs(
+                anchorPositionMs = anchorPositionMs,
+                elapsedFrameNanos = frameNanos - anchorFrameNanos,
+                playbackSpeed = surfaceState.playbackSpeed,
+            )
+        }
+    }
+
+    return framePositionMs
+        .coerceIn(0L, Int.MAX_VALUE.toLong())
+        .toInt()
+}
+
+internal fun externalLyricsFramePositionMs(
+    anchorPositionMs: Long,
+    elapsedFrameNanos: Long,
+    playbackSpeed: Float,
+): Long {
+    val safeSpeed = playbackSpeed
+        .takeIf { it.isFinite() && it > 0f }
+        ?: 1f
+    val advancedMs = (
+        elapsedFrameNanos.coerceAtLeast(0L) / 1_000_000.0 * safeSpeed.toDouble()
+        ).toLong()
+    return (anchorPositionMs.coerceAtLeast(0L) + advancedMs)
+        .coerceAtMost(Int.MAX_VALUE.toLong())
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -597,17 +659,7 @@ private fun ExternalLyricsLineText(
             blurRadius = effectTuning.shadowBlurRadius,
         ),
     )
-    val fillFraction = externalLyricsFillFraction(text, line, positionMs)
-    // The coordinator supplies position samples at 10 Hz. Interpolate only real cue timelines
-    // on the display clock; line-timed fallback remains an instant full-line reveal.
-    val renderedFillFraction by animateFloatAsState(
-        targetValue = fillFraction,
-        animationSpec = tween(
-            durationMillis = if (text.cues.isEmpty()) 0 else 100,
-            easing = LinearEasing,
-        ),
-        label = "externalLyricsFill",
-    )
+    val renderedFillFraction = externalLyricsFillFraction(text, line, positionMs)
     var textLayout by remember(text.text, fontSizeSp) { androidx.compose.runtime.mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
     val primaryColor = Color(style.normalizedColors.first())
     val baseColor = primaryColor.copy(alpha = ExternalLyricsUnfilledAlpha)
@@ -814,8 +866,42 @@ internal fun externalLyricsFillFraction(
     val progress = if (cueEnd <= cue.timeMs) 1f else {
         ((shiftedPosition - cue.timeMs).toFloat() / (cueEnd - cue.timeMs)).coerceIn(0f, 1f)
     }
-    val totalCharacters = text.text.length.coerceAtLeast(1)
-    val completedCharacters = text.cues.take(cueIndex).sumOf { it.text.length }
-    return ((completedCharacters + cue.text.length * progress) / totalCharacters)
+
+    // Match the player lyric renderer: progress is measured against the cue's actual character
+    // range in the displayed text, not only against the sum of cue text lengths. Otherwise any
+    // separator that is not part of a cue (spaces, brackets, punctuation, etc.) permanently shifts
+    // the overlay fill behind the player by those characters.
+    val cueRange = externalLyricsCueRanges(text).firstOrNull { it.cueIndex == cueIndex }
+    if (cueRange == null) {
+        return ((cueIndex + 1).toFloat() / text.cues.size.coerceAtLeast(1))
+            .coerceIn(0f, 1f)
+    }
+    val filledCharacters =
+        cueRange.start + (cueRange.endExclusive - cueRange.start) * progress
+    return (filledCharacters / text.text.length.coerceAtLeast(1).toFloat())
         .coerceIn(0f, 1f)
+}
+
+private data class ExternalLyricsCueRange(
+    val cueIndex: Int,
+    val start: Int,
+    val endExclusive: Int,
+)
+
+private fun externalLyricsCueRanges(text: ExternalLyricsText): List<ExternalLyricsCueRange> {
+    var searchFrom = 0
+    return buildList {
+        text.cues.forEachIndexed { index, cue ->
+            var visible = cue.text
+            var start = text.text.indexOf(visible, startIndex = searchFrom)
+            if (start < 0) {
+                visible = visible.trim()
+                start = text.text.indexOf(visible, startIndex = searchFrom)
+            }
+            if (start < 0 || visible.isEmpty()) return@forEachIndexed
+            val end = (start + visible.length).coerceAtMost(text.text.length)
+            add(ExternalLyricsCueRange(index, start, end))
+            searchFrom = end
+        }
+    }
 }
