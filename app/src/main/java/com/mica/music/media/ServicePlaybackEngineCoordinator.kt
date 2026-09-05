@@ -72,15 +72,50 @@ internal class ServicePlaybackEngineCoordinator(
         val override = PendingPlaybackNavigation.consumeNavigationOverride()
         if (override == null) {
             startExistingAt(index, positionMs.coerceAtLeast(0L), player.playWhenReady)
-        } else {
-            startAt(
-                index = index,
-                positionMs = positionMs.coerceAtLeast(0L),
-                queue = override.queue,
-                preferredMediaId = override.targetSongId,
-                playWhenReady = player.playWhenReady,
-            )
+            return
         }
+
+        val alignedIndex = alignedPendingNavigationIndex(override)
+        if (alignedIndex != null) {
+            DiagnosticLog.event(
+                "QueueSync",
+                "pending-navigation reused-service-playlist items=${override.queue.items.size} " +
+                    "index=$alignedIndex song=${override.targetSongId ?: "none"}",
+            )
+            startExistingAt(alignedIndex, positionMs.coerceAtLeast(0L), player.playWhenReady)
+            return
+        }
+
+        DiagnosticLog.event(
+            "QueueSync",
+            "pending-navigation fallback-rebuild serviceItems=${player.mediaItemCount} " +
+                "pendingItems=${override.queue.items.size} song=${override.targetSongId ?: "none"}",
+        )
+        startAt(
+            index = index,
+            positionMs = positionMs.coerceAtLeast(0L),
+            queue = override.queue,
+            preferredMediaId = override.targetSongId,
+            playWhenReady = player.playWhenReady,
+        )
+    }
+
+    private fun alignedPendingNavigationIndex(
+        override: PendingPlaybackNavigation.NavigationOverride,
+    ): Int? {
+        val pendingItems = override.queue.items
+        if (pendingItems.isEmpty() || player.mediaItemCount != pendingItems.size) return null
+        val identityAligned = pendingItems.indices.all { itemIndex ->
+            runCatching {
+                player.getMediaItemAt(itemIndex).mediaId == pendingItems[itemIndex].mediaId
+            }.getOrDefault(false)
+        }
+        if (!identityAligned) return null
+        val targetSongId = override.targetSongId
+        if (!targetSongId.isNullOrBlank()) {
+            return pendingItems.indexOfFirst { it.mediaId == targetSongId }.takeIf { it >= 0 }
+        }
+        return override.queue.currentIndex.coerceIn(0, pendingItems.lastIndex)
     }
 
     override fun onSkipToNext() {

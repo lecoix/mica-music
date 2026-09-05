@@ -253,6 +253,27 @@ class ServicePlaybackEngineCoordinatorTest {
     }
 
     @Test
+    fun alignedQueueOverrideReusesExistingExoPlaylist() {
+        val first = SongMediaItemCodec.encode(SongFixtures.song("first"))
+        val second = SongMediaItemCodec.encode(SongFixtures.song("second"))
+        val items = listOf(first, second)
+        val exo = mockExoWithQueue(items, currentIndex = 0)
+        val player = MicaCompositePlayer(exo)
+        val coordinator = ServicePlaybackEngineCoordinator(
+            player = player,
+            context = RuntimeEnvironment.getApplication(),
+        )
+        coordinator.start()
+        PendingPlaybackNavigation.prepare("second", items)
+
+        player.seekTo(1, 0L)
+
+        verify(exactly = 0) { exo.setMediaItems(any<List<MediaItem>>(), any(), any()) }
+        verify(exactly = 1) { exo.seekTo(1, 0L) }
+        coordinator.release()
+    }
+
+    @Test
     fun changedQueueOverrideStillRebuildsExoPlaylistOnce() {
         val first = SongMediaItemCodec.encode(SongFixtures.song("first"))
         val second = SongMediaItemCodec.encode(SongFixtures.song("second"))

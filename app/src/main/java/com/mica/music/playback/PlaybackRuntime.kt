@@ -1144,12 +1144,33 @@ internal class PlaybackRuntime(
         if (newQueue.isEmpty()) return
         if (newQueue.none { it.id == songId }) return
         pendingSingleSongId = null
+
+        val activeController = controller
+        val requestedSourceIds = newQueue.asSequence()
+            .map(Song::id)
+            .distinct()
+            .toList()
+        val sameSourceQueue = requestedSourceIds == playbackOrderState.sourceIds
+        if (activeController != null && sameSourceQueue) {
+            val targetIndex = songQueue.indexOfFirst { it.id == songId }
+            if (targetIndex >= 0) {
+                pendingQueue = null
+                pendingQueuePlaySongId = null
+                DiagnosticLog.event(
+                    "QueueSync",
+                    "play-queue-song same-source fast-path items=${songQueue.size} target=$targetIndex songId=$songId",
+                )
+                playSong(targetIndex)
+                return
+            }
+        }
+
         val orderedQueue = resetPlaybackOrderFromQueue(newQueue, songId)
         val targetIndex = orderedQueue.indexOfFirst { it.id == songId }
         if (targetIndex < 0) return
         queueCoordinator.replaceCurrentIndex(targetIndex)
         publishPlaybackStates()
-        if (controller == null) {
+        if (activeController == null) {
             pendingQueue = orderedQueue
             pendingQueuePlaySongId = songId
             connectIfNeeded()
