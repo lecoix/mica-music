@@ -160,7 +160,7 @@ internal fun OutgoingCoverBackgroundWipe(
         outgoing.backgroundMode == PlayerLowerBackgroundMode.THEME ||
         outgoing.backgroundMode == PlayerLowerBackgroundMode.DYNAMIC_LIGHT ||
         outgoing.backgroundMode == PlayerLowerBackgroundMode.DYNAMIC_ARTWORK ||
-        outgoing.backgroundMode == PlayerLowerBackgroundMode.AURORA
+        outgoing.backgroundMode == PlayerLowerBackgroundMode.CONSTELLATION
     ) {
         return
     }

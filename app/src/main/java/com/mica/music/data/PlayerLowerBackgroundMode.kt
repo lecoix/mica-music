@@ -20,8 +20,8 @@ enum class PlayerLowerBackgroundMode(
     /** Apple Music-style dynamic artwork texture: low-res artwork layers, blur, shader crossfade. */
     DYNAMIC_ARTWORK("dynamic_artwork", "流光溢彩"),
 
-    /** nimitz / Shadertoy XtGGRt 极光；实验性 GLES 背景。 */
-    AURORA("aurora", "极光（实验）"),
+    /** Mica 自研的程序化星空 + 星座连线 GLES 背景。 */
+    CONSTELLATION("constellation", "星座"),
     ;
 
     val usesBlurredArtwork: Boolean
@@ -31,6 +31,9 @@ enum class PlayerLowerBackgroundMode(
 
     companion object {
         fun fromStorage(value: String?): PlayerLowerBackgroundMode =
-            entries.find { it.storageValue == value } ?: COVER_GLOW
+            when (value) {
+                "aurora" -> CONSTELLATION
+                else -> entries.find { it.storageValue == value } ?: COVER_GLOW
+            }
     }
 }
