@@ -129,7 +129,9 @@ internal fun NowPlayingCoverSection(
     particleCoverTuning: ParticleCoverTuning,
     lyricsExpanded: Boolean,
     coverContentAlpha: Float,
+    coverSwipeEnabled: Boolean = true,
     coverShadowEnabled: Boolean = false,
+    coverShadowStrength: Float = 1f,
     onCoverBoundsChanged: (Rect?) -> Unit,
     onCoverAspectRatioChanged: (Float) -> Unit,
     onCloseLyrics: () -> Unit,
@@ -249,8 +251,9 @@ internal fun NowPlayingCoverSection(
         }
     }
     val useNativeParticleCover = nativeParticleCoverActive
+    val coverSwipeGesturesEnabled = frame.gesturesEnabled && coverSwipeEnabled
     val gestureState = rememberCoverGestureState(
-        gesturesEnabled = frame.gesturesEnabled,
+        gesturesEnabled = coverSwipeGesturesEnabled,
         standardMode = standardMode,
         screenWidthPx = screenWidthPx,
         onPrevious = onPrevious,
@@ -426,7 +429,9 @@ internal fun NowPlayingCoverSection(
                     coverFlowReflection = coverFlowReflection,
                     particleNormalLayerVisible = particleNormalLayerVisible,
                     useNativeParticleCover = useNativeParticleCover,
+                    coverSwipeGesturesEnabled = coverSwipeGesturesEnabled,
                     coverShadowEnabled = coverShadowEnabled,
+                    coverShadowStrength = coverShadowStrength,
                     coverContentAlpha = coverContentAlpha,
                     coverScrimExtend = coverScrimExtend,
                     coverBoxHeight = coverBoxHeight,

@@ -68,6 +68,8 @@ import com.mica.music.data.PlayerLowerElementOffset
 import com.mica.music.data.PlayerLowerLayoutConfig
 import com.mica.music.data.PlayerLowerTextAlign
 import com.mica.music.data.PlayerLowerTextTarget
+import com.mica.music.data.PlayerProgressTimeMode
+import com.mica.music.data.PlayerTitleSubtitleMode
 import com.mica.music.data.Song
 import com.mica.music.data.SongTitleDisplay
 import com.mica.music.data.TrackSkipDirection
@@ -277,6 +279,10 @@ internal fun CustomPlayerPagePanel(
                                     colors = colors,
                                     immersiveProgress = 0f,
                                     contentScale = scale,
+                                    showAlbum = normalized.titleSubtitleMode ==
+                                        PlayerTitleSubtitleMode.ARTIST_AND_ALBUM,
+                                    showSubtitle = normalized.titleSubtitleMode !=
+                                        PlayerTitleSubtitleMode.HIDDEN,
                                     titleTextAlign = normalized
                                         .textAlignOf(PlayerLowerTextTarget.TITLE)
                                         .toTextAlign(),
@@ -318,8 +324,13 @@ internal fun CustomPlayerPagePanel(
                                 colors = colors,
                                 spectrumEnabled = spectrumEnabled,
                                 spectrumPlaying = surfaceState.isPlaying,
-                                spectrumHeight = 56.dp * scale,
+                                spectrumHeight = normalized.progressSpectrumHeightDp.dp * scale,
                                 visualScale = scale,
+                                trackHeight = normalized.progressTrackHeightDp.dp,
+                                showTimeLabels = normalized.progressTimeMode !=
+                                    PlayerProgressTimeMode.HIDDEN,
+                                showRemainingTime = normalized.progressTimeMode ==
+                                    PlayerProgressTimeMode.ELAPSED_REMAINING,
                                 modifier = Modifier.padding(horizontal = HifiSpacing.lg),
                             )
 
@@ -333,6 +344,7 @@ internal fun CustomPlayerPagePanel(
                                 onOpenQueue = onOpenQueue,
                                 visualScale = scale,
                                 hiddenButtons = normalized.hiddenControls,
+                                redistributeHiddenButtons = normalized.redistributeHiddenControls,
                                 modifier = Modifier.padding(horizontal = HifiSpacing.lg),
                             )
                         }
@@ -638,6 +650,15 @@ private fun CustomPlayerEditChrome(
                         },
                     )
                     CoverBooleanEditRow(
+                        label = "滑动切歌",
+                        enabled = config.coverSwipeEnabled,
+                        enabledLabel = "开启",
+                        disabledLabel = "关闭",
+                        onEnabledChange = { enabled ->
+                            onConfigChange { it.withCoverSwipeEnabled(enabled) }
+                        },
+                    )
+                    CoverBooleanEditRow(
                         label = "专辑图阴影",
                         enabled = config.coverShadow,
                         enabledLabel = "开启",
@@ -646,21 +667,51 @@ private fun CustomPlayerEditChrome(
                             onConfigChange { it.withCoverShadow(enabled) }
                         },
                     )
+                    if (config.coverShadow) {
+                        IntegerStepEditRow(
+                            label = "阴影强度",
+                            value = config.coverShadowStrengthPercent,
+                            min = PlayerLowerLayoutConfig.MIN_COVER_SHADOW_STRENGTH_PERCENT,
+                            max = PlayerLowerLayoutConfig.MAX_COVER_SHADOW_STRENGTH_PERCENT,
+                            step = 25,
+                            suffix = "%",
+                            onValueChange = { value ->
+                                onConfigChange { it.withCoverShadowStrengthPercent(value) }
+                            },
+                        )
+                    }
                 }
 
                 PlayerLowerComponent.TITLE -> {
                     TextAlignEditRow(PlayerLowerTextTarget.TITLE, config, onConfigChange)
-                    TextAlignEditRow(PlayerLowerTextTarget.SUBTITLE, config, onConfigChange)
+                    TitleSubtitleModeEditRow(config, onConfigChange)
+                    if (config.titleSubtitleMode != PlayerTitleSubtitleMode.HIDDEN) {
+                        TextAlignEditRow(PlayerLowerTextTarget.SUBTITLE, config, onConfigChange)
+                    }
                 }
 
-                PlayerLowerComponent.LYRICS ->
+                PlayerLowerComponent.LYRICS -> {
                     TextAlignEditRow(PlayerLowerTextTarget.LYRICS, config, onConfigChange)
+                    LyricsLineCountEditRow(config, onConfigChange)
+                }
 
-                PlayerLowerComponent.CONTROLS -> ControlButtonEditRow(config, onConfigChange)
+                PlayerLowerComponent.CONTROLS -> {
+                    ControlButtonEditRow(config, onConfigChange)
+                    CoverBooleanEditRow(
+                        label = "隐藏按钮",
+                        enabled = config.redistributeHiddenControls,
+                        enabledLabel = "自动均分",
+                        disabledLabel = "保留槽位",
+                        onEnabledChange = { enabled ->
+                            onConfigChange { it.withRedistributeHiddenControls(enabled) }
+                        },
+                    )
+                }
 
                 PlayerLowerComponent.INFO,
-                PlayerLowerComponent.PROGRESS,
                 -> Unit
+
+                PlayerLowerComponent.PROGRESS -> ProgressEditRows(config, onConfigChange)
             }
         }
 
@@ -737,6 +788,133 @@ private fun TextAlignEditRow(
                     color = if (align == current) colors.accent else colors.textPrimary,
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun TitleSubtitleModeEditRow(
+    config: PlayerLowerLayoutConfig,
+    onConfigChange: ((PlayerLowerLayoutConfig) -> PlayerLowerLayoutConfig) -> Unit,
+) {
+    val colors = MicaTheme.colors
+    Row(
+        modifier = Modifier.horizontalScroll(rememberScrollState()),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("副标题", style = MicaTheme.typography.caption, color = colors.textSecondary)
+        PlayerTitleSubtitleMode.entries.forEach { mode ->
+            TextButton(onClick = { onConfigChange { it.withTitleSubtitleMode(mode) } }) {
+                Text(
+                    mode.settingsLabel,
+                    color = if (mode == config.titleSubtitleMode) colors.accent else colors.textPrimary,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LyricsLineCountEditRow(
+    config: PlayerLowerLayoutConfig,
+    onConfigChange: ((PlayerLowerLayoutConfig) -> PlayerLowerLayoutConfig) -> Unit,
+) {
+    val colors = MicaTheme.colors
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("显示行数", style = MicaTheme.typography.caption, color = colors.textSecondary)
+        listOf(
+            PlayerLowerLayoutConfig.SINGLE_LYRICS_LINE_COUNT to "1 行",
+            PlayerLowerLayoutConfig.THREE_LYRICS_LINE_COUNT to "3 行",
+        ).forEach { (count, label) ->
+            TextButton(
+                onClick = {
+                    onConfigChange {
+                        it.copy(lyricsLineCount = count).normalized()
+                    }
+                },
+            ) {
+                Text(
+                    label,
+                    color = if (config.lyricsLineCount == count) colors.accent else colors.textPrimary,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProgressEditRows(
+    config: PlayerLowerLayoutConfig,
+    onConfigChange: ((PlayerLowerLayoutConfig) -> PlayerLowerLayoutConfig) -> Unit,
+) {
+    val colors = MicaTheme.colors
+    Row(
+        modifier = Modifier.horizontalScroll(rememberScrollState()),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("时间", style = MicaTheme.typography.caption, color = colors.textSecondary)
+        PlayerProgressTimeMode.entries.forEach { mode ->
+            TextButton(onClick = { onConfigChange { it.withProgressTimeMode(mode) } }) {
+                Text(
+                    mode.settingsLabel,
+                    color = if (mode == config.progressTimeMode) colors.accent else colors.textPrimary,
+                )
+            }
+        }
+    }
+    IntegerStepEditRow(
+        label = "进度条粗细",
+        value = config.progressTrackHeightDp,
+        min = PlayerLowerLayoutConfig.MIN_PROGRESS_TRACK_HEIGHT_DP,
+        max = PlayerLowerLayoutConfig.MAX_PROGRESS_TRACK_HEIGHT_DP,
+        step = 1,
+        suffix = "dp",
+        onValueChange = { value ->
+            onConfigChange { it.withProgressTrackHeightDp(value) }
+        },
+    )
+    IntegerStepEditRow(
+        label = "频谱高度",
+        value = config.progressSpectrumHeightDp,
+        min = PlayerLowerLayoutConfig.MIN_PROGRESS_SPECTRUM_HEIGHT_DP,
+        max = PlayerLowerLayoutConfig.MAX_PROGRESS_SPECTRUM_HEIGHT_DP,
+        step = 8,
+        suffix = "dp",
+        onValueChange = { value ->
+            onConfigChange { it.withProgressSpectrumHeightDp(value) }
+        },
+    )
+}
+
+@Composable
+private fun IntegerStepEditRow(
+    label: String,
+    value: Int,
+    min: Int,
+    max: Int,
+    step: Int,
+    suffix: String,
+    onValueChange: (Int) -> Unit,
+) {
+    val colors = MicaTheme.colors
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(label, style = MicaTheme.typography.caption, color = colors.textSecondary)
+        TextButton(
+            enabled = value > min,
+            onClick = { onValueChange((value - step).coerceAtLeast(min)) },
+        ) {
+            Text("−", color = if (value > min) colors.textPrimary else colors.textTertiary)
+        }
+        Text(
+            "$value$suffix",
+            style = MicaTheme.typography.monoSm,
+            color = colors.accent,
+        )
+        TextButton(
+            enabled = value < max,
+            onClick = { onValueChange((value + step).coerceAtMost(max)) },
+        ) {
+            Text("+", color = if (value < max) colors.textPrimary else colors.textTertiary)
         }
     }
 }

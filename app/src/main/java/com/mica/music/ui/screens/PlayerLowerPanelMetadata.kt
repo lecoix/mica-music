@@ -111,6 +111,7 @@ internal fun SongTitleSection(
     colors: PlayerContentColors,
     immersiveProgress: Float,
     showAlbum: Boolean = true,
+    showSubtitle: Boolean = true,
     modifier: Modifier = Modifier,
     contentScale: Float = 1f,
     titleTextAlign: TextAlign = TextAlign.Center,
@@ -167,39 +168,41 @@ internal fun SongTitleSection(
             lineHeight = titleLineHeight,
             textAlign = titleTextAlign,
         )
-        Box(Modifier.fillMaxWidth()) {
-            Text(
-                text = fullSubtitle,
-                style = MicaTheme.typography.bodyMd.let { style ->
-                    style.copy(
-                        fontSize = style.fontSize * contentScale,
-                        lineHeight = style.lineHeight * contentScale,
-                    )
-                },
-                color = subtitleColor,
-                textAlign = subtitleTextAlign,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .graphicsLayer { alpha = 1f - immersiveProgress },
-            )
-            Text(
-                text = artistLine,
-                style = MicaTheme.typography.bodyMd.let { style ->
-                    style.copy(
-                        fontSize = style.fontSize * contentScale,
-                        lineHeight = style.lineHeight * contentScale,
-                    )
-                },
-                color = subtitleColor,
-                textAlign = subtitleTextAlign,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .graphicsLayer { alpha = immersiveProgress },
-            )
+        if (showSubtitle) {
+            Box(Modifier.fillMaxWidth()) {
+                Text(
+                    text = fullSubtitle,
+                    style = MicaTheme.typography.bodyMd.let { style ->
+                        style.copy(
+                            fontSize = style.fontSize * contentScale,
+                            lineHeight = style.lineHeight * contentScale,
+                        )
+                    },
+                    color = subtitleColor,
+                    textAlign = subtitleTextAlign,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .graphicsLayer { alpha = 1f - immersiveProgress },
+                )
+                Text(
+                    text = artistLine,
+                    style = MicaTheme.typography.bodyMd.let { style ->
+                        style.copy(
+                            fontSize = style.fontSize * contentScale,
+                            lineHeight = style.lineHeight * contentScale,
+                        )
+                    },
+                    color = subtitleColor,
+                    textAlign = subtitleTextAlign,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .graphicsLayer { alpha = immersiveProgress },
+                )
+            }
         }
     }
 }

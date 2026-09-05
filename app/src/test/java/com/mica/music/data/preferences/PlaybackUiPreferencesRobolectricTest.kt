@@ -13,6 +13,8 @@ import com.mica.music.data.PlayerLowerElementOffset
 import com.mica.music.data.PlayerLowerLayoutConfig
 import com.mica.music.data.PlayerLowerTextAlign
 import com.mica.music.data.PlayerLowerTextTarget
+import com.mica.music.data.PlayerProgressTimeMode
+import com.mica.music.data.PlayerTitleSubtitleMode
 import com.mica.music.data.SongListInfoVisibility
 import com.mica.music.data.SongTrailingInfo
 import org.junit.Assert.assertEquals
@@ -235,8 +237,15 @@ class PlaybackUiPreferencesRobolectricTest {
             .withTextAlign(PlayerLowerTextTarget.LYRICS, PlayerLowerTextAlign.START)
             .withControlVisibility(PlayerControlButton.QUEUE_MODE, false)
             .withControlVisibility(PlayerControlButton.QUEUE, false)
+            .withRedistributeHiddenControls(true)
             .withCoverTapPlayPause(true)
+            .withCoverSwipeEnabled(false)
             .withCoverShadow(true)
+            .withCoverShadowStrengthPercent(175)
+            .withTitleSubtitleMode(PlayerTitleSubtitleMode.ARTIST_ONLY)
+            .withProgressTimeMode(PlayerProgressTimeMode.ELAPSED_REMAINING)
+            .withProgressTrackHeightDp(6)
+            .withProgressSpectrumHeightDp(80)
 
         PlaybackUiPreferences.setCustomPlayerLowerLayout(context, config)
 
@@ -257,8 +266,21 @@ class PlaybackUiPreferencesRobolectricTest {
         PlayerControlButton.entries.forEach { button ->
             assertTrue(config.isControlVisible(button))
         }
+        assertFalse(config.redistributeHiddenControls)
         assertFalse(config.coverTapPlayPause)
+        assertTrue(config.coverSwipeEnabled)
         assertFalse(config.coverShadow)
+        assertEquals(
+            PlayerLowerLayoutConfig.DEFAULT_COVER_SHADOW_STRENGTH_PERCENT,
+            config.coverShadowStrengthPercent,
+        )
+        assertEquals(PlayerTitleSubtitleMode.ARTIST_AND_ALBUM, config.titleSubtitleMode)
+        assertEquals(PlayerProgressTimeMode.ELAPSED_TOTAL, config.progressTimeMode)
+        assertEquals(PlayerLowerLayoutConfig.DEFAULT_PROGRESS_TRACK_HEIGHT_DP, config.progressTrackHeightDp)
+        assertEquals(
+            PlayerLowerLayoutConfig.DEFAULT_PROGRESS_SPECTRUM_HEIGHT_DP,
+            config.progressSpectrumHeightDp,
+        )
     }
 
     @Test
@@ -274,6 +296,26 @@ class PlaybackUiPreferencesRobolectricTest {
         assertEquals(PlayerLowerTextAlign.CENTER, config.textAlignOf(PlayerLowerTextTarget.LYRICS))
         assertEquals(mapOf(PlayerLowerTextTarget.TITLE to PlayerLowerTextAlign.START), config.textAligns)
         assertEquals(setOf(PlayerControlButton.QUEUE), config.hiddenControls)
+    }
+
+    @Test
+    fun unknownCustomPlayerTitleAndProgressModesFallBackToDefaultsAndSizesClamp() {
+        MicaSettingsStore.prefs(context).edit()
+            .putString("custom_player_lower_title_subtitle_mode", "telepathy")
+            .putString("custom_player_lower_progress_time_mode", "tomorrow")
+            .putInt("custom_player_lower_progress_track_height", 100)
+            .putInt("custom_player_lower_progress_spectrum_height", -20)
+            .apply()
+
+        val config = PlaybackUiPreferences.customPlayerLowerLayout(context)
+
+        assertEquals(PlayerTitleSubtitleMode.ARTIST_AND_ALBUM, config.titleSubtitleMode)
+        assertEquals(PlayerProgressTimeMode.ELAPSED_TOTAL, config.progressTimeMode)
+        assertEquals(PlayerLowerLayoutConfig.MAX_PROGRESS_TRACK_HEIGHT_DP, config.progressTrackHeightDp)
+        assertEquals(
+            PlayerLowerLayoutConfig.MIN_PROGRESS_SPECTRUM_HEIGHT_DP,
+            config.progressSpectrumHeightDp,
+        )
     }
 
     @Test

@@ -83,6 +83,9 @@ internal fun PlayerProgressBarSection(
     spectrumAlpha: Float = 1f,
     spectrumHeight: Dp = 56.dp,
     visualScale: Float = 1f,
+    trackHeight: Dp = 3.dp,
+    showTimeLabels: Boolean = true,
+    showRemainingTime: Boolean = false,
 ) {
     val spectrumProgress = spectrumAlpha.coerceIn(0f, 1f)
     val showSpectrum = spectrumEnabled && spectrumProgress > 0.01f
@@ -110,31 +113,38 @@ internal fun PlayerProgressBarSection(
                 onValueChangeFinished = seekState.onValueChangeFinished,
                 valueRange = seekState.valueRange,
                 colors = colors,
+                trackHeight = trackHeight,
                 visualScale = visualScale,
             )
         }
-        Row(modifier = Modifier.fillMaxWidth()) {
-            Text(
-                text = formatPlaybackTime(seekState.displaySec),
-                style = MicaTheme.typography.monoMd.let { style ->
-                    style.copy(
-                        fontSize = style.fontSize * visualScale,
-                        lineHeight = style.lineHeight * visualScale,
-                    )
-                },
-                color = colors.secondary,
-                modifier = Modifier.weight(1f),
-            )
-            Text(
-                text = formatPlaybackTime(seekState.totalSec),
-                style = MicaTheme.typography.monoMd.let { style ->
-                    style.copy(
-                        fontSize = style.fontSize * visualScale,
-                        lineHeight = style.lineHeight * visualScale,
-                    )
-                },
-                color = colors.secondary,
-            )
+        if (showTimeLabels) {
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = formatPlaybackTime(seekState.displaySec),
+                    style = MicaTheme.typography.monoMd.let { style ->
+                        style.copy(
+                            fontSize = style.fontSize * visualScale,
+                            lineHeight = style.lineHeight * visualScale,
+                        )
+                    },
+                    color = colors.secondary,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = if (showRemainingTime) {
+                        "-${formatPlaybackTime((seekState.totalSec - seekState.displaySec).coerceAtLeast(0))}"
+                    } else {
+                        formatPlaybackTime(seekState.totalSec)
+                    },
+                    style = MicaTheme.typography.monoMd.let { style ->
+                        style.copy(
+                            fontSize = style.fontSize * visualScale,
+                            lineHeight = style.lineHeight * visualScale,
+                        )
+                    },
+                    color = colors.secondary,
+                )
+            }
         }
     }
 }
@@ -173,10 +183,11 @@ internal fun PlayerPlaybackControlsSection(
     modifier: Modifier = Modifier,
     visualScale: Float = 1f,
     hiddenButtons: Set<PlayerControlButton> = emptySet(),
+    redistributeHiddenButtons: Boolean = false,
 ) {
     val mode = surfaceState.playbackQueueMode
     val modeActive = mode != PlaybackQueueMode.OFF
-    // 隐藏的按钮让位给同尺寸占位，五个槽位的几何保持不变，播放键始终居中。
+    // 默认保留五个槽位；自定义主题可选择移除隐藏槽位，让剩余按钮由 SpaceEvenly 重新均分。
     val playPauseSlot = maxOf(HifiSize.iconXxl * visualScale, HifiSize.touchTarget)
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -186,6 +197,7 @@ internal fun PlayerPlaybackControlsSection(
         ControlButtonSlot(
             button = PlayerControlButton.QUEUE_MODE,
             hiddenButtons = hiddenButtons,
+            redistributeHiddenButtons = redistributeHiddenButtons,
             slotSize = HifiSize.touchTarget,
         ) {
             IconButton(
@@ -203,6 +215,7 @@ internal fun PlayerPlaybackControlsSection(
         ControlButtonSlot(
             button = PlayerControlButton.PREVIOUS,
             hiddenButtons = hiddenButtons,
+            redistributeHiddenButtons = redistributeHiddenButtons,
             slotSize = HifiSize.touchTarget,
         ) {
             IconButton(
@@ -220,6 +233,7 @@ internal fun PlayerPlaybackControlsSection(
         ControlButtonSlot(
             button = PlayerControlButton.PLAY_PAUSE,
             hiddenButtons = hiddenButtons,
+            redistributeHiddenButtons = redistributeHiddenButtons,
             slotSize = playPauseSlot,
         ) {
             SharpPlayPauseButton(
@@ -233,6 +247,7 @@ internal fun PlayerPlaybackControlsSection(
         ControlButtonSlot(
             button = PlayerControlButton.NEXT,
             hiddenButtons = hiddenButtons,
+            redistributeHiddenButtons = redistributeHiddenButtons,
             slotSize = HifiSize.touchTarget,
         ) {
             IconButton(
@@ -250,6 +265,7 @@ internal fun PlayerPlaybackControlsSection(
         ControlButtonSlot(
             button = PlayerControlButton.QUEUE,
             hiddenButtons = hiddenButtons,
+            redistributeHiddenButtons = redistributeHiddenButtons,
             slotSize = HifiSize.touchTarget,
         ) {
             IconButton(
@@ -271,11 +287,12 @@ internal fun PlayerPlaybackControlsSection(
 private fun ControlButtonSlot(
     button: PlayerControlButton,
     hiddenButtons: Set<PlayerControlButton>,
+    redistributeHiddenButtons: Boolean,
     slotSize: Dp,
     content: @Composable () -> Unit,
 ) {
     if (button in hiddenButtons) {
-        Spacer(Modifier.size(slotSize))
+        if (!redistributeHiddenButtons) Spacer(Modifier.size(slotSize))
     } else {
         content()
     }

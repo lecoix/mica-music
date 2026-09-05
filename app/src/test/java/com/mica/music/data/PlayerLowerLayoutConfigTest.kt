@@ -139,11 +139,66 @@ class PlayerLowerLayoutConfigTest {
     fun coverTapAndShadowDefaultOff() {
         val config = PlayerLowerLayoutConfig.Default
             .withCoverTapPlayPause(true)
+            .withCoverSwipeEnabled(false)
             .withCoverShadow(true)
+            .withCoverShadowStrengthPercent(175)
             .withCoverTapPlayPause(false)
             .normalized()
 
         assertEquals(false, config.coverTapPlayPause)
+        assertEquals(false, config.coverSwipeEnabled)
         assertEquals(true, config.coverShadow)
+        assertEquals(175, config.coverShadowStrengthPercent)
+    }
+
+    @Test
+    fun customControlLayoutKeepsLegacySlotsByDefaultAndCanRedistribute() {
+        val default = PlayerLowerLayoutConfig.Default
+        assertEquals(false, default.redistributeHiddenControls)
+        assertEquals(true, default.coverSwipeEnabled)
+        assertEquals(
+            PlayerLowerLayoutConfig.DEFAULT_COVER_SHADOW_STRENGTH_PERCENT,
+            default.coverShadowStrengthPercent,
+        )
+
+        val updated = default
+            .withRedistributeHiddenControls(true)
+            .withCoverShadowStrengthPercent(999)
+            .normalized()
+
+        assertEquals(true, updated.redistributeHiddenControls)
+        assertEquals(
+            PlayerLowerLayoutConfig.MAX_COVER_SHADOW_STRENGTH_PERCENT,
+            updated.coverShadowStrengthPercent,
+        )
+    }
+
+    @Test
+    fun titleAndProgressOptionsDefaultToLegacyAppearanceAndClampSizes() {
+        val config = PlayerLowerLayoutConfig.Default
+            .copy(
+                progressTrackHeightDp = 999,
+                progressSpectrumHeightDp = -1,
+            )
+            .normalized()
+
+        assertEquals(PlayerTitleSubtitleMode.ARTIST_AND_ALBUM, config.titleSubtitleMode)
+        assertEquals(PlayerProgressTimeMode.ELAPSED_TOTAL, config.progressTimeMode)
+        assertEquals(PlayerLowerLayoutConfig.MAX_PROGRESS_TRACK_HEIGHT_DP, config.progressTrackHeightDp)
+        assertEquals(PlayerLowerLayoutConfig.MIN_PROGRESS_SPECTRUM_HEIGHT_DP, config.progressSpectrumHeightDp)
+    }
+
+    @Test
+    fun titleAndProgressOptionsCanBeUpdatedIndependently() {
+        val config = PlayerLowerLayoutConfig.Default
+            .withTitleSubtitleMode(PlayerTitleSubtitleMode.HIDDEN)
+            .withProgressTimeMode(PlayerProgressTimeMode.ELAPSED_REMAINING)
+            .withProgressTrackHeightDp(6)
+            .withProgressSpectrumHeightDp(80)
+
+        assertEquals(PlayerTitleSubtitleMode.HIDDEN, config.titleSubtitleMode)
+        assertEquals(PlayerProgressTimeMode.ELAPSED_REMAINING, config.progressTimeMode)
+        assertEquals(6, config.progressTrackHeightDp)
+        assertEquals(80, config.progressSpectrumHeightDp)
     }
 }

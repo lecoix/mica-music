@@ -72,6 +72,7 @@ val FloatingIslandShadowVerticalExtra = FloatingIslandShadowSpread * 2 + Floatin
 @Composable
 fun FloatingIslandShadowHalo(
     isDark: Boolean,
+    strength: Float = 1f,
     modifier: Modifier = Modifier,
 ) {
     if (MicaScreenshotGoldenMode.enabled || !supportsFloatingIslandRenderEffect()) {
@@ -79,7 +80,7 @@ fun FloatingIslandShadowHalo(
     }
     val density = LocalDensity.current
     val blurPx = with(density) { FloatingIslandShadowBlur.toPx() }
-    val fillAlpha = if (isDark) 0.26f else 0.13f
+    val fillAlpha = (if (isDark) 0.26f else 0.13f) * strength.coerceIn(0f, 2f)
     Box(
         modifier
             .offset(y = 2.dp)

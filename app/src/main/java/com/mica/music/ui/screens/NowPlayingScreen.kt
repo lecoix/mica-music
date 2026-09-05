@@ -1046,8 +1046,17 @@ fun NowPlayingContent(
                     particleCoverTuning = uiSettings.particleCoverTuning,
                     lyricsExpanded = classicLyricsExpanded && !photoStackLyricsPageEnabled,
                     coverContentAlpha = coverContentAlpha,
+                    coverSwipeEnabled = effectiveCoverFlowMode != PlayerCoverFlowMode.CUSTOM_STANDARD ||
+                        customLayout.coverSwipeEnabled,
                     coverShadowEnabled = effectiveCoverFlowMode == PlayerCoverFlowMode.CUSTOM_STANDARD &&
                         customLayout.coverShadow,
+                    coverShadowStrength = if (
+                        effectiveCoverFlowMode == PlayerCoverFlowMode.CUSTOM_STANDARD
+                    ) {
+                        customLayout.coverShadowStrengthPercent / 100f
+                    } else {
+                        1f
+                    },
                     onCoverBoundsChanged = onCoverBoundsChanged,
                     onCoverAspectRatioChanged = { coverAspectRatio = it },
                     onCloseLyrics = { lyricsExpanded = false },

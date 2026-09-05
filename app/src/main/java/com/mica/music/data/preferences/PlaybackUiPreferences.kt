@@ -17,6 +17,8 @@ import com.mica.music.data.PlayerLowerLayoutConfig
 import com.mica.music.data.PlayerLowerBackgroundMode
 import com.mica.music.data.PlayerLowerTextAlign
 import com.mica.music.data.PlayerLowerTextTarget
+import com.mica.music.data.PlayerProgressTimeMode
+import com.mica.music.data.PlayerTitleSubtitleMode
 import com.mica.music.data.SongListInfoVisibility
 import com.mica.music.data.SongTrailingInfo
 
@@ -49,6 +51,20 @@ object PlaybackUiPreferences {
     private const val KEY_CUSTOM_PLAYER_LOWER_FREEFORM = "custom_player_lower_freeform"
     private const val KEY_CUSTOM_PLAYER_LOWER_TEXT_ALIGNS = "custom_player_lower_text_aligns"
     private const val KEY_CUSTOM_PLAYER_LOWER_HIDDEN_CONTROLS = "custom_player_lower_hidden_controls"
+    private const val KEY_CUSTOM_PLAYER_LOWER_REDISTRIBUTE_HIDDEN_CONTROLS =
+        "custom_player_lower_redistribute_hidden_controls"
+    private const val KEY_CUSTOM_PLAYER_LOWER_COVER_SWIPE_ENABLED =
+        "custom_player_lower_cover_swipe_enabled"
+    private const val KEY_CUSTOM_PLAYER_LOWER_COVER_SHADOW_STRENGTH =
+        "custom_player_lower_cover_shadow_strength"
+    private const val KEY_CUSTOM_PLAYER_LOWER_TITLE_SUBTITLE_MODE =
+        "custom_player_lower_title_subtitle_mode"
+    private const val KEY_CUSTOM_PLAYER_LOWER_PROGRESS_TIME_MODE =
+        "custom_player_lower_progress_time_mode"
+    private const val KEY_CUSTOM_PLAYER_LOWER_PROGRESS_TRACK_HEIGHT =
+        "custom_player_lower_progress_track_height"
+    private const val KEY_CUSTOM_PLAYER_LOWER_PROGRESS_SPECTRUM_HEIGHT =
+        "custom_player_lower_progress_spectrum_height"
     private const val KEY_PARTICLE_COVER_EROSION_SCALE = "particle_cover_erosion_scale"
     private const val KEY_PARTICLE_COVER_FEATHER_SCALE = "particle_cover_feather_scale"
     private const val KEY_PARTICLE_COVER_EDGE_DENSITY = "particle_cover_edge_density"
@@ -300,15 +316,41 @@ object PlaybackUiPreferences {
             freeformEnabled = prefs.getBoolean(KEY_CUSTOM_PLAYER_LOWER_FREEFORM, false),
             textAligns = textAligns,
             hiddenControls = hiddenControls,
+            redistributeHiddenControls = prefs.getBoolean(
+                KEY_CUSTOM_PLAYER_LOWER_REDISTRIBUTE_HIDDEN_CONTROLS,
+                false,
+            ),
             coverTapPlayPause = prefsBooleanOrLegacy(
                 prefs,
                 KEY_CUSTOM_PLAYER_LOWER_COVER_TAP_PLAY_PAUSE,
                 KEY_CUSTOM_STANDARD_COVER_TAP_PLAY_PAUSE,
             ),
+            coverSwipeEnabled = prefs.getBoolean(
+                KEY_CUSTOM_PLAYER_LOWER_COVER_SWIPE_ENABLED,
+                true,
+            ),
             coverShadow = prefsBooleanOrLegacy(
                 prefs,
                 KEY_CUSTOM_PLAYER_LOWER_COVER_SHADOW,
                 KEY_CUSTOM_STANDARD_COVER_SHADOW,
+            ),
+            coverShadowStrengthPercent = prefs.getInt(
+                KEY_CUSTOM_PLAYER_LOWER_COVER_SHADOW_STRENGTH,
+                PlayerLowerLayoutConfig.DEFAULT_COVER_SHADOW_STRENGTH_PERCENT,
+            ),
+            titleSubtitleMode = prefs.getString(KEY_CUSTOM_PLAYER_LOWER_TITLE_SUBTITLE_MODE, null)
+                ?.let(PlayerTitleSubtitleMode::fromStorage)
+                ?: PlayerTitleSubtitleMode.Default,
+            progressTimeMode = prefs.getString(KEY_CUSTOM_PLAYER_LOWER_PROGRESS_TIME_MODE, null)
+                ?.let(PlayerProgressTimeMode::fromStorage)
+                ?: PlayerProgressTimeMode.Default,
+            progressTrackHeightDp = prefs.getInt(
+                KEY_CUSTOM_PLAYER_LOWER_PROGRESS_TRACK_HEIGHT,
+                PlayerLowerLayoutConfig.DEFAULT_PROGRESS_TRACK_HEIGHT_DP,
+            ),
+            progressSpectrumHeightDp = prefs.getInt(
+                KEY_CUSTOM_PLAYER_LOWER_PROGRESS_SPECTRUM_HEIGHT,
+                PlayerLowerLayoutConfig.DEFAULT_PROGRESS_SPECTRUM_HEIGHT_DP,
             ),
         ).normalized()
     }
@@ -351,8 +393,33 @@ object PlaybackUiPreferences {
                 KEY_CUSTOM_PLAYER_LOWER_HIDDEN_CONTROLS,
                 normalized.hiddenControls.mapTo(mutableSetOf()) { it.storageValue },
             )
+            .putBoolean(
+                KEY_CUSTOM_PLAYER_LOWER_REDISTRIBUTE_HIDDEN_CONTROLS,
+                normalized.redistributeHiddenControls,
+            )
             .putBoolean(KEY_CUSTOM_PLAYER_LOWER_COVER_TAP_PLAY_PAUSE, normalized.coverTapPlayPause)
+            .putBoolean(KEY_CUSTOM_PLAYER_LOWER_COVER_SWIPE_ENABLED, normalized.coverSwipeEnabled)
             .putBoolean(KEY_CUSTOM_PLAYER_LOWER_COVER_SHADOW, normalized.coverShadow)
+            .putInt(
+                KEY_CUSTOM_PLAYER_LOWER_COVER_SHADOW_STRENGTH,
+                normalized.coverShadowStrengthPercent,
+            )
+            .putString(
+                KEY_CUSTOM_PLAYER_LOWER_TITLE_SUBTITLE_MODE,
+                normalized.titleSubtitleMode.storageValue,
+            )
+            .putString(
+                KEY_CUSTOM_PLAYER_LOWER_PROGRESS_TIME_MODE,
+                normalized.progressTimeMode.storageValue,
+            )
+            .putInt(
+                KEY_CUSTOM_PLAYER_LOWER_PROGRESS_TRACK_HEIGHT,
+                normalized.progressTrackHeightDp,
+            )
+            .putInt(
+                KEY_CUSTOM_PLAYER_LOWER_PROGRESS_SPECTRUM_HEIGHT,
+                normalized.progressSpectrumHeightDp,
+            )
             .apply()
     }
 

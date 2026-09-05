@@ -51,6 +51,40 @@ enum class PlayerLowerTextAlign(
     }
 }
 
+enum class PlayerTitleSubtitleMode(
+    val storageValue: String,
+    val settingsLabel: String,
+) {
+    ARTIST_AND_ALBUM("artist_album", "歌手 + 专辑"),
+    ARTIST_ONLY("artist", "仅歌手"),
+    HIDDEN("hidden", "隐藏"),
+    ;
+
+    companion object {
+        val Default = ARTIST_AND_ALBUM
+
+        fun fromStorage(value: String): PlayerTitleSubtitleMode? =
+            entries.firstOrNull { it.storageValue == value }
+    }
+}
+
+enum class PlayerProgressTimeMode(
+    val storageValue: String,
+    val settingsLabel: String,
+) {
+    ELAPSED_TOTAL("elapsed_total", "已播 / 总时长"),
+    ELAPSED_REMAINING("elapsed_remaining", "已播 / 剩余"),
+    HIDDEN("hidden", "隐藏"),
+    ;
+
+    companion object {
+        val Default = ELAPSED_TOTAL
+
+        fun fromStorage(value: String): PlayerProgressTimeMode? =
+            entries.firstOrNull { it.storageValue == value }
+    }
+}
+
 /** 播放控制区的五个按钮，自定义标准主题下可逐个显隐。 */
 enum class PlayerControlButton(
     val storageValue: String,
@@ -97,8 +131,15 @@ data class PlayerLowerLayoutConfig(
     val freeformEnabled: Boolean = false,
     val textAligns: Map<PlayerLowerTextTarget, PlayerLowerTextAlign> = emptyMap(),
     val hiddenControls: Set<PlayerControlButton> = emptySet(),
+    val redistributeHiddenControls: Boolean = false,
     val coverTapPlayPause: Boolean = false,
+    val coverSwipeEnabled: Boolean = true,
     val coverShadow: Boolean = false,
+    val coverShadowStrengthPercent: Int = DEFAULT_COVER_SHADOW_STRENGTH_PERCENT,
+    val titleSubtitleMode: PlayerTitleSubtitleMode = PlayerTitleSubtitleMode.Default,
+    val progressTimeMode: PlayerProgressTimeMode = PlayerProgressTimeMode.Default,
+    val progressTrackHeightDp: Int = DEFAULT_PROGRESS_TRACK_HEIGHT_DP,
+    val progressSpectrumHeightDp: Int = DEFAULT_PROGRESS_SPECTRUM_HEIGHT_DP,
 ) {
     fun normalized(): PlayerLowerLayoutConfig {
         val normalizedOrder = order.distinct() + PlayerLowerComponent.entries.filterNot(order::contains)
@@ -120,6 +161,18 @@ data class PlayerLowerLayoutConfig(
                 .filterKeys(PlayerLowerTextTarget.entries::contains)
                 .filterValues { it != PlayerLowerTextAlign.Default },
             hiddenControls = hiddenControls.intersect(PlayerControlButton.entries.toSet()),
+            coverShadowStrengthPercent = coverShadowStrengthPercent.coerceIn(
+                MIN_COVER_SHADOW_STRENGTH_PERCENT,
+                MAX_COVER_SHADOW_STRENGTH_PERCENT,
+            ),
+            progressTrackHeightDp = progressTrackHeightDp.coerceIn(
+                MIN_PROGRESS_TRACK_HEIGHT_DP,
+                MAX_PROGRESS_TRACK_HEIGHT_DP,
+            ),
+            progressSpectrumHeightDp = progressSpectrumHeightDp.coerceIn(
+                MIN_PROGRESS_SPECTRUM_HEIGHT_DP,
+                MAX_PROGRESS_SPECTRUM_HEIGHT_DP,
+            ),
         )
     }
 
@@ -154,11 +207,47 @@ data class PlayerLowerLayoutConfig(
         hiddenControls = if (visible) hiddenControls - button else hiddenControls + button,
     )
 
+    fun withRedistributeHiddenControls(enabled: Boolean): PlayerLowerLayoutConfig =
+        copy(redistributeHiddenControls = enabled)
+
     fun withCoverTapPlayPause(enabled: Boolean): PlayerLowerLayoutConfig =
         copy(coverTapPlayPause = enabled)
 
+    fun withCoverSwipeEnabled(enabled: Boolean): PlayerLowerLayoutConfig =
+        copy(coverSwipeEnabled = enabled)
+
     fun withCoverShadow(enabled: Boolean): PlayerLowerLayoutConfig =
         copy(coverShadow = enabled)
+
+    fun withCoverShadowStrengthPercent(percent: Int): PlayerLowerLayoutConfig =
+        copy(
+            coverShadowStrengthPercent = percent.coerceIn(
+                MIN_COVER_SHADOW_STRENGTH_PERCENT,
+                MAX_COVER_SHADOW_STRENGTH_PERCENT,
+            ),
+        )
+
+    fun withTitleSubtitleMode(mode: PlayerTitleSubtitleMode): PlayerLowerLayoutConfig =
+        copy(titleSubtitleMode = mode)
+
+    fun withProgressTimeMode(mode: PlayerProgressTimeMode): PlayerLowerLayoutConfig =
+        copy(progressTimeMode = mode)
+
+    fun withProgressTrackHeightDp(heightDp: Int): PlayerLowerLayoutConfig =
+        copy(
+            progressTrackHeightDp = heightDp.coerceIn(
+                MIN_PROGRESS_TRACK_HEIGHT_DP,
+                MAX_PROGRESS_TRACK_HEIGHT_DP,
+            ),
+        )
+
+    fun withProgressSpectrumHeightDp(heightDp: Int): PlayerLowerLayoutConfig =
+        copy(
+            progressSpectrumHeightDp = heightDp.coerceIn(
+                MIN_PROGRESS_SPECTRUM_HEIGHT_DP,
+                MAX_PROGRESS_SPECTRUM_HEIGHT_DP,
+            ),
+        )
 
     fun withScalePercent(
         component: PlayerLowerComponent,
@@ -209,6 +298,15 @@ data class PlayerLowerLayoutConfig(
         const val SINGLE_LYRICS_LINE_COUNT = 1
         const val THREE_LYRICS_LINE_COUNT = 3
         const val DEFAULT_LYRICS_LINE_COUNT = THREE_LYRICS_LINE_COUNT
+        const val MIN_PROGRESS_TRACK_HEIGHT_DP = 1
+        const val MAX_PROGRESS_TRACK_HEIGHT_DP = 8
+        const val DEFAULT_PROGRESS_TRACK_HEIGHT_DP = 3
+        const val MIN_PROGRESS_SPECTRUM_HEIGHT_DP = 24
+        const val MAX_PROGRESS_SPECTRUM_HEIGHT_DP = 96
+        const val DEFAULT_PROGRESS_SPECTRUM_HEIGHT_DP = 56
+        const val MIN_COVER_SHADOW_STRENGTH_PERCENT = 25
+        const val MAX_COVER_SHADOW_STRENGTH_PERCENT = 200
+        const val DEFAULT_COVER_SHADOW_STRENGTH_PERCENT = 100
         fun normalizeLyricsLineCount(value: Int): Int =
             if (value == SINGLE_LYRICS_LINE_COUNT) SINGLE_LYRICS_LINE_COUNT else THREE_LYRICS_LINE_COUNT
         val Default = PlayerLowerLayoutConfig()

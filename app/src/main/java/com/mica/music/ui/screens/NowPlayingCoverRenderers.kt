@@ -521,7 +521,9 @@ internal fun CoverRendererSlot(
     coverFlowReflection: Boolean,
     particleNormalLayerVisible: Boolean,
     useNativeParticleCover: Boolean,
+    coverSwipeGesturesEnabled: Boolean,
     coverShadowEnabled: Boolean,
+    coverShadowStrength: Float,
     coverContentAlpha: Float,
     coverScrimExtend: Dp,
     coverBoxHeight: Dp,
@@ -545,8 +547,8 @@ internal fun CoverRendererSlot(
                     !useNativeParticleCover && !coverShadowEnabled
             }
             .onGloballyPositioned { onCoverBoundsChanged(it.boundsInRoot()) }
-            .pointerInput(frame.gesturesEnabled, frame.coverFlowStageActive) {
-                if (frame.gesturesEnabled && !frame.coverFlowStageActive) {
+            .pointerInput(coverSwipeGesturesEnabled, frame.coverFlowStageActive) {
+                if (coverSwipeGesturesEnabled && !frame.coverFlowStageActive) {
                     detectHorizontalDragGestures(
                         onDragStart = { gestureState.handlers.onDragStart() },
                         onDragEnd = { gestureState.handlers.onDragEnd() },
@@ -583,6 +585,7 @@ internal fun CoverRendererSlot(
             if (coverShadowEnabled) {
                 FloatingIslandShadowHalo(
                     isDark = isDark,
+                    strength = coverShadowStrength,
                     modifier = Modifier.size(cover.width, cover.height),
                 )
             }
