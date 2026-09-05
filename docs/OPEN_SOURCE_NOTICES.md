@@ -54,6 +54,7 @@ Last reviewed: **2026-09-02**
 
 | Asset | License | Notes |
 |---|---|---|
+| d3-celestial star-map GeoJSON (`app/src/main/assets/star_map/`) | BSD-3-Clause | Bundled `stars.6.json`, `constellations.lines.json`, and `constellations.json`; Copyright (c) 2015 Olaf Frohn. Mica uses the data only and renders it with its own GLES renderer. Full BSD text and provenance are preserved beside the assets. |
 | Three.js (minified in `app/src/main/assets/particle_cover/mica-particle-cover.js`) | MIT License | **Legacy WebView fallback** for particle cover (`ThreeParticleCoverHost` when `UseNativeParticleCoverInPlayer = false`). Playback page **shipped path is native GLES** (`ParticleCoverHost`); remove this asset after WebView retirement (see `TODO.md`). Header: Copyright 2010-2026 Three.js Authors, SPDX-License-Identifier: MIT. |
 | `mica-particle-mask-transition.js` | (bundled with particle_cover) | Same WebView fallback bundle; retire with Three.js assets above |
 

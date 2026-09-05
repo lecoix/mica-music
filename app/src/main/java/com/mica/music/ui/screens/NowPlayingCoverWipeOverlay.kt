@@ -160,7 +160,7 @@ internal fun OutgoingCoverBackgroundWipe(
         outgoing.backgroundMode == PlayerLowerBackgroundMode.THEME ||
         outgoing.backgroundMode == PlayerLowerBackgroundMode.DYNAMIC_LIGHT ||
         outgoing.backgroundMode == PlayerLowerBackgroundMode.DYNAMIC_ARTWORK ||
-        outgoing.backgroundMode == PlayerLowerBackgroundMode.CONSTELLATION
+        outgoing.backgroundMode == PlayerLowerBackgroundMode.STAR_MAP
     ) {
         return
     }
@@ -178,6 +178,7 @@ internal fun OutgoingCoverBackgroundWipe(
             coverColor = outgoing.coverColor,
             albumArtUri = outgoing.song.albumArtUri,
             mode = outgoing.backgroundMode,
+            sceneKey = outgoing.song.id,
             coverZoneStop = outgoing.backgroundZoneStop,
             modifier = Modifier.fillMaxSize(),
         )

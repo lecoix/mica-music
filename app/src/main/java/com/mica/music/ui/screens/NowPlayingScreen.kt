@@ -1108,6 +1108,7 @@ fun NowPlayingContent(
                 coverColor = appearance.coverColor,
                 albumArtUri = song.albumArtUri,
                 mode = lowerBackground,
+                sceneKey = song.id,
                 coverZoneStop = backgroundZoneStop,
                 artworkGradientSolidOnly = effectiveCoverFlowMode.usesPhotoStack,
                 modifier = Modifier.fillMaxSize(),

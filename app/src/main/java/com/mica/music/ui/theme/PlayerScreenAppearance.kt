@@ -22,7 +22,7 @@ fun rememberPlayerScreenAppearance(
 ): PlayerScreenAppearance {
     val sampleArtworkColor =
         lowerBackground != PlayerLowerBackgroundMode.THEME &&
-            lowerBackground != PlayerLowerBackgroundMode.CONSTELLATION
+            lowerBackground != PlayerLowerBackgroundMode.STAR_MAP
     val coverColor = rememberCoverColor(song, sampleArtwork = sampleArtworkColor)
     val isDark = MicaTheme.colors.isDark
     val mica = rememberMicaSurfaceColors()
@@ -31,14 +31,14 @@ fun rememberPlayerScreenAppearance(
     val coverAccent = PlayerBackgroundBlend.accentuateCover(coverColor, isDark)
     val accent = when (lowerBackground) {
         PlayerLowerBackgroundMode.THEME -> appAccent
-        PlayerLowerBackgroundMode.CONSTELLATION -> ConstellationForegroundAccent
+        PlayerLowerBackgroundMode.STAR_MAP -> StarMapForegroundAccent
         else -> coverAccent
     }
     val lowerSurface = when (lowerBackground) {
         PlayerLowerBackgroundMode.THEME -> mica.gradientEnd
         PlayerLowerBackgroundMode.ARTWORK_GRADIENT ->
             PlayerBackgroundBlend.artworkHold(coverAccent, coverAccent, isDark)
-        PlayerLowerBackgroundMode.CONSTELLATION -> ConstellationBackgroundSurface
+        PlayerLowerBackgroundMode.STAR_MAP -> StarMapBackgroundSurface
         else -> mica.gradientEnd
     }
     val contentColors = when (lowerBackground) {
@@ -49,11 +49,11 @@ fun rememberPlayerScreenAppearance(
         -> remember(coverColor) { PlayerBackgroundBlend.readableTextColors(coverColor) }
         PlayerLowerBackgroundMode.ARTWORK_GRADIENT ->
             remember(lowerSurface) { PlayerBackgroundBlend.readableTextColors(lowerSurface) }
-        PlayerLowerBackgroundMode.CONSTELLATION -> lightPlayerContentColors()
+        PlayerLowerBackgroundMode.STAR_MAP -> lightPlayerContentColors()
         else -> themeContentColors
     }.copy(
         dynamicColors = remember(coverColor, lowerSurface, isDark, lowerBackground) {
-            if (lowerBackground == PlayerLowerBackgroundMode.CONSTELLATION) {
+            if (lowerBackground == PlayerLowerBackgroundMode.STAR_MAP) {
                 lightPlayerContentColors()
             } else {
                 PlayerBackgroundBlend.dynamicTextColors(
@@ -65,7 +65,7 @@ fun rememberPlayerScreenAppearance(
         },
     )
     val hifiBadgeColors =
-        if (lowerBackground == PlayerLowerBackgroundMode.CONSTELLATION) {
+        if (lowerBackground == PlayerLowerBackgroundMode.STAR_MAP) {
             lightPlayerContentColors()
         } else {
             themeContentColors
@@ -73,7 +73,7 @@ fun rememberPlayerScreenAppearance(
     val artworkJunction = when (lowerBackground) {
         PlayerLowerBackgroundMode.ARTWORK_GRADIENT ->
             PlayerBackgroundBlend.artworkJunction(coverAccent, coverAccent, isDark)
-        PlayerLowerBackgroundMode.CONSTELLATION -> ConstellationBackgroundSurface
+        PlayerLowerBackgroundMode.STAR_MAP -> StarMapBackgroundSurface
         else -> mica.gradientEnd
     }
     return PlayerScreenAppearance(
