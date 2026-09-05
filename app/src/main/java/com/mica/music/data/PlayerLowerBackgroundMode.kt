@@ -19,6 +19,9 @@ enum class PlayerLowerBackgroundMode(
 
     /** Apple Music-style dynamic artwork texture: low-res artwork layers, blur, shader crossfade. */
     DYNAMIC_ARTWORK("dynamic_artwork", "流光溢彩"),
+
+    /** nimitz / Shadertoy XtGGRt 极光；实验性 GLES 背景。 */
+    AURORA("aurora", "极光（实验）"),
     ;
 
     val usesBlurredArtwork: Boolean
