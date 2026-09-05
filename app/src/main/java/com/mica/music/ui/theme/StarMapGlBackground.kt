@@ -32,6 +32,7 @@ import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.acos
 import kotlin.math.cos
+import kotlin.math.ln
 import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.math.sqrt
@@ -217,7 +218,7 @@ private class StarMapRenderThread(
                     renderer.updateScene(nextSpec)
                 }
 
-                renderer.render()
+                val transitionActive = renderer.render()
                 if (!EGL14.eglSwapBuffers(eglDisplay, eglSurface)) {
                     DiagnosticLog.event(
                         "StarMapGl",
@@ -226,7 +227,11 @@ private class StarMapRenderThread(
                     break
                 }
 
-                nextFrameAt += StarMapFrameIntervalMs
+                nextFrameAt += if (transitionActive) {
+                    StarMapMovingFrameIntervalMs
+                } else {
+                    StarMapIdleFrameIntervalMs
+                }
                 val sleepMs = nextFrameAt - SystemClock.uptimeMillis()
                 if (sleepMs > 1L) {
                     runCatching { sleep(sleepMs) }
@@ -606,6 +611,8 @@ private data class StarMapSceneRequest(
     val key: String,
     val primaryConstellationId: String,
     val targetOrientation: SkyQuaternion,
+    val seasonalDistanceDeg: Float,
+    val featuredSolarBodyId: SolarSystemBodyId?,
 )
 
 private data class ProjectedStar(
@@ -616,6 +623,7 @@ private data class ProjectedStar(
     val seed: Float,
     val tint: Float,
     val twinkle: Float,
+    val isPrimarySkeleton: Boolean,
 )
 
 private data class ProjectedLine(
@@ -626,6 +634,21 @@ private data class ProjectedLine(
     val strength: Float,
 )
 
+private data class ProjectedSolarBody(
+    val id: SolarSystemBodyId,
+    val x: Float,
+    val y: Float,
+    val sizePx: Float,
+    val red: Float,
+    val green: Float,
+    val blue: Float,
+    val haloStrength: Float,
+    val moonFlag: Float,
+    val moonLightX: Float,
+    val moonLightY: Float,
+    val moonLightZ: Float,
+)
+
 private data class ProjectedStarMapFrame(
     val stars: List<ProjectedStar>,
     val ambientLines: List<ProjectedLine>,
@@ -633,7 +656,27 @@ private data class ProjectedStarMapFrame(
     val toPrimaryLines: List<ProjectedLine>,
 )
 
+private data class StarMapProjectionCandidates(
+    val stars: List<CatalogStar>,
+    val lines: List<CatalogLineSegment>,
+    val primarySkeletonDirections: Set<Vec3>,
+    val neighborSkeletonDirections: Set<Vec3>,
+)
+
 private object StarMapSceneSelector {
+    private data class WeightedCandidate(
+        val constellation: CatalogConstellation,
+        val seasonalDistanceDeg: Float,
+        val rendezvousScore: Double,
+    )
+
+    private data class WeightedSolarCandidate(
+        val body: SolarSystemBodyState,
+        val direction: Vec3,
+        val seasonalDistanceDeg: Float,
+        val rendezvousScore: Double,
+    )
+
     private val fallbackConstellations = listOf(
         CatalogConstellation("Ori", 1, skyDirection(84f, 13f)),
         CatalogConstellation("Cas", 1, skyDirection(-6f, 55.5f)),
@@ -643,16 +686,197 @@ private object StarMapSceneSelector {
         CatalogConstellation("Lyr", 1, skyDirection(-81f, 30f)),
     )
 
-    fun select(key: String, catalog: StarMapCatalog): StarMapSceneRequest {
+    fun select(
+        key: String,
+        catalog: StarMapCatalog,
+        epochMillis: Long,
+        solarBodies: List<SolarSystemBodyState>,
+        previousFeaturedSolarBodyId: SolarSystemBodyId?,
+    ): StarMapSceneRequest {
         val candidates = catalog.constellations.ifEmpty { fallbackConstellations }
-        val hash = stableHash(key)
-        val index = ((hash ushr 1) and Long.MAX_VALUE).rem(candidates.size).toInt()
-        val constellation = candidates[index]
+        val seasonalNight = SeasonalSkyModel.nightDirection(epochMillis)
+        val nightDirection = Vec3(
+            seasonalNight.x,
+            seasonalNight.y,
+            seasonalNight.z,
+        ).normalized()
+
+        val constellationScene = selectConstellationScene(
+            key = key,
+            candidates = candidates,
+            nightDirection = nightDirection,
+        )
+
+        val shouldUseSolarScene =
+            solarBodies.isNotEmpty() &&
+                stableUnit("$key|scene-kind-v1") < SolarSceneChance
+        if (!shouldUseSolarScene) return constellationScene
+
+        val rankedSolar = solarBodies
+            .map { body ->
+                val direction = solarDirection(body)
+                val seasonalDistanceDeg = angularDistanceDeg(direction, nightDirection)
+                val nightAffinity = ((direction.dot(nightDirection) + 1f) * 0.5f)
+                    .coerceIn(0f, 1f)
+                val seasonalFactor = lerp(
+                    SolarDaySideMinFactor,
+                    1f,
+                    nightAffinity,
+                )
+                val weight = (
+                    solarBodyWeight(body.id) * seasonalFactor
+                    ).coerceAtLeast(0.0001f)
+                WeightedSolarCandidate(
+                    body = body,
+                    direction = direction,
+                    seasonalDistanceDeg = seasonalDistanceDeg,
+                    rendezvousScore = -ln(
+                        stableUnit("$key|${body.id.name}|solar-v1"),
+                    ) / weight,
+                )
+            }
+            .sortedBy { it.rendezvousScore }
+
+        var selected = rankedSolar.firstOrNull() ?: return constellationScene
+        if (
+            selected.body.id == previousFeaturedSolarBodyId &&
+            rankedSolar.size > 1
+        ) {
+            val alternative = rankedSolar[1]
+            if (
+                alternative.rendezvousScore <=
+                selected.rendezvousScore * SolarRepeatAlternativeRatio
+            ) {
+                selected = alternative
+            }
+        }
+
+        val contextConstellation = candidates.minByOrNull {
+            angularDistanceDeg(it.centerDirection, selected.direction)
+        } ?: candidates.first()
+        val targetDirection = compositionDirection(
+            center = selected.direction,
+            hash = stableHash("$key|${selected.body.id.name}|solar-composition-v1"),
+            eastLimitDeg = SolarCompositionEastOffsetDeg,
+            northLimitDeg = SolarCompositionNorthOffsetDeg,
+        )
+
         return StarMapSceneRequest(
             key = key,
-            primaryConstellationId = constellation.id,
-            targetOrientation = SkyQuaternion.lookAt(constellation.centerDirection),
+            primaryConstellationId = contextConstellation.id,
+            targetOrientation = SkyQuaternion.lookAt(targetDirection),
+            seasonalDistanceDeg = selected.seasonalDistanceDeg,
+            featuredSolarBodyId = selected.body.id,
         )
+    }
+
+    private fun selectConstellationScene(
+        key: String,
+        candidates: List<CatalogConstellation>,
+        nightDirection: Vec3,
+    ): StarMapSceneRequest {
+        val selected = candidates
+            .mapNotNull { constellation ->
+                val cosine = constellation.centerDirection
+                    .dot(nightDirection)
+                    .coerceIn(-1f, 1f)
+                if (cosine <= 0f) return@mapNotNull null
+
+                val distanceDeg = (
+                    acos(cosine) * 180f / PI.toFloat()
+                    ).coerceIn(0f, SeasonalCandidateLimitDeg)
+                val seasonalWeight = seasonalWeight(distanceDeg)
+                if (seasonalWeight <= 0.0001f) return@mapNotNull null
+
+                val rankWeight = when (constellation.rank) {
+                    1 -> 1.00f
+                    2 -> 0.88f
+                    else -> 0.72f
+                }
+                val weight = (seasonalWeight * rankWeight).coerceAtLeast(0.0001f)
+                val randomUnit = stableUnit("$key|${constellation.id}|seasonal-v1")
+                WeightedCandidate(
+                    constellation = constellation,
+                    seasonalDistanceDeg = distanceDeg,
+                    rendezvousScore = -ln(randomUnit) / weight,
+                )
+            }
+            .minByOrNull { it.rendezvousScore }
+            ?: WeightedCandidate(
+                constellation = candidates.first(),
+                seasonalDistanceDeg = 0f,
+                rendezvousScore = 0.0,
+            )
+
+        val targetDirection = compositionDirection(
+            center = selected.constellation.centerDirection,
+            hash = stableHash("$key|${selected.constellation.id}|composition-v1"),
+        )
+        return StarMapSceneRequest(
+            key = key,
+            primaryConstellationId = selected.constellation.id,
+            targetOrientation = SkyQuaternion.lookAt(targetDirection),
+            seasonalDistanceDeg = selected.seasonalDistanceDeg,
+            featuredSolarBodyId = null,
+        )
+    }
+
+    private fun solarBodyWeight(id: SolarSystemBodyId): Float = when (id) {
+        SolarSystemBodyId.MOON -> 1.00f
+        SolarSystemBodyId.VENUS -> 0.95f
+        SolarSystemBodyId.JUPITER -> 0.90f
+        SolarSystemBodyId.MARS -> 0.72f
+        SolarSystemBodyId.SATURN -> 0.68f
+        SolarSystemBodyId.MERCURY -> 0.45f
+        SolarSystemBodyId.URANUS -> 0.25f
+        SolarSystemBodyId.NEPTUNE -> 0.22f
+        SolarSystemBodyId.SUN -> 0.18f
+    }
+
+    private fun solarDirection(body: SolarSystemBodyState): Vec3 = Vec3(
+        body.direction.x,
+        body.direction.y,
+        body.direction.z,
+    ).normalized()
+
+    private fun angularDistanceDeg(first: Vec3, second: Vec3): Float =
+        acos(first.dot(second).coerceIn(-1f, 1f)) * 180f / PI.toFloat()
+
+    private fun seasonalWeight(distanceDeg: Float): Float = when {
+        distanceDeg <= SeasonalStrongRegionDeg -> {
+            lerp(1f, 0.72f, distanceDeg / SeasonalStrongRegionDeg)
+        }
+        distanceDeg < SeasonalCandidateLimitDeg -> {
+            0.72f * (1f - smoothStepRange(
+                distanceDeg,
+                SeasonalStrongRegionDeg,
+                SeasonalCandidateLimitDeg,
+            ))
+        }
+        else -> 0f
+    }
+
+    private fun compositionDirection(
+        center: Vec3,
+        hash: Long,
+        eastLimitDeg: Float = CompositionEastOffsetDeg,
+        northLimitDeg: Float = CompositionNorthOffsetDeg,
+    ): Vec3 {
+        val celestialNorth = Vec3(0f, 1f, 0f)
+        var east = celestialNorth.cross(center)
+        if (east.dot(east) < 1e-5f) {
+            east = Vec3(1f, 0f, 0f).cross(center)
+        }
+        east = east.normalized()
+        val north = center.cross(east).normalized()
+
+        val eastOffset = signedUnit(hash xor 0x4F1BBCDCL) * eastLimitDeg
+        val northOffset = signedUnit(hash xor 0x2A9D7E13L) * northLimitDeg
+        return (
+            center +
+                east * tan(eastOffset.toRadians()) +
+                north * tan(northOffset.toRadians())
+            ).normalized()
     }
 
     private fun stableHash(value: String): Long {
@@ -663,6 +887,16 @@ private object StarMapSceneSelector {
             hash *= prime
         }
         return hash
+    }
+
+    private fun stableUnit(value: String): Double {
+        val bits = stableHash(value).ushr(11)
+        return (bits.toDouble() + 1.0) / (StableUnitDenominator + 1.0)
+    }
+
+    private fun signedUnit(value: Long): Float {
+        val bits = (value ushr 40) and 0xFFFFFFL
+        return bits.toFloat() / 0x7FFFFF - 1f
     }
 }
 
@@ -684,6 +918,26 @@ private class SkyProjector(
         val tangentY = direction.dot(up) / frontDepth
         return (tangentX / horizontalScale) to (tangentY / verticalScale)
     }
+
+    fun localLightVector(
+        surfaceDirection: Vec3,
+        lightDirection: Vec3,
+    ): Vec3 {
+        val viewDirection = surfaceDirection.normalized() * -1f
+        var localRight =
+            right + viewDirection * (-right.dot(viewDirection))
+        if (localRight.dot(localRight) < 1e-5f) {
+            localRight = up + viewDirection * (-up.dot(viewDirection))
+        }
+        localRight = localRight.normalized()
+        val localUp = viewDirection.cross(localRight).normalized()
+        val normalizedLight = lightDirection.normalized()
+        return Vec3(
+            x = normalizedLight.dot(localRight),
+            y = normalizedLight.dot(localUp),
+            z = normalizedLight.dot(viewDirection),
+        ).normalized()
+    }
 }
 
 private object StarMapSceneProjector {
@@ -694,15 +948,39 @@ private object StarMapSceneProjector {
         catalog: StarMapCatalog,
         width: Int,
         height: Int,
+        candidates: StarMapProjectionCandidates? = null,
     ): ProjectedStarMapFrame {
         val projector = SkyProjector(
             cameraOrientation = cameraOrientation,
             viewportAspect = width.toFloat() / height.coerceAtLeast(1).toFloat(),
         )
 
+        val sourceStars = candidates?.stars ?: catalog.stars
+        val sourceLines = candidates?.lines ?: catalog.lines
+        val primarySkeletonDirections: Set<Vec3>
+        val neighborSkeletonDirections: Set<Vec3>
+        if (candidates != null) {
+            primarySkeletonDirections = candidates.primarySkeletonDirections
+            neighborSkeletonDirections = candidates.neighborSkeletonDirections
+        } else {
+            val primary = HashSet<Vec3>()
+            val neighbor = HashSet<Vec3>()
+            collectSkeletonDirections(
+                lines = sourceLines,
+                fromPrimaryConstellationId = fromPrimaryConstellationId,
+                toPrimaryConstellationId = toPrimaryConstellationId,
+                primary = primary,
+                neighbor = neighbor,
+            )
+            primarySkeletonDirections = primary
+            neighborSkeletonDirections = neighbor
+        }
+
         val stars = ArrayList<ProjectedStar>(MaxVisibleStars)
-        for (star in catalog.stars) {
-            if (!shouldShowStar(star)) continue
+        for (star in sourceStars) {
+            val isPrimarySkeleton = star.direction in primarySkeletonDirections
+            val isNeighborSkeleton = star.direction in neighborSkeletonDirections
+            if (!shouldShowStar(star, isPrimarySkeleton, isNeighborSkeleton)) continue
             val point = projector.project(star.direction) ?: continue
             val x = point.first
             val y = point.second
@@ -723,14 +1001,18 @@ private object StarMapSceneProjector {
             stars += ProjectedStar(
                 x = x,
                 y = y,
-                sizePx = (1.75f + emphasis * 10.3f) * 1.66f,
+                sizePx = (1.75f + emphasis * 10.3f) * 2.7556f,
                 brightness = 0.075f + emphasis * 0.925f,
                 seed = stableFraction(star.id),
                 tint = (0.78f - star.colorIndexBv * 0.34f).coerceIn(0.08f, 0.94f),
                 twinkle = if (star.magnitude <= BrightStarTwinkleMagnitude) 1f else 0f,
+                isPrimarySkeleton = isPrimarySkeleton,
             )
         }
-        stars.sortByDescending { it.brightness }
+        stars.sortWith(
+            compareByDescending<ProjectedStar> { it.isPrimarySkeleton }
+                .thenByDescending { it.brightness },
+        )
         if (stars.size > MaxVisibleStars) {
             stars.subList(MaxVisibleStars, stars.size).clear()
         }
@@ -738,7 +1020,7 @@ private object StarMapSceneProjector {
         val ambientLines = ArrayList<ProjectedLine>(MaxNeighborLineSegments)
         val fromPrimaryLines = ArrayList<ProjectedLine>(MaxPrimaryLineSegments)
         val toPrimaryLines = ArrayList<ProjectedLine>(MaxPrimaryLineSegments)
-        for (segment in catalog.lines) {
+        for (segment in sourceLines) {
             val isFromPrimary =
                 fromPrimaryConstellationId != null &&
                     fromPrimaryConstellationId != toPrimaryConstellationId &&
@@ -791,9 +1073,200 @@ private object StarMapSceneProjector {
         )
     }
 
-    private fun shouldShowStar(star: CatalogStar): Boolean {
-        if (star.magnitude <= AlwaysVisibleMagnitude) return true
+    fun buildTransitionCandidates(
+        fromOrientation: SkyQuaternion,
+        toOrientation: SkyQuaternion,
+        fromPrimaryConstellationId: String?,
+        toPrimaryConstellationId: String,
+        catalog: StarMapCatalog,
+        width: Int,
+        height: Int,
+    ): StarMapProjectionCandidates {
+        val started = SystemClock.elapsedRealtime()
+        val aspect = (width.toFloat() / height.coerceAtLeast(1).toFloat())
+            .coerceAtLeast(0.30f)
+        val verticalTangent =
+            tan((VerticalFieldOfViewDeg * 0.5f).toRadians()) *
+                TransitionCandidateViewportMargin
+        val horizontalTangent = verticalTangent * aspect
+        val minimumCandidateDot =
+            1f / sqrt(
+                1f +
+                    verticalTangent * verticalTangent +
+                    horizontalTangent * horizontalTangent,
+            )
+        val sampledForwardDirections = ArrayList<Vec3>(TransitionCandidateSamples)
+        for (index in 0 until TransitionCandidateSamples) {
+            val progress = if (TransitionCandidateSamples <= 1) {
+                1f
+            } else {
+                index.toFloat() / (TransitionCandidateSamples - 1).toFloat()
+            }
+            val orientation = SkyQuaternion.slerp(
+                fromOrientation,
+                toOrientation,
+                progress,
+            )
+            sampledForwardDirections += orientation
+                .rotate(Vec3(0f, 0f, -1f))
+                .normalized()
+        }
+
+        fun touchesSweptView(direction: Vec3): Boolean =
+            sampledForwardDirections.any { forward ->
+                direction.dot(forward) >= minimumCandidateDot
+            }
+
+        val relevantLines = ArrayList<CatalogLineSegment>()
+        for (segment in catalog.lines) {
+            val isPrimary =
+                segment.constellationId == fromPrimaryConstellationId ||
+                    segment.constellationId == toPrimaryConstellationId
+            if (!isPrimary && segment.rank > NeighborConstellationMaxRank) continue
+
+            if (
+                isPrimary ||
+                touchesSweptView(segment.fromDirection) ||
+                touchesSweptView(segment.toDirection)
+            ) {
+                relevantLines += segment
+            }
+        }
+
+        val primarySkeletonDirections = HashSet<Vec3>()
+        val neighborSkeletonDirections = HashSet<Vec3>()
+        collectSkeletonDirections(
+            lines = relevantLines,
+            fromPrimaryConstellationId = fromPrimaryConstellationId,
+            toPrimaryConstellationId = toPrimaryConstellationId,
+            primary = primarySkeletonDirections,
+            neighbor = neighborSkeletonDirections,
+        )
+
+        val relevantStars = ArrayList<CatalogStar>()
+        for (star in catalog.stars) {
+            if (star.direction in primarySkeletonDirections) {
+                relevantStars += star
+                continue
+            }
+            if (touchesSweptView(star.direction)) {
+                relevantStars += star
+            }
+        }
+
+        return StarMapProjectionCandidates(
+            stars = relevantStars,
+            lines = relevantLines,
+            primarySkeletonDirections = primarySkeletonDirections,
+            neighborSkeletonDirections = neighborSkeletonDirections,
+        ).also {
+            DiagnosticLog.event(
+                "StarMapGl",
+                "transition-candidates stars=${it.stars.size}/${catalog.stars.size} " +
+                    "lines=${it.lines.size}/${catalog.lines.size} " +
+                    "samples=$TransitionCandidateSamples " +
+                    "ms=${SystemClock.elapsedRealtime() - started}",
+            )
+        }
+    }
+
+    private fun collectSkeletonDirections(
+        lines: List<CatalogLineSegment>,
+        fromPrimaryConstellationId: String?,
+        toPrimaryConstellationId: String,
+        primary: MutableSet<Vec3>,
+        neighbor: MutableSet<Vec3>,
+    ) {
+        for (segment in lines) {
+            val isFromPrimary =
+                fromPrimaryConstellationId != null &&
+                    segment.constellationId == fromPrimaryConstellationId
+            val isToPrimary = segment.constellationId == toPrimaryConstellationId
+            when {
+                isFromPrimary || isToPrimary -> {
+                    primary += segment.fromDirection
+                    primary += segment.toDirection
+                }
+                segment.rank <= NeighborConstellationMaxRank -> {
+                    neighbor += segment.fromDirection
+                    neighbor += segment.toDirection
+                }
+            }
+        }
+    }
+
+    fun projectSolarBodies(
+        cameraOrientation: SkyQuaternion,
+        bodies: List<SolarSystemBodyState>,
+        featuredSolarBodyId: SolarSystemBodyId?,
+        width: Int,
+        height: Int,
+    ): List<ProjectedSolarBody> {
+        if (bodies.isEmpty()) return emptyList()
+        val projector = SkyProjector(
+            cameraOrientation = cameraOrientation,
+            viewportAspect = width.toFloat() / height.coerceAtLeast(1).toFloat(),
+        )
+        val sunDirection = bodies
+            .firstOrNull { it.id == SolarSystemBodyId.SUN }
+            ?.let { Vec3(it.direction.x, it.direction.y, it.direction.z).normalized() }
+        return bodies.mapNotNull { body ->
+            val direction = Vec3(
+                x = body.direction.x,
+                y = body.direction.y,
+                z = body.direction.z,
+            )
+            val point = projector.project(direction) ?: return@mapNotNull null
+            if (
+                abs(point.first) > SolarBodyViewportMargin ||
+                abs(point.second) > SolarBodyViewportMargin
+            ) {
+                return@mapNotNull null
+            }
+            val isFeatured = body.id == featuredSolarBodyId
+            val isMoon = body.id == SolarSystemBodyId.MOON
+            val moonLight = if (isMoon && sunDirection != null) {
+                projector.localLightVector(
+                    surfaceDirection = direction,
+                    lightDirection = sunDirection,
+                )
+            } else {
+                Vec3(0f, 0f, 1f)
+            }
+            ProjectedSolarBody(
+                id = body.id,
+                x = point.first,
+                y = point.second,
+                sizePx = body.sizePx,
+                red = body.red,
+                green = body.green,
+                blue = body.blue,
+                haloStrength = if (isMoon) {
+                    MoonHaloStrength
+                } else {
+                    (
+                        body.haloStrength *
+                            if (isFeatured) FeaturedSolarBodyHaloScale else 1f
+                        ).coerceAtMost(1.35f)
+                },
+                moonFlag = if (isMoon) 1f else 0f,
+                moonLightX = moonLight.x,
+                moonLightY = moonLight.y,
+                moonLightZ = moonLight.z,
+            )
+        }
+    }
+
+    private fun shouldShowStar(
+        star: CatalogStar,
+        isPrimarySkeleton: Boolean,
+        isNeighborSkeleton: Boolean,
+    ): Boolean {
+        if (isPrimarySkeleton || star.magnitude <= AlwaysVisibleMagnitude) return true
         val fraction = stableFraction(star.id)
+        if (isNeighborSkeleton) {
+            return fraction <= NeighborSkeletonKeepFraction
+        }
         return when {
             star.magnitude <= MidStarMagnitude -> fraction <= MidStarKeepFraction
             else -> fraction <= FaintStarKeepFraction
@@ -874,6 +1347,15 @@ private class StarMapRenderer(
     private var pointAccentLocation = -1
     private var pointAlphaLocation = -1
 
+    private var solarProgram = 0
+    private var solarPositionLocation = -1
+    private var solarSizeLocation = -1
+    private var solarColorLocation = -1
+    private var solarHaloLocation = -1
+    private var solarMoonFlagLocation = -1
+    private var solarMoonLightLocation = -1
+    private var solarAlphaLocation = -1
+
     private var currentRequest: StarMapSceneRequest? = null
     private var fromPrimaryConstellationId: String? = null
     private var fromOrientation = SkyQuaternion.Identity
@@ -881,6 +1363,12 @@ private class StarMapRenderer(
     private var transitionStartMs = 0L
     private var previousAccent = floatArrayOf(0.62f, 0.76f, 1.0f)
     private var currentAccent = previousAccent.copyOf()
+    private var cachedStaticFrame: ProjectedStarMapFrame? = null
+    private var transitionCandidates: StarMapProjectionCandidates? = null
+    private var solarSystemBucket = Long.MIN_VALUE
+    private var solarSystemStates: List<SolarSystemBodyState> = emptyList()
+    private var cachedStaticSolarBodies: List<ProjectedSolarBody>? = null
+    private var lastVisibleSolarBodies: String? = null
 
     private val quadBuffer = floatArrayOf(
         -1f, -1f,
@@ -889,6 +1377,7 @@ private class StarMapRenderer(
         1f, 1f,
     ).toFloatBuffer()
     private val pointBuffer = allocateFloatBuffer(MaxVisibleStars * PointFloatsPerVertex)
+    private val solarBuffer = allocateFloatBuffer(MaxSolarBodies * SolarBodyFloatsPerVertex)
     private val lineBuffer = allocateFloatBuffer(MaxLineSegments * 6 * LineFloatsPerVertex)
 
     fun onSurfaceCreated() {
@@ -925,6 +1414,15 @@ private class StarMapRenderer(
         pointAccentLocation = GLES20.glGetUniformLocation(pointProgram, "uAccent")
         pointAlphaLocation = GLES20.glGetUniformLocation(pointProgram, "uGlobalAlpha")
 
+        solarProgram = createProgram(SolarBodyVertexShader, SolarBodyFragmentShader)
+        solarPositionLocation = GLES20.glGetAttribLocation(solarProgram, "aPosition")
+        solarSizeLocation = GLES20.glGetAttribLocation(solarProgram, "aSizePx")
+        solarColorLocation = GLES20.glGetAttribLocation(solarProgram, "aColor")
+        solarHaloLocation = GLES20.glGetAttribLocation(solarProgram, "aHaloStrength")
+        solarMoonFlagLocation = GLES20.glGetAttribLocation(solarProgram, "aMoonFlag")
+        solarMoonLightLocation = GLES20.glGetAttribLocation(solarProgram, "aMoonLight")
+        solarAlphaLocation = GLES20.glGetUniformLocation(solarProgram, "uGlobalAlpha")
+
         startMs = SystemClock.uptimeMillis()
         DiagnosticLog.event(
             "StarMapGl",
@@ -934,8 +1432,15 @@ private class StarMapRenderer(
     }
 
     fun onSurfaceChanged(newWidth: Int, newHeight: Int) {
-        width = newWidth.coerceAtLeast(1)
-        height = newHeight.coerceAtLeast(1)
+        val nextWidth = newWidth.coerceAtLeast(1)
+        val nextHeight = newHeight.coerceAtLeast(1)
+        if (width != nextWidth || height != nextHeight) {
+            cachedStaticFrame = null
+            transitionCandidates = null
+            cachedStaticSolarBodies = null
+        }
+        width = nextWidth
+        height = nextHeight
     }
 
     fun updateScene(spec: StarMapSceneSpec) {
@@ -951,10 +1456,20 @@ private class StarMapRenderer(
         }
 
         val nowMs = SystemClock.uptimeMillis()
-        val request = StarMapSceneSelector.select(spec.key, catalog)
+        val epochMillis = System.currentTimeMillis()
         val previousRequest = currentRequest
+        val request = StarMapSceneSelector.select(
+            key = spec.key,
+            catalog = catalog,
+            epochMillis = epochMillis,
+            solarBodies = currentSolarSystemStates(epochMillis),
+            previousFeaturedSolarBodyId = previousRequest?.featuredSolarBodyId,
+        )
 
         if (previousRequest == null) {
+            cachedStaticFrame = null
+            transitionCandidates = null
+            cachedStaticSolarBodies = null
             currentRequest = request
             fromPrimaryConstellationId = request.primaryConstellationId
             fromOrientation = request.targetOrientation
@@ -964,12 +1479,17 @@ private class StarMapRenderer(
             transitionStartMs = nowMs - StarMapTransitionMs
             DiagnosticLog.event(
                 "StarMapGl",
-                "scene key=${request.key.takeLast(12)} primary=${request.primaryConstellationId} " +
-                    "mode=spherical-camera",
+                "scene key=${request.key.takeLast(12)} " +
+                    "target=${request.featuredSolarBodyId?.name ?: request.primaryConstellationId} " +
+                    "context=${request.primaryConstellationId} " +
+                    "seasonalDistance=${request.seasonalDistanceDeg.toInt()}deg mode=spherical-camera",
             )
             return
         }
 
+        cachedStaticFrame = null
+        transitionCandidates = null
+        cachedStaticSolarBodies = null
         fromOrientation = currentOrientationAt(nowMs)
         toOrientation = request.targetOrientation
         fromPrimaryConstellationId = previousRequest.primaryConstellationId
@@ -981,28 +1501,90 @@ private class StarMapRenderer(
         DiagnosticLog.event(
             "StarMapGl",
             "camera-move key=${request.key.takeLast(12)} " +
-                "from=${fromPrimaryConstellationId} to=${request.primaryConstellationId} " +
+                "from=${fromPrimaryConstellationId} " +
+                "target=${request.featuredSolarBodyId?.name ?: request.primaryConstellationId} " +
+                "context=${request.primaryConstellationId} " +
+                "seasonalDistance=${request.seasonalDistanceDeg.toInt()}deg " +
                 "mode=quaternion-slerp",
         )
     }
 
-    fun render() {
-        val request = currentRequest ?: return
+    fun render(): Boolean {
+        val request = currentRequest ?: return false
         val nowMs = SystemClock.uptimeMillis()
+        val epochMillis = System.currentTimeMillis()
         val timeSeconds = (nowMs - startMs) / 1000f
         val rawProgress =
             ((nowMs - transitionStartMs).toFloat() / StarMapTransitionMs).coerceIn(0f, 1f)
         val progress = smoothStep(rawProgress)
         val orientation = SkyQuaternion.slerp(fromOrientation, toOrientation, progress)
+        val transitionActive = rawProgress < 1f
 
-        val frame = StarMapSceneProjector.project(
-            cameraOrientation = orientation,
-            fromPrimaryConstellationId = fromPrimaryConstellationId,
-            toPrimaryConstellationId = request.primaryConstellationId,
-            catalog = catalog,
-            width = width,
-            height = height,
-        )
+        val activeTransitionCandidates = if (transitionActive) {
+            transitionCandidates ?: StarMapSceneProjector.buildTransitionCandidates(
+                fromOrientation = fromOrientation,
+                toOrientation = toOrientation,
+                fromPrimaryConstellationId = fromPrimaryConstellationId,
+                toPrimaryConstellationId = request.primaryConstellationId,
+                catalog = catalog,
+                width = width,
+                height = height,
+            ).also { transitionCandidates = it }
+        } else {
+            transitionCandidates = null
+            null
+        }
+
+        val frame = if (transitionActive) {
+            StarMapSceneProjector.project(
+                cameraOrientation = orientation,
+                fromPrimaryConstellationId = fromPrimaryConstellationId,
+                toPrimaryConstellationId = request.primaryConstellationId,
+                catalog = catalog,
+                width = width,
+                height = height,
+                candidates = activeTransitionCandidates,
+            )
+        } else {
+            cachedStaticFrame ?: StarMapSceneProjector.project(
+                cameraOrientation = toOrientation,
+                fromPrimaryConstellationId = fromPrimaryConstellationId,
+                toPrimaryConstellationId = request.primaryConstellationId,
+                catalog = catalog,
+                width = width,
+                height = height,
+            ).also { cachedStaticFrame = it }
+        }
+
+        val solarStates = currentSolarSystemStates(epochMillis)
+        val solarBodies = if (transitionActive) {
+            StarMapSceneProjector.projectSolarBodies(
+                cameraOrientation = orientation,
+                bodies = solarStates,
+                featuredSolarBodyId = request.featuredSolarBodyId,
+                width = width,
+                height = height,
+            )
+        } else {
+            cachedStaticSolarBodies ?: StarMapSceneProjector.projectSolarBodies(
+                cameraOrientation = toOrientation,
+                bodies = solarStates,
+                featuredSolarBodyId = request.featuredSolarBodyId,
+                width = width,
+                height = height,
+            ).also { cachedStaticSolarBodies = it }
+        }
+        if (!transitionActive) {
+            val visibleKey = solarBodies.joinToString(",") { it.id.name }
+            if (visibleKey != lastVisibleSolarBodies) {
+                lastVisibleSolarBodies = visibleKey
+                DiagnosticLog.event(
+                    "StarMapGl",
+                    "solar-visible bodies=${visibleKey.ifBlank { "none" }} " +
+                        "featured=${request.featuredSolarBodyId?.name ?: "none"}",
+                )
+            }
+        }
 
         val accent = floatArrayOf(
             lerp(previousAccent[0], currentAccent[0], progress),
@@ -1074,8 +1656,27 @@ private class StarMapRenderer(
             timeSeconds = timeSeconds,
             accent = accent,
         )
+        drawSolarBodies(
+            bodies = solarBodies,
+            alpha = 1f,
+        )
 
         GLES20.glDisable(GLES20.GL_BLEND)
+        return transitionActive
+    }
+
+    private fun currentSolarSystemStates(epochMillis: Long): List<SolarSystemBodyState> {
+        val bucket = epochMillis / SolarSystemRefreshIntervalMs
+        if (bucket != solarSystemBucket) {
+            solarSystemBucket = bucket
+            solarSystemStates = SolarSystemEphemeris.compute(epochMillis)
+            cachedStaticSolarBodies = null
+            DiagnosticLog.event(
+                "StarMapGl",
+                "solar-ephemeris bodies=${solarSystemStates.size} bucket=$bucket",
+            )
+        }
+        return solarSystemStates
     }
 
     private fun currentOrientationAt(nowMs: Long): SkyQuaternion {
@@ -1088,9 +1689,11 @@ private class StarMapRenderer(
         if (backgroundProgram != 0) GLES20.glDeleteProgram(backgroundProgram)
         if (lineProgram != 0) GLES20.glDeleteProgram(lineProgram)
         if (pointProgram != 0) GLES20.glDeleteProgram(pointProgram)
+        if (solarProgram != 0) GLES20.glDeleteProgram(solarProgram)
         backgroundProgram = 0
         lineProgram = 0
         pointProgram = 0
+        solarProgram = 0
     }
 
     private fun drawLines(
@@ -1384,6 +1987,113 @@ private class StarMapRenderer(
         GLES20.glDisableVertexAttribArray(pointTwinkleLocation)
     }
 
+    private fun drawSolarBodies(
+        bodies: List<ProjectedSolarBody>,
+        alpha: Float,
+    ) {
+        if (bodies.isEmpty()) return
+
+        solarBuffer.clear()
+        for (body in bodies.take(MaxSolarBodies)) {
+            solarBuffer.put(body.x)
+            solarBuffer.put(body.y)
+            solarBuffer.put(body.sizePx)
+            solarBuffer.put(body.red)
+            solarBuffer.put(body.green)
+            solarBuffer.put(body.blue)
+            solarBuffer.put(body.haloStrength)
+            solarBuffer.put(body.moonFlag)
+            solarBuffer.put(body.moonLightX)
+            solarBuffer.put(body.moonLightY)
+            solarBuffer.put(body.moonLightZ)
+        }
+        solarBuffer.position(0)
+
+        GLES20.glUseProgram(solarProgram)
+        GLES20.glUniform1f(solarAlphaLocation, alpha)
+
+        val stride = SolarBodyFloatsPerVertex * FloatBytes
+
+        solarBuffer.position(0)
+        GLES20.glEnableVertexAttribArray(solarPositionLocation)
+        GLES20.glVertexAttribPointer(
+            solarPositionLocation,
+            2,
+            GLES20.GL_FLOAT,
+            false,
+            stride,
+            solarBuffer,
+        )
+
+        solarBuffer.position(2)
+        GLES20.glEnableVertexAttribArray(solarSizeLocation)
+        GLES20.glVertexAttribPointer(
+            solarSizeLocation,
+            1,
+            GLES20.GL_FLOAT,
+            false,
+            stride,
+            solarBuffer,
+        )
+
+        solarBuffer.position(3)
+        GLES20.glEnableVertexAttribArray(solarColorLocation)
+        GLES20.glVertexAttribPointer(
+            solarColorLocation,
+            3,
+            GLES20.GL_FLOAT,
+            false,
+            stride,
+            solarBuffer,
+        )
+
+        solarBuffer.position(6)
+        GLES20.glEnableVertexAttribArray(solarHaloLocation)
+        GLES20.glVertexAttribPointer(
+            solarHaloLocation,
+            1,
+            GLES20.GL_FLOAT,
+            false,
+            stride,
+            solarBuffer,
+        )
+
+        solarBuffer.position(7)
+        GLES20.glEnableVertexAttribArray(solarMoonFlagLocation)
+        GLES20.glVertexAttribPointer(
+            solarMoonFlagLocation,
+            1,
+            GLES20.GL_FLOAT,
+            false,
+            stride,
+            solarBuffer,
+        )
+
+        solarBuffer.position(8)
+        GLES20.glEnableVertexAttribArray(solarMoonLightLocation)
+        GLES20.glVertexAttribPointer(
+            solarMoonLightLocation,
+            3,
+            GLES20.GL_FLOAT,
+            false,
+            stride,
+            solarBuffer,
+        )
+
+        GLES20.glDrawArrays(
+            GLES20.GL_POINTS,
+            0,
+            bodies.size.coerceAtMost(MaxSolarBodies),
+        )
+
+        GLES20.glDisableVertexAttribArray(solarPositionLocation)
+        GLES20.glDisableVertexAttribArray(solarSizeLocation)
+        GLES20.glDisableVertexAttribArray(solarColorLocation)
+        GLES20.glDisableVertexAttribArray(solarHaloLocation)
+        GLES20.glDisableVertexAttribArray(solarMoonFlagLocation)
+        GLES20.glDisableVertexAttribArray(solarMoonLightLocation)
+    }
+
     private fun drawQuad(positionLocation: Int) {
         quadBuffer.position(0)
         GLES20.glEnableVertexAttribArray(positionLocation)
@@ -1470,19 +2180,38 @@ private fun smoothStepRange(value: Float, start: Float, end: Float): Float {
 
 private val NeighborLineColor = floatArrayOf(0.58f, 0.68f, 0.80f)
 
-private const val StarMapFrameIntervalMs = 50L
+private const val StarMapMovingFrameIntervalMs = 17L
+private const val StarMapIdleFrameIntervalMs = 50L
 private const val StarMapTransitionMs = 1300L
+private const val SolarSystemRefreshIntervalMs = 5L * 60L * 1000L
+
+private const val SeasonalStrongRegionDeg = 55f
+private const val SeasonalCandidateLimitDeg = 90f
+private const val CompositionEastOffsetDeg = 5.0f
+private const val CompositionNorthOffsetDeg = 3.5f
+private const val SolarSceneChance = 0.28
+private const val SolarDaySideMinFactor = 0.48f
+private const val SolarRepeatAlternativeRatio = 1.18
+private const val SolarCompositionEastOffsetDeg = 2.6f
+private const val SolarCompositionNorthOffsetDeg = 1.8f
+private const val FeaturedSolarBodyHaloScale = 1.20f
+private const val MoonHaloStrength = 0.12f
+private const val StableUnitDenominator = 9_007_199_254_740_992.0
 
 private const val VerticalFieldOfViewDeg = 76f
 private const val MinimumProjectionCosine = 0.15f
 private const val StarViewportMargin = 1.06f
 private const val LineViewportMargin = 1.16f
+private const val SolarBodyViewportMargin = 1.08f
+private const val TransitionCandidateSamples = 7
+private const val TransitionCandidateViewportMargin = 1.55f
 
 private const val CatalogMagnitudeLimit = 5.65f
 private const val AlwaysVisibleMagnitude = 3.90f
 private const val MidStarMagnitude = 4.80f
 private const val MidStarKeepFraction = 0.52f
 private const val FaintStarKeepFraction = 0.18f
+private const val NeighborSkeletonKeepFraction = 0.80f
 private const val ReferenceMagnitude = 1.0f
 private const val BrightReferenceMagnitude = -1.0f
 private const val BrightStarTwinkleMagnitude = 1.0f
@@ -1494,10 +2223,12 @@ private const val NeighborLineHaloAlpha = 0.014f
 private const val NeighborLineCoreAlpha = 0.082f
 
 private const val MaxVisibleStars = 118
+private const val MaxSolarBodies = 9
 private const val MaxPrimaryLineSegments = 80
 private const val MaxNeighborLineSegments = 180
 private const val MaxLineSegments = 180
 private const val PointFloatsPerVertex = 7
+private const val SolarBodyFloatsPerVertex = 11
 private const val LineFloatsPerVertex = 7
 private const val FloatBytes = 4
 private const val EglOpenGlEs2Bit = 4
@@ -1650,8 +2381,110 @@ void main() {
     color *= (0.68 + core * 0.48);
     color += vec3(0.84, 0.92, 1.0) * sparkle;
 
-    float visibility = clamp((0.20 + vBrightness * 0.80) * 1.66, 0.0, 1.0);
+    float visibility = clamp((0.20 + vBrightness * 0.80) * 2.7556, 0.0, 1.0);
     float alpha = (core * 0.96 + halo * 0.40 + sparkle) * visibility * uGlobalAlpha;
     gl_FragColor = vec4(color, clamp(alpha, 0.0, 1.0));
+}
+"""
+
+private const val SolarBodyVertexShader = """
+attribute vec2 aPosition;
+attribute float aSizePx;
+attribute vec3 aColor;
+attribute float aHaloStrength;
+attribute float aMoonFlag;
+attribute vec3 aMoonLight;
+
+varying vec3 vColor;
+varying float vHaloStrength;
+varying float vMoonFlag;
+varying vec3 vMoonLight;
+
+void main() {
+    gl_Position = vec4(aPosition, 0.0, 1.0);
+    gl_PointSize = aSizePx;
+    vColor = aColor;
+    vHaloStrength = aHaloStrength;
+    vMoonFlag = aMoonFlag;
+    vMoonLight = aMoonLight;
+}
+"""
+
+private const val SolarBodyFragmentShader = """
+precision mediump float;
+
+uniform float uGlobalAlpha;
+
+varying vec3 vColor;
+varying float vHaloStrength;
+varying float vMoonFlag;
+varying vec3 vMoonLight;
+
+float moonTexture(vec2 uv) {
+    float largeMaria =
+        exp(-18.0 * dot(uv - vec2(-0.26, 0.10), uv - vec2(-0.26, 0.10))) +
+        0.72 * exp(-24.0 * dot(uv - vec2(0.16, -0.18), uv - vec2(0.16, -0.18))) +
+        0.54 * exp(-30.0 * dot(uv - vec2(0.28, 0.20), uv - vec2(0.28, 0.20)));
+    float fine =
+        sin((uv.x * 16.0 + uv.y * 9.0) * 1.7) *
+        sin((uv.y * 14.0 - uv.x * 6.0) * 1.3);
+    return clamp(1.0 - largeMaria * 0.16 + fine * 0.025, 0.72, 1.04);
+}
+
+void main() {
+    vec2 p = gl_PointCoord - 0.5;
+    float d = length(p);
+    if (d >= 0.5) discard;
+
+    if (vMoonFlag > 0.5) {
+        vec2 moonUv = vec2(p.x, -p.y) / 0.44;
+        float r2 = dot(moonUv, moonUv);
+        float outerHalo = 1.0 - smoothstep(0.44, 0.50, d);
+
+        if (r2 > 1.0) {
+            float haloOnly =
+                (1.0 - smoothstep(0.44, 0.50, d)) *
+                vHaloStrength *
+                0.12;
+            gl_FragColor = vec4(
+                vec3(0.72, 0.78, 0.86),
+                haloOnly * uGlobalAlpha
+            );
+            return;
+        }
+
+        float z = sqrt(max(0.0, 1.0 - r2));
+        vec3 normal = normalize(vec3(moonUv.x, moonUv.y, z));
+        vec3 lightDirection = normalize(vMoonLight);
+        float lambert = max(dot(normal, lightDirection), 0.0);
+        float earthshine = 0.055;
+        float illumination = earthshine + lambert * 0.945;
+
+        float limb = smoothstep(0.0, 0.16, z);
+        float textureValue = moonTexture(moonUv);
+        vec3 moonBase = vec3(0.73, 0.76, 0.80) * textureValue;
+        vec3 litColor = moonBase * illumination;
+        litColor += vec3(0.03, 0.035, 0.045) * earthshine;
+
+        float diskAlpha = (1.0 - smoothstep(0.94, 1.0, r2)) * limb;
+        float haloAlpha = outerHalo * vHaloStrength * 0.06;
+        gl_FragColor = vec4(
+            litColor,
+            clamp((diskAlpha + haloAlpha) * uGlobalAlpha, 0.0, 1.0)
+        );
+        return;
+    }
+
+    float core = 1.0 - smoothstep(0.08, 0.24, d);
+    float disk = 1.0 - smoothstep(0.22, 0.34, d);
+    float halo = 1.0 - smoothstep(0.24, 0.50, d);
+
+    vec3 color = mix(vColor * 0.78, vec3(1.0), core * 0.34);
+    float alpha =
+        core * 0.98 +
+        disk * 0.50 +
+        halo * (0.16 + vHaloStrength * 0.30);
+
+    gl_FragColor = vec4(color, clamp(alpha * uGlobalAlpha, 0.0, 1.0));
 }
 """
