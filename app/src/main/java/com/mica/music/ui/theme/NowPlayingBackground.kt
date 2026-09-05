@@ -67,6 +67,9 @@ fun NowPlayingBackground(
                 modifier = modifier,
             )
         }
+        PlayerLowerBackgroundMode.AURORA -> {
+            AuroraGlBackground(modifier = modifier)
+        }
     }
 }
 

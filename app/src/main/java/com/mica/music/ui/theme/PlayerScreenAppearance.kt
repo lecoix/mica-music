@@ -20,20 +20,25 @@ fun rememberPlayerScreenAppearance(
     song: Song,
     lowerBackground: PlayerLowerBackgroundMode,
 ): PlayerScreenAppearance {
-    val sampleArtworkColor = lowerBackground != PlayerLowerBackgroundMode.THEME
+    val sampleArtworkColor =
+        lowerBackground != PlayerLowerBackgroundMode.THEME &&
+            lowerBackground != PlayerLowerBackgroundMode.AURORA
     val coverColor = rememberCoverColor(song, sampleArtwork = sampleArtworkColor)
     val isDark = MicaTheme.colors.isDark
     val mica = rememberMicaSurfaceColors()
+    val themeContentColors = rememberPlayerContentColors()
     val appAccent = MicaTheme.colors.accent
     val coverAccent = PlayerBackgroundBlend.accentuateCover(coverColor, isDark)
     val accent = when (lowerBackground) {
         PlayerLowerBackgroundMode.THEME -> appAccent
+        PlayerLowerBackgroundMode.AURORA -> AuroraForegroundAccent
         else -> coverAccent
     }
     val lowerSurface = when (lowerBackground) {
         PlayerLowerBackgroundMode.THEME -> mica.gradientEnd
         PlayerLowerBackgroundMode.ARTWORK_GRADIENT ->
             PlayerBackgroundBlend.artworkHold(coverAccent, coverAccent, isDark)
+        PlayerLowerBackgroundMode.AURORA -> AuroraBackgroundSurface
         else -> mica.gradientEnd
     }
     val contentColors = when (lowerBackground) {
@@ -44,20 +49,31 @@ fun rememberPlayerScreenAppearance(
         -> remember(coverColor) { PlayerBackgroundBlend.readableTextColors(coverColor) }
         PlayerLowerBackgroundMode.ARTWORK_GRADIENT ->
             remember(lowerSurface) { PlayerBackgroundBlend.readableTextColors(lowerSurface) }
-        else -> rememberPlayerContentColors()
+        PlayerLowerBackgroundMode.AURORA -> lightPlayerContentColors()
+        else -> themeContentColors
     }.copy(
-        dynamicColors = remember(coverColor, lowerSurface, isDark) {
-            PlayerBackgroundBlend.dynamicTextColors(
-                coverColor = coverColor,
-                surface = lowerSurface,
-                isDark = isDark,
-            )
+        dynamicColors = remember(coverColor, lowerSurface, isDark, lowerBackground) {
+            if (lowerBackground == PlayerLowerBackgroundMode.AURORA) {
+                lightPlayerContentColors()
+            } else {
+                PlayerBackgroundBlend.dynamicTextColors(
+                    coverColor = coverColor,
+                    surface = lowerSurface,
+                    isDark = isDark,
+                )
+            }
         },
     )
-    val hifiBadgeColors = rememberPlayerContentColors()
+    val hifiBadgeColors =
+        if (lowerBackground == PlayerLowerBackgroundMode.AURORA) {
+            lightPlayerContentColors()
+        } else {
+            themeContentColors
+        }
     val artworkJunction = when (lowerBackground) {
         PlayerLowerBackgroundMode.ARTWORK_GRADIENT ->
             PlayerBackgroundBlend.artworkJunction(coverAccent, coverAccent, isDark)
+        PlayerLowerBackgroundMode.AURORA -> AuroraBackgroundSurface
         else -> mica.gradientEnd
     }
     return PlayerScreenAppearance(
