@@ -18,6 +18,8 @@ fun NowPlayingBackground(
     coverColor: Color,
     albumArtUri: String?,
     mode: PlayerLowerBackgroundMode,
+    /** 当前歌曲稳定键；仅 [PlayerLowerBackgroundMode.STAR_MAP] 用于生成每首歌固定星图。 */
+    sceneKey: String? = null,
     /** 封面底边占屏高比例；仅 [PlayerLowerBackgroundMode.ARTWORK_GRADIENT] 使用。 */
     coverZoneStop: Float? = null,
     /**
@@ -67,8 +69,12 @@ fun NowPlayingBackground(
                 modifier = modifier,
             )
         }
-        PlayerLowerBackgroundMode.CONSTELLATION -> {
-            ConstellationGlBackground(modifier = modifier)
+        PlayerLowerBackgroundMode.STAR_MAP -> {
+            StarMapGlBackground(
+                sceneKey = sceneKey ?: albumArtUri.orEmpty(),
+                accent = coverColor,
+                modifier = modifier,
+            )
         }
     }
 }

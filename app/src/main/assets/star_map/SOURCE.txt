@@ -1,0 +1,21 @@
+Mica Star Map data attribution
+
+Source project: d3-celestial
+Author: Olaf Frohn
+Upstream repository: https://github.com/ofrohn/d3-celestial
+License: BSD-3-Clause (see LICENSE.d3-celestial.txt in this directory)
+
+Bundled files:
+- stars.6.json
+- constellations.lines.json
+- constellations.json
+
+Retrieved from the upstream master branch on 2026-09-05.
+
+Upstream data provenance documented by d3-celestial:
+- stars.6.json: XHIP / Extended Hipparcos Compilation, converted by d3-celestial
+- constellations.json and constellations.lines.json: IAU constellation data with name positions
+  and line modifications documented by d3-celestial
+
+Mica does not bundle d3-celestial JavaScript. The Android player parses the GeoJSON data and
+renders its own native OpenGL ES star-map view.
