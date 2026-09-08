@@ -18,6 +18,24 @@ class VideoCoverMatcherTest {
         )
 
         assertEquals("content://exact", result.single().videoCoverUri)
+        assertEquals("content://exact|0|0", result.single().videoCoverRevision)
+    }
+
+    @Test
+    fun sameUriReplacementChangesVideoCoverRevision() {
+        val song = SongFixtures.song("one").copy(album = "Album", folderPath = "Folder")
+        val old = attachVideoCovers(
+            listOf(song),
+            listOf(VideoCoverFile("content://same", "Folder", "Album", 10L, 20L)),
+        ).single()
+        val replaced = attachVideoCovers(
+            listOf(song),
+            listOf(VideoCoverFile("content://same", "Folder", "Album", 30L, 40L)),
+        ).single()
+
+        assertEquals(old.videoCoverUri, replaced.videoCoverUri)
+        assertEquals("content://same|10|20", old.videoCoverRevision)
+        assertEquals("content://same|30|40", replaced.videoCoverRevision)
     }
 
     @Test

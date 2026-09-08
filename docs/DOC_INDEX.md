@@ -1,6 +1,6 @@
 # Mica 项目文档索引
 
-> 最后整理：2026-09-02
+> 最后整理：2026-09-06
 > 范围：本仓库 **Mica Android** 主工作树文档；`.scratch/` 内工作树、历史副本与外部参考不作为本索引的现行事实来源。
 
 ---
@@ -41,6 +41,7 @@
 | 文档 | 用途 |
 |------|------|
 | [`EXTERNAL_EVENT_CONTRACT_TESTING.md`](EXTERNAL_EVENT_CONTRACT_TESTING.md) | 外部事件源、框架回调与状态机之间的契约测试原则；防止 mock 输入模型与生产事件流脱节 |
+| [`AUTOMATED_FLOW_TESTING.md`](AUTOMATED_FLOW_TESTING.md) | 自动化流程测试分层、QA 设备隔离、首批 Device Flow 矩阵与 CI 晋级规则 |
 | [`TESTING.md`](TESTING.md) | 质量门、测试分层、播放/队列/数据库契约与真机验收清单 |
 | [`SETTINGS_AUDIT_MATRIX.md`](SETTINGS_AUDIT_MATRIX.md) | 设置入口 → 持久化 owner/key → 运行时消费点的静态审计矩阵 |
 | [`APP_UPDATE.md`](APP_UPDATE.md) | 更新清单、发布 workflow 与国内镜像接入说明 |
@@ -48,6 +49,7 @@
 | [`SHARED_ELEMENT_ANIMATION_NOTES.md`](SHARED_ELEMENT_ANIMATION_NOTES.md) | 迷你栏↔播放页共享封面状态机与必测场景 |
 | [`reviews/REFACTOR_PLAYBACK_ARCHITECTURE.md`](reviews/REFACTOR_PLAYBACK_ARCHITECTURE.md) | 播放架构审查（`refactor/playback-architecture` → `exoplayer-only`；含 Bugbot 第三轮 + Ponytail 第四轮） |
 | [`LIBRARY_SCAN.md`](LIBRARY_SCAN.md) | 曲库扫描架构、TagLib fork 接入、增量复用、性能实测与冷扫上界结论 |
+| [`LIBRARY_AUTO_SYNC_P_AND_P_EXECUTION_PLAN.md`](LIBRARY_AUTO_SYNC_P_AND_P_EXECUTION_PLAN.md) | 曲库自动同步完整执行计划：P&P 增量发现 + Mica snapshot authority；ADR 契约、S0–S5 Gate、删除/队列/歌单/SAF/DEVICE/10k 性能门槛 |
 | [`DSD_EXO_PLAYBACK.md`](DSD_EXO_PLAYBACK.md) | DSD `.dsf` 的 Exo 扩展实现、降采样链路与系统音效说明 |
 | [`USB_EXCLUSIVE_HYBRID_STATUS.md`](USB_EXCLUSIVE_HYBRID_STATUS.md) | Hybrid 已实现软件范围、验证证据、实机/长测门禁与已知风险 |
 | [`USB_REFERENCE_FUNCTION_AUDIT.md`](USB_REFERENCE_FUNCTION_AUDIT.md) | USB 独占对 SylvaKru 参考实现的逐函数映射、EXACT/EQUIVALENT/Mica 改写分类，以及 Apache-2.0 provenance/归属边界 |
@@ -151,3 +153,4 @@
 | 2026-08-30 | 音效实验室（宽度/音色/混响/360° 环绕，默认关，仅 Shared PCM）：`CONTEXT` 词汇与音质许可、`DESIGN_SPEC` §十四/§15.4、`SETTINGS_AUDIT_MATRIX`、`TESTING` JVM/真机项、`TODO` |
 | 2026-09-01 | 新增 `VOCAL_SEPARATION_RESEARCH.md`：端上人声分离调研结论为暂不实施；记录可复用基建、开源模型许可证边界（Demucs 权重非 MIT）、实时链路对 USB 独占/offload 的结构性冲突与未验证事项 |
 | 2026-09-02 | 按当前运行时依赖同步开源许可证：`OPEN_SOURCE_NOTICES`、关于页、`README`、`DESIGN_SPEC` §十三；补 Mica Apache-2.0、WorkManager/OkHttp、远程曲库三库及其 smbj 传递依赖 |
+| 2026-09-06 | 新增并收敛 `LIBRARY_AUTO_SYNC_P_AND_P_EXECUTION_PLAN.md`：PixelPlayer + Poweramp 自动曲库同步的冻结前完整实施计划、ADR 契约、S0–S5 Gate 与 10k/播放共存门槛 |

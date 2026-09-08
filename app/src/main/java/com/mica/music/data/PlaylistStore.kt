@@ -294,7 +294,7 @@ class PlaylistStore(context: Context) {
         true
     }
 
-    fun removeSongFromAllPlaylists(songId: String) = mutate {
+    fun removeSongFromAllPlaylists(songId: String): Boolean = mutate {
         var changed = false
         val updated = playlists.map { playlist ->
             if (songId !in playlist.songIds) playlist
@@ -306,13 +306,13 @@ class PlaylistStore(context: Context) {
                 )
             }
         }
-        if (changed) {
-            if (!writeStorage("remove-song-everywhere") { removeSongEverywhere(songId) }) {
-                return@mutate
-            }
-            playlists = updated
-            revision++
+        if (!changed) return@mutate true
+        if (!writeStorage("remove-song-everywhere") { removeSongEverywhere(songId) }) {
+            return@mutate false
         }
+        playlists = updated
+        revision++
+        true
     }
 
     private fun loadInitialPlaylists(): List<UserPlaylist> = runBlocking(Dispatchers.IO) {

@@ -49,15 +49,38 @@ internal class LibraryCacheLoader(
         backing.isLoadingCachedLibrary = true
         try {
             val dbStartedMs = SystemClock.elapsedRealtime()
-            val cached = withContext(backing.ioDispatcher) { backing.libraryStore.loadCached() }
+            val (persistedState, cached) = withContext(backing.ioDispatcher) {
+                backing.libraryStore.loadLibraryState() to backing.libraryStore.loadCached()
+            }
             DiagnosticLog.event(
                 "LibraryLoad",
-                "loadCached db durMs=${SystemClock.elapsedRealtime() - dbStartedMs} songs=${cached?.songs?.size ?: 0}",
+                "loadCached db durMs=${SystemClock.elapsedRealtime() - dbStartedMs} songs=${cached?.songs?.size ?: 0} " +
+                    "intent=${persistedState?.intent}",
             )
+            if (persistedState?.intent == LibraryIntentState.CLEARED_BY_USER) {
+                backing.withPublicationGenerationIfCurrent(generation) {
+                    backing.restorePersistedState(persistedState)
+                    backing.catalog.clearCatalog()
+                    backing.hasScanned = false
+                    backing.totalSizeMb = 0
+                    backing.lastScanAtMs = null
+                }
+                DiagnosticLog.event(
+                    "LibraryLoad",
+                    "loadCached suppressed by CLEARED_BY_USER durMs=${SystemClock.elapsedRealtime() - startedMs}",
+                )
+                return null
+            }
             if (cached == null) {
+                persistedState?.let { state ->
+                    backing.withPublicationGenerationIfCurrent(generation) {
+                        backing.restorePersistedState(state)
+                    }
+                }
                 DiagnosticLog.event("LibraryLoad", "loadCached empty durMs=${SystemClock.elapsedRealtime() - startedMs}")
                 return null
             }
+            val effectiveState = persistedState ?: legacyActiveState(cached)
             if (!backing.isActiveGeneration(generation)) {
                 DiagnosticLog.event(
                     "LibraryLoad",
@@ -147,19 +170,24 @@ internal class LibraryCacheLoader(
             } else {
                 withContext(backing.ioDispatcher) { prepareBrowse() }
             }
-            if (!backing.isActiveGeneration(generation)) {
+            val adopted = backing.withPublicationGenerationIfCurrent(generation) {
+                backing.restorePersistedState(effectiveState)
+                catalog.adoptPrepared(prepared)
+                backing.totalSizeMb = cached.totalSizeMb
+                backing.lastScanAtMs = cached.lastScanAtMs
+                backing.lastScanSource = cached.lastScanSource
+                backing.hasScanned = true
+                backing.lastScanError = null
+                catalog.persistPreparedCustomOrderIfCurrent(prepared)
+                true
+            } ?: false
+            if (!adopted) {
                 DiagnosticLog.event(
                     "LibraryLoad",
                     "loadCached discarded before adopt generation=$generation current=${backing.scanGeneration}",
                 )
                 return null
             }
-            catalog.adoptPrepared(prepared)
-            backing.totalSizeMb = cached.totalSizeMb
-            backing.lastScanAtMs = cached.lastScanAtMs
-            backing.lastScanSource = cached.lastScanSource
-            backing.hasScanned = true
-            backing.lastScanError = null
             if (!sortCanUseStoredOrder || cached.fastScrollSectionTargets == null) {
                 catalog.persistPresentationAsync()
             }
@@ -180,5 +208,23 @@ internal class LibraryCacheLoader(
         } finally {
             backing.isLoadingCachedLibrary = false
         }
+    }
+
+    private fun legacyActiveState(cached: com.mica.music.data.local.CachedLibrary): PersistedLibraryState {
+        val identity = backing.sourceIdentityFor(cached.lastScanSource)
+            ?: SourceIdentityKey(
+                source = cached.lastScanSource,
+                stableIdentity = "legacy:${cached.lastScanSource.storageValue}",
+            )
+        return PersistedLibraryState(
+            intent = LibraryIntentState.ACTIVE,
+            access = LibraryAccessState.AVAILABLE,
+            sourceState = LibrarySourceState(
+                active = SourceActivation(identity, activationEpoch = 1L),
+                pendingTransition = null,
+            ),
+            configFingerprint = com.mica.music.data.preferences.LibraryScanSettings
+                .configFingerprint(backing.context),
+        )
     }
 }

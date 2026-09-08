@@ -4,11 +4,23 @@ import java.text.Collator
 import java.text.Normalizer
 import java.nio.charset.Charset
 import java.util.IdentityHashMap
+import java.util.LinkedHashMap
 import java.util.Locale
 
 object AlphabeticalText {
+    // 10k catalog worst-case QA exercises distinct title + artist + album keys (~30k).
+    // Keep that working set hot without making the process cache unbounded.
+    private const val NORMALIZED_TEXT_CACHE_MAX_ENTRIES = 32_768
     private val markRegex = "\\p{Mn}+".toRegex()
     private val gbkCharset = Charset.forName("GBK")
+    private val normalizedTextCache = object : LinkedHashMap<String, String>(
+        NORMALIZED_TEXT_CACHE_MAX_ENTRIES,
+        0.75f,
+        true,
+    ) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>?): Boolean =
+            size > NORMALIZED_TEXT_CACHE_MAX_ENTRIES
+    }
     private val gbkPinyinValues = intArrayOf(
         -20319, -20283, -19775, -19218, -18710, -18526, -18239, -17922, -17417,
         -16474, -16212, -15640, -15165, -14922, -14914, -14630, -14149, -14090,
@@ -52,8 +64,23 @@ object AlphabeticalText {
             .uppercase(Locale.ROOT)
             .trim()
 
-    private fun normalizedText(value: String): String =
-        normalizeSortKey(AndroidIcu.transliterate(value) ?: fallbackSortKey(value))
+    private fun normalizedText(value: String): String {
+        synchronized(normalizedTextCache) {
+            normalizedTextCache[value]?.let { return it }
+        }
+        val transliterated = if (value.isAscii()) {
+            value
+        } else {
+            AndroidIcu.transliterate(value) ?: fallbackSortKey(value)
+        }
+        val normalized = normalizeSortKey(transliterated)
+        synchronized(normalizedTextCache) {
+            normalizedTextCache[value] = normalized
+        }
+        return normalized
+    }
+
+    private fun String.isAscii(): Boolean = all { it.code < 0x80 }
 
     private fun sectionForNormalized(value: String): String {
         val initial = value.firstOrNull() ?: return "#"
@@ -91,11 +118,15 @@ private object AndroidIcu {
         }.getOrNull()
     }
 
+    private val transliterateMethod by lazy {
+        transliterator?.javaClass?.getMethod("transliterate", String::class.java)
+    }
+
     fun transliterate(value: String): String? {
         val instance = transliterator ?: return null
+        val method = transliterateMethod ?: return null
         return runCatching {
-            instance.javaClass.getMethod("transliterate", String::class.java)
-                .invoke(instance, value) as? String
+            method.invoke(instance, value) as? String
         }.getOrNull()
     }
 }

@@ -334,6 +334,7 @@ class HybridQaPlaybackReceiver : BroadcastReceiver() {
                             controller.repeatMode = Player.REPEAT_MODE_OFF
                         "${appContext.packageName}.debug.HYBRID_QA_PLAY" -> controller.play()
                         "${appContext.packageName}.debug.HYBRID_QA_PAUSE" -> controller.pause()
+                        "${appContext.packageName}.debug.HYBRID_QA_STATUS" -> Unit
                         "${appContext.packageName}.debug.HYBRID_QA_SEEK_MS" ->
                             controller.seekTo(intent.getLongExtra("positionMs", 0L).coerceAtLeast(0L))
                         "${appContext.packageName}.debug.HYBRID_QA_NEXT" -> controller.seekToNextMediaItem()
@@ -355,7 +356,8 @@ class HybridQaPlaybackReceiver : BroadcastReceiver() {
                         TAG,
                         "complete action=$action index=${controller.currentMediaItemIndex} " +
                             "positionMs=${controller.currentPosition} repeat=${controller.repeatMode} " +
-                            "playWhenReady=${controller.playWhenReady}",
+                            "playWhenReady=${controller.playWhenReady} " +
+                            "isPlaying=${controller.isPlaying} playbackState=${controller.playbackState}",
                     )
                 } catch (error: Throwable) {
                     Log.e(TAG, "control failed action=$action", error)

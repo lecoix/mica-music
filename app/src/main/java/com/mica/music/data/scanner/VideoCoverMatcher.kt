@@ -11,7 +11,10 @@ internal data class VideoCoverFile(
     val baseName: String,
     val sizeBytes: Long = 0L,
     val lastModifiedMs: Long = 0L,
-)
+) {
+    val revision: String
+        get() = "$uri|$sizeBytes|$lastModifiedMs"
+}
 
 private val VideoCoverWhitespace = Regex("\\s+")
 private val UnknownAlbumKeys = setOf(
@@ -23,10 +26,16 @@ internal fun attachVideoCovers(
     songs: List<Song>,
     files: List<VideoCoverFile>,
 ): List<Song> {
-    if (songs.isEmpty() || files.isEmpty()) return songs.map { it.copy(videoCoverUri = null) }
+    if (songs.isEmpty() || files.isEmpty()) {
+        return songs.map { it.copy(videoCoverUri = null, videoCoverRevision = "") }
+    }
     val index = buildVideoCoverIndex(files)
     return songs.map { song ->
-        song.copy(videoCoverUri = matchVideoCover(song, index[song.folderPath]))
+        val matched = matchVideoCover(song, index[song.folderPath])
+        song.copy(
+            videoCoverUri = matched?.uri,
+            videoCoverRevision = matched?.revision.orEmpty(),
+        )
     }
 }
 
@@ -65,17 +74,17 @@ private fun uniqueCandidates(
     return out
 }
 
-private fun matchVideoCover(song: Song, index: FolderVideoCoverIndex?): String? {
+private fun matchVideoCover(song: Song, index: FolderVideoCoverIndex?): VideoCoverFile? {
     index ?: return null
     val album = song.album
     val normalizedAlbum = normalizeVideoCoverName(album)
     if (album.isBlank() || normalizedAlbum in UnknownAlbumKeys) return null
 
     if (index.exact.containsKey(album)) {
-        return index.exact[album]?.uri ?: ambiguous(song, "exact")
+        return index.exact[album] ?: ambiguous(song, "exact")
     }
     if (index.normalized.containsKey(normalizedAlbum)) {
-        return index.normalized[normalizedAlbum]?.uri ?: ambiguous(song, "normalized")
+        return index.normalized[normalizedAlbum] ?: ambiguous(song, "normalized")
     }
     return null
 }

@@ -25,17 +25,20 @@ import java.io.File
 import java.io.IOException
 import java.util.Locale
 
-data class ScanResult(
+internal data class ScanResult(
     val songs: List<Song>,
     val totalSizeMb: Int,
     val performanceSummary: String = "",
     val probeStats: ScanProbeStats = ScanProbeStats(),
+    val discoveryReport: DiscoveryReport = DiscoveryReport(),
+    /** SAF Folder Scan only: side-effect-free MP4 inventory used by S4 relation shadow gates. */
+    val folderVideoFiles: List<VideoCoverFile> = emptyList(),
 )
 
 /**
  * MediaStore 快速列表 + [AudioMetadataProbe] 并行探测（封面与真实音质）。
  */
-object MediaStoreScanner {
+internal object MediaStoreScanner {
 
     internal const val LYRICS_SCAN_BATCH_SIZE = 6
     internal const val PROBE_PARALLELISM = 8
@@ -50,11 +53,17 @@ object MediaStoreScanner {
     ): ScanResult = withContext(Dispatchers.IO) {
         val profiler = ScanProfiler("MediaStore")
         AudioMetadataProbe.clearArtCache()
-        val loadedDrafts = profiler.measure("loadDrafts") { loadDrafts(context, options) }
+        val loaded = profiler.measure("loadDrafts") { loadDrafts(context, options) }
+        val loadedDrafts = loaded.drafts
         val drafts = if (shouldReconcileMediaStoreFolderCasing(options.forceRefreshSongIds)) {
             profiler.measure("folderCasing") {
                 reconcileMediaStoreFolderCasing(loadedDrafts) { draft ->
-                    resolvePhysicalDirectoryIdentity(context, draft)
+                    resolveMediaStoreDirectoryIdentity(
+                        context = context,
+                        mediaUri = draft.mediaUri,
+                        filePath = draft.filePath,
+                        folderPath = draft.folderPath,
+                    )
                 }
             }
         } else {
@@ -65,6 +74,7 @@ object MediaStoreScanner {
                 songs = emptyList(),
                 totalSizeMb = 0,
                 performanceSummary = profiler.finish(total = 0, reused = 0, probed = 0),
+                discoveryReport = loaded.discoveryReport,
             )
         }
         val cachedById = cachedSongs.associateBy { it.id }
@@ -171,6 +181,7 @@ object MediaStoreScanner {
             songs = songs.map {
                 it.copy(
                     videoCoverUri = null,
+                    videoCoverRevision = "",
                     musicVideoUri = null,
                     musicVideoRevision = "",
                 )
@@ -181,10 +192,21 @@ object MediaStoreScanner {
                 technicalFailed = technicalFailed.get(),
                 lyricsReadFailed = lyricsReadFailed.get(),
             ),
+            discoveryReport = loaded.discoveryReport,
         )
     }
 
-    private fun loadDrafts(context: Context, options: ScanOptions): List<TrackDraft> {
+    private data class LoadedMediaStoreDrafts(
+        val drafts: List<TrackDraft>,
+        val discoveryReport: DiscoveryReport,
+    )
+
+    private data class DraftChannelResult(
+        val drafts: List<TrackDraft>,
+        val status: DiscoveryPartitionStatus,
+    )
+
+    private fun loadDrafts(context: Context, options: ScanOptions): LoadedMediaStoreDrafts {
         val collection = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
         val lyricsByAudioKey = loadLyricsIndex(context)
 
@@ -328,8 +350,22 @@ object MediaStoreScanner {
         val existingKeys = drafts
             .map { draft -> mediaStoreDuplicateKey(draft.mediaUri, draft.filePath, draft.sizeBytes) }
             .toMutableSet()
-        drafts += loadExtendedAudioFileDrafts(context, options, lyricsByAudioKey, existingKeys)
-        return drafts
+        val extended = loadExtendedAudioFileDrafts(context, options, lyricsByAudioKey, existingKeys)
+        drafts += extended.drafts
+        return LoadedMediaStoreDrafts(
+            drafts = drafts,
+            discoveryReport = DiscoveryReport.of(
+                DiscoveryPartitionStatus(
+                    partitionKey = DiscoveryPartitions.MEDIASTORE_AUDIO,
+                    completeness = DiscoveryCompleteness.COMPLETE,
+                ),
+                extended.status,
+                DiscoveryPartitionStatus(
+                    partitionKey = DiscoveryPartitions.MEDIASTORE_LYRICS_SIDECARS,
+                    completeness = DiscoveryCompleteness.COMPLETE,
+                ),
+            ),
+        )
     }
 
     private fun loadExtendedAudioFileDrafts(
@@ -337,7 +373,8 @@ object MediaStoreScanner {
         options: ScanOptions,
         lyricsByAudioKey: Map<String, List<ExternalLyricsRef>>,
         existingKeys: MutableSet<String>,
-    ): List<TrackDraft> = runCatching {
+    ): DraftChannelResult {
+        return try {
         val filesUri = MediaStore.Files.getContentUri("external")
         val projection = mutableListOf(
             MediaStore.Files.FileColumns._ID,
@@ -363,13 +400,14 @@ object MediaStoreScanner {
         }
         val args = FILE_EXTENSION_FALLBACKS.map { "%.$it" }.toTypedArray()
         val out = mutableListOf<TrackDraft>()
-        context.contentResolver.query(
+        val cursor = context.contentResolver.query(
             filesUri,
             projection.toTypedArray(),
             selection,
             args,
             "${MediaStore.Files.FileColumns.DATE_ADDED} DESC",
-        )?.use { c ->
+        ) ?: throw IOException("MediaStore files fallback query returned no cursor")
+        cursor.use { c ->
             val idCol = c.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
             val nameCol = c.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DISPLAY_NAME)
             val mimeCol = c.getColumnIndex(MediaStore.Files.FileColumns.MIME_TYPE)
@@ -431,87 +469,36 @@ object MediaStoreScanner {
                 )
             }
         }
-        out
-    }.getOrDefault(emptyList())
-
-    private fun loadLyricsIndex(context: Context): Map<String, List<ExternalLyricsRef>> {
-        val filesUri = MediaStore.Files.getContentUri("external")
-        val projection = mutableListOf(
-            MediaStore.Files.FileColumns._ID,
-            MediaStore.Files.FileColumns.DISPLAY_NAME,
-            MediaStore.Files.FileColumns.SIZE,
-            MediaStore.Files.FileColumns.DATE_MODIFIED,
+        DraftChannelResult(
+            drafts = out,
+            status = DiscoveryPartitionStatus(
+                partitionKey = DiscoveryPartitions.MEDIASTORE_FILES_FALLBACK,
+                completeness = DiscoveryCompleteness.COMPLETE,
+            ),
         )
-
-        val relativePathColumn = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            MediaStore.Files.FileColumns.RELATIVE_PATH
-        } else {
-            null
+        } catch (error: Exception) {
+            DraftChannelResult(
+                drafts = emptyList(),
+                status = DiscoveryPartitionStatus(
+                    partitionKey = DiscoveryPartitions.MEDIASTORE_FILES_FALLBACK,
+                    completeness = DiscoveryCompleteness.PARTIAL,
+                    detail = error.message.orEmpty().ifBlank { error.javaClass.simpleName },
+                ),
+            )
         }
-        if (relativePathColumn != null) {
-            projection += relativePathColumn
-        } else if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-            @Suppress("DEPRECATION")
-            val dataColumn = MediaStore.Files.FileColumns.DATA
-            projection += dataColumn
-        }
-
-        val out = LinkedHashMap<String, MutableList<ExternalLyricsRef>>()
-        val cursor = context.contentResolver.query(
-            filesUri,
-            projection.toTypedArray(),
-            "LOWER(${MediaStore.Files.FileColumns.DISPLAY_NAME}) LIKE ? OR " +
-                "LOWER(${MediaStore.Files.FileColumns.DISPLAY_NAME}) LIKE ?",
-            arrayOf("%.lrc", "%.ttml"),
-            null,
-        ) ?: throw IOException("MediaStore lyrics query returned no cursor")
-        cursor.use { cursor ->
-            val idCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
-            val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DISPLAY_NAME)
-            val sizeCol = cursor.getColumnIndex(MediaStore.Files.FileColumns.SIZE)
-            val dateModifiedCol = cursor.getColumnIndex(MediaStore.Files.FileColumns.DATE_MODIFIED)
-            val relativePathCol = relativePathColumn?.let { cursor.getColumnIndex(it) } ?: -1
-            @Suppress("DEPRECATION")
-            val dataCol = if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-                cursor.getColumnIndex(MediaStore.Files.FileColumns.DATA)
-            } else {
-                -1
-            }
-            while (cursor.moveToNext()) {
-                val name = cursor.getString(nameCol) ?: continue
-                if (!name.endsWith(".lrc", ignoreCase = true) &&
-                    !name.endsWith(".ttml", ignoreCase = true)
-                ) continue
-                val baseName = name.substringBeforeLast('.').trim()
-                if (baseName.isEmpty()) continue
-                val folderPath = when {
-                    relativePathCol >= 0 -> cursor.getString(relativePathCol).orEmpty()
-                    dataCol >= 0 -> cursor.getString(dataCol).orEmpty().substringBeforeLast('/', "")
-                    else -> ""
-                }
-                val uri = ContentUris.withAppendedId(filesUri, cursor.getLong(idCol)).toString()
-                out.getOrPut(lyricsKey(folderPath, baseName)) { mutableListOf() } += ExternalLyricsRef(
-                    uri = uri,
-                    sizeBytes = cursor.getLongOrZero(sizeCol),
-                    dateModifiedMs = if (dateModifiedCol >= 0) cursor.getLong(dateModifiedCol) * 1000L else 0L,
-                    extension = name.substringAfterLast('.', "").lowercase(),
-                )
-            }
-        }
-        return out.mapValues { (_, refs) -> refs.distinctBy { it.uri } }
     }
 
-    private fun lyricsFolderPath(relativePath: String, absolutePath: String): String = when {
-        relativePath.isNotBlank() -> relativePath
-        '/' in absolutePath -> absolutePath.substringBeforeLast('/', "")
-        else -> ""
-    }
+    private fun loadLyricsIndex(context: Context): Map<String, List<ExternalLyricsRef>> =
+        MediaStoreLyricsSidecarInventory.loadComplete(context)
+
+    private fun lyricsFolderPath(relativePath: String, absolutePath: String): String =
+        mediaStoreLyricsFolderPath(relativePath, absolutePath)
 
     private fun lyricsKey(folderPath: String, baseName: String): String =
-        "${folderPath.trim('/').lowercase()}\u0001${baseName.trim().lowercase()}"
+        mediaStoreLyricsKey(folderPath, baseName)
 
     private fun mediaStoreDuplicateKey(mediaUri: String, filePath: String, sizeBytes: Long): String =
-        "${filePath.ifBlank { mediaUri }.lowercase()}\u0001${sizeBytes.coerceAtLeast(0L)}"
+        com.mica.music.data.scanner.mediaStoreDuplicateKey(mediaUri, filePath, sizeBytes)
 
     private fun android.database.Cursor.getStringOrEmpty(columnIndex: Int): String =
         if (columnIndex >= 0 && !isNull(columnIndex)) getString(columnIndex).orEmpty() else ""
@@ -579,15 +566,17 @@ internal fun reconcileMediaStoreFolderCasing(
     }
 }
 
-private fun resolvePhysicalDirectoryIdentity(
+internal fun resolveMediaStoreDirectoryIdentity(
     context: Context,
-    draft: TrackDraft,
+    mediaUri: String,
+    filePath: String,
+    folderPath: String,
 ): MediaStoreDirectoryIdentity? {
-    val absoluteFilePath = draft.filePath.trim()
+    val absoluteFilePath = filePath.trim()
         .takeIf { it.startsWith('/') && runCatching { File(it).isFile }.getOrDefault(false) }
-        ?: queryMediaStoreDataPath(context, draft.mediaUri)
+        ?: queryMediaStoreDataPath(context, mediaUri)
     val directory = absoluteFilePath?.let { File(it).parentFile }
-        ?: draft.folderPath.trim()
+        ?: folderPath.trim()
             .takeIf { it.startsWith('/') }
             ?.let(::File)
         ?: return null
@@ -616,7 +605,7 @@ private fun queryMediaStoreDataPath(context: Context, mediaUri: String): String?
         path.startsWith('/') && runCatching { File(path).isFile }.getOrDefault(false)
     }
 
-private fun normalizedFolderPath(path: String): String =
+internal fun normalizedFolderPath(path: String): String =
     path.trim().replace('\\', '/').trimEnd('/')
 
 private fun rewriteSyntheticFilePathFolder(draft: TrackDraft, folderPath: String): String {
@@ -665,7 +654,7 @@ internal suspend fun persistScannedLyricsBatch(
     return songs.map(::retainScannedSong)
 }
 
-private fun retainScannedSong(scanned: ScannedSong): Song {
+internal fun retainScannedSong(scanned: ScannedSong): Song {
     val song = when (scanned.lyrics) {
         is LyricsProbeResult.Complete -> scanned.song.copy(
             embeddedLyricsProbeRevision = scanned.song.embeddedLyricsProbeRevisionForCurrentFile(),

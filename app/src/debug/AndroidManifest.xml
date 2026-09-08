@@ -52,5 +52,50 @@
         <receiver
             android:name="com.mica.music.media.HybridQaPlaybackReceiver"
             android:exported="true" />
+
+        <!-- Debug-only, explicit-broadcast S4 SAF shadow gate control seam. -->
+        <receiver
+            android:name="com.mica.music.data.LibraryAutoSyncQaReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="${applicationId}.debug.LIBRARY_S4_RUN_SCENARIO" />
+                <action android:name="${applicationId}.debug.LIBRARY_S4_PROFILE_METADATA" />
+                <action android:name="${applicationId}.debug.LIBRARY_S4_EXTERNAL_PROVIDER_PROBE" />
+                <action android:name="${applicationId}.debug.LIBRARY_S4_EXTERNAL_PROVIDER_PREPARE_FIXTURE" />
+                <action android:name="${applicationId}.debug.LIBRARY_S4_EXTERNAL_PROVIDER_PAYLOAD_GATE" />
+                <action android:name="${applicationId}.debug.LIBRARY_S4_EXTERNAL_PROVIDER_PAYLOAD_PLAYBACK_GATE" />
+                <action android:name="${applicationId}.debug.LIBRARY_S4_PREPARE_PLAYBACK_BASELINE" />
+                <action android:name="${applicationId}.debug.LIBRARY_S4_PLAYBACK_DEFER_GATE" />
+                <action android:name="${applicationId}.debug.LIBRARY_S4_DUMP_PROFILE_EVIDENCE" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Debug-only user-selected SAF tree picker / vendor provider gate. -->
+        <activity
+            android:name="com.mica.music.data.LibraryAutoSyncQaPickerActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+
+        <!--
+            Debug-only one-shot picker automation seam. It is never enabled by production code:
+            the device Gate temporarily enables it through secure settings, it only clicks the
+            DocumentsUI confirm button when MicaSafVendorGate is visible, then disableSelf().
+        -->
+        <service
+            android:name="com.mica.music.data.LibraryAutoSyncQaPickerClickService"
+            android:exported="true"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/library_auto_sync_qa_picker_accessibility" />
+        </service>
+
+        <!-- Debug-only long-running S4 metadata profiler. -->
+        <service
+            android:name="com.mica.music.data.LibraryAutoSyncQaProfileService"
+            android:exported="true" />
     </application>
 </manifest>

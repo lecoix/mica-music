@@ -146,6 +146,13 @@ interface SongLyricsDao {
     suspend fun deleteLyricsReplacedByPending(scanId: String)
 
     @Query(
+        "DELETE FROM song_lyrics WHERE songId IN " +
+            "(SELECT songId FROM song_lyrics_pending WHERE scanId = :scanId) " +
+            "AND slot IN ('EXTERNAL_LRC', 'EXTERNAL_TTML')",
+    )
+    suspend fun deleteExternalLyricsReplacedByPending(scanId: String)
+
+    @Query(
         "INSERT OR REPLACE INTO song_lyrics(songId, slot, revision, lyricsJson) " +
             "SELECT songId, 'EMBEDDED', revision, embeddedJson FROM song_lyrics_pending " +
             "WHERE scanId = :scanId AND embeddedJson IS NOT NULL",

@@ -12,6 +12,11 @@ import java.util.concurrent.ThreadFactory
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 
+internal data class VideoCoverPosterRef(
+    val uri: String,
+    val revision: String,
+)
+
 /**
  * After folder scan publishes matched video covers, extract first-frame posters
  * on a single background thread (cancel prior job, skip cache hits).
@@ -44,8 +49,10 @@ internal object VideoCoverPosterPrefetcher {
         }
     }
 
-    fun enqueue(context: Context, uris: Collection<String>) {
-        val unique = uris.mapNotNull { it.takeIf(String::isNotBlank) }.distinct()
+    fun enqueue(context: Context, refs: Collection<VideoCoverPosterRef>) {
+        val unique = refs
+            .filter { it.uri.isNotBlank() }
+            .distinct()
         val appContext = context.applicationContext
         synchronized(enqueueLock) {
             val gen = generation.incrementAndGet()
@@ -60,10 +67,14 @@ internal object VideoCoverPosterPrefetcher {
             task = FutureTask {
                 try {
                     val stats = prefetchVideoCoverPosters(
-                        uris = unique,
-                        isCached = { VideoCoverPosterStore.isCached(appContext, it) },
-                        extract = { extractFirstFrame(appContext, it) },
-                        store = { uri, bitmap -> VideoCoverPosterStore.put(appContext, uri, bitmap) },
+                        refs = unique,
+                        isCached = { ref ->
+                            VideoCoverPosterStore.isCached(appContext, ref.uri, ref.revision)
+                        },
+                        extract = { ref -> extractFirstFrame(appContext, ref.uri) },
+                        store = { ref, bitmap ->
+                            VideoCoverPosterStore.put(appContext, ref.uri, ref.revision, bitmap)
+                        },
                         shouldContinue = { generation.get() == gen },
                     )
                     DiagnosticLog.event(
@@ -90,23 +101,23 @@ internal object VideoCoverPosterPrefetcher {
     )
 
     internal fun prefetchVideoCoverPosters(
-        uris: Collection<String>,
-        isCached: (String) -> Boolean,
-        extract: (String) -> Bitmap?,
-        store: (String, Bitmap) -> Unit,
+        refs: Collection<VideoCoverPosterRef>,
+        isCached: (VideoCoverPosterRef) -> Boolean,
+        extract: (VideoCoverPosterRef) -> Bitmap?,
+        store: (VideoCoverPosterRef, Bitmap) -> Unit,
         shouldContinue: () -> Boolean = { true },
     ): PrefetchStats {
-        val unique = uris.mapNotNull { it.takeIf(String::isNotBlank) }.distinct()
+        val unique = refs.filter { it.uri.isNotBlank() }.distinct()
         var skipped = 0
         var stored = 0
         var failed = 0
-        for (uri in unique) {
+        for (ref in unique) {
             if (!shouldContinue()) break
-            if (isCached(uri)) {
+            if (isCached(ref)) {
                 skipped++
                 continue
             }
-            val bitmap = extract(uri)
+            val bitmap = extract(ref)
             if (!shouldContinue()) {
                 recycleIfNeeded(bitmap)
                 break
@@ -115,7 +126,7 @@ internal object VideoCoverPosterPrefetcher {
                 failed++
                 continue
             }
-            store(uri, bitmap)
+            store(ref, bitmap)
             stored++
         }
         return PrefetchStats(

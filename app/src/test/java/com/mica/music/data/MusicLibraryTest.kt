@@ -580,6 +580,42 @@ class MusicLibraryTest {
     }
 
     @Test
+    fun userExcludedSongDoesNotReturnOnLaterFullScan() = runTest {
+        val scanner = ControlledScanner()
+        val store = FakeLibraryStore()
+        val library = library(scanner, store)
+        val excluded = SongFixtures.song("persistent-exclusion")
+
+        val initialScan = async { library.scanDeviceWide() }
+        runCurrent()
+        scanner.deviceRequests[0].result.complete(ScanResult(listOf(excluded), totalSizeMb = 1))
+        initialScan.await()
+        assertEquals(listOf(excluded.id), library.songIds)
+
+        assertTrue(library.removeSongFromLibrary(excluded))
+        assertTrue(library.songIds.isEmpty())
+        assertEquals(
+            listOf(excluded.id),
+            store.userExclusions.map { it.stableObjectKey },
+        )
+
+        val rescan = async { library.scanDeviceWide() }
+        runCurrent()
+        // The provider still reports the same physical object; the tombstone must win.
+        scanner.deviceRequests[1].result.complete(ScanResult(listOf(excluded), totalSizeMb = 1))
+        rescan.await()
+
+        assertTrue(library.songIds.isEmpty())
+        assertTrue(store.syncedSongs.isEmpty())
+        assertEquals(
+            listOf(excluded.id),
+            store.userExclusions.map { it.stableObjectKey },
+        )
+
+        library.release()
+    }
+
+    @Test
     fun removingLastSongPublishesAndPersistsEmptyCatalogAfterOlderStoreWrite() = runTest {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         PreferencesTestFixtures.clearMicaSettings(context)
@@ -599,19 +635,24 @@ class MusicLibraryTest {
         runCurrent()
         assertEquals(listOf("only"), store.requests[1].songs.map { it.id })
 
-        library.removeSongFromLibrary(onlySong.id)
+        val remove = async { library.removeSongFromLibrary(onlySong) }
+        runCurrent()
+
+        // The older presentation write owns the store first; user exclusion waits behind it.
+        assertEquals(2, store.requests.size)
+        assertEquals(listOf("only"), library.songIds)
+
+        store.requests[1].release.complete(Unit)
+        runCurrent()
+        assertEquals(3, store.requests.size)
+        assertTrue(store.requests[2].songs.isEmpty())
+
+        store.requests[2].release.complete(Unit)
+        assertTrue(remove.await())
         runCurrent()
 
         assertTrue(library.songs.isEmpty())
         assertTrue(library.songIds.isEmpty())
-        assertEquals(2, store.requests.size)
-
-        store.requests[1].release.complete(Unit)
-        runCurrent()
-        assertTrue(store.requests[2].songs.isEmpty())
-        store.requests[2].release.complete(Unit)
-        runCurrent()
-
         assertTrue(store.persistedSongs.isEmpty())
         library.release()
     }
@@ -791,10 +832,26 @@ class MusicLibraryTest {
         var persistedAlbumTitles: List<String> = cached?.albumGroups?.map(BrowseGroup::title).orEmpty()
         var updatedAlbumTitles: List<String> = emptyList()
         val coverColorWrites = mutableListOf<Pair<String, Int>>()
+        val userExclusions = mutableListOf<com.mica.music.data.library.LibraryUserExclusion>()
         val browseGroupUpdateStarted = CompletableDeferred<Unit>()
         var browseGroupUpdateGate: CompletableDeferred<Unit>? = null
 
         override suspend fun loadCached(): CachedLibrary? = cached
+
+        override suspend fun loadUserExclusions(
+            sourceIdentity: com.mica.music.data.library.SourceIdentityKey,
+        ): List<com.mica.music.data.library.LibraryUserExclusion> =
+            userExclusions.filter { it.sourceIdentity == sourceIdentity }
+
+        override suspend fun upsertUserExclusion(
+            exclusion: com.mica.music.data.library.LibraryUserExclusion,
+        ) {
+            userExclusions.removeAll {
+                it.sourceIdentity == exclusion.sourceIdentity &&
+                    it.stableObjectKey == exclusion.stableObjectKey
+            }
+            userExclusions += exclusion
+        }
 
         override suspend fun loadLyrics(
             songId: String,

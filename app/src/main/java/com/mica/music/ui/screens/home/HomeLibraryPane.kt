@@ -42,7 +42,7 @@ internal fun HomeLibraryPane(
         shouldOpenSettings && !library.permissionGranted && !library.hasLibraryFolder() -> {
             EmptyStatePresets.PermissionDeniedOpenSettings(onOpenSettings = onOpenSettings)
         }
-        library.isScanning && library.songs.isEmpty() -> {
+        library.isUserVisibleScanning && library.songs.isEmpty() -> {
             EmptyStatePresets.Scanning(progressLabel = library.scanProgressLabel)
         }
         library.isLoadingCachedLibrary && library.songs.isEmpty() -> {

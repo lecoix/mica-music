@@ -98,11 +98,13 @@ class MainActivity : ComponentActivity(), LyricoTagEditorHost {
         super.onStart()
         MicaSpectrumAnalyzer.setAnalysisActive(true)
         (application as MicaApp).desktopLyricsOverlayStateStore.setAppInForeground(true)
+        viewModel.library.onForegroundChanged(true)
     }
 
     override fun onStop() {
         MicaSpectrumAnalyzer.setAnalysisActive(false)
         (application as MicaApp).desktopLyricsOverlayStateStore.setAppInForeground(false)
+        viewModel.library.onForegroundChanged(false)
         (application as MicaApp).playerController.persistPlaybackSessionNow()
         super.onStop()
     }
@@ -289,12 +291,24 @@ class MainActivity : ComponentActivity(), LyricoTagEditorHost {
                     playerController.connectIfNeeded()
                 }
                 UsageTutorialScanInvitation(
-                    scanInProgress = { library.isScanning },
+                    scanInProgress = { library.isUserVisibleScanning },
                     enabled = !externalAudioOpenActive,
                 )
 
-                LaunchedEffect(library.songIds, library.queueMetadataRevision) {
+                LaunchedEffect(
+                    library.songIds,
+                    library.queueMetadataRevision,
+                    library.libraryChangeRevision,
+                ) {
                     viewModel.syncPlaybackQueueWithLibrarySongs("libraryQueueRevision")
+                    viewModel.consumeLibraryFollowups()
+                }
+
+                LaunchedEffect(
+                    playerController.playbackSurfaceState.currentSong?.id,
+                    playerController.playbackSurfaceState.playbackStatus.execution,
+                ) {
+                    viewModel.onPlaybackCurrentChanged()
                 }
 
                 CompositionLocalProvider(LocalMicaBlurTarget provides blurTarget) {

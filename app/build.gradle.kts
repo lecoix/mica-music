@@ -15,6 +15,10 @@ providers.gradleProperty("mica.alternateBuildDir").orNull?.let { alternateDir ->
 val qaSideBySide = providers.gradleProperty("mica.qaSideBySide")
     .map(String::toBoolean)
     .getOrElse(false)
+val qaApplicationIdOverride = providers.gradleProperty("mica.qaApplicationId")
+    .orNull
+    ?.trim()
+    ?.takeIf(String::isNotEmpty)
 val abiSplitApks = providers.gradleProperty("mica.abiSplitApks")
     .map(String::toBoolean)
     .getOrElse(false)
@@ -55,7 +59,8 @@ android {
         buildConfigField("boolean", "PCM_DELIVERY_PROBE", (providers.gradleProperty("mica.pcmDeliveryProbe").orNull == "true").toString())
         // The 1.5 s frame/log capture is opt-in and must not burden ordinary track switches.
         buildConfigField("boolean", "TRACK_SWITCH_PERFORMANCE", (providers.gradleProperty("mica.trackSwitchPerformance").orNull == "true").toString())
-        applicationId = if (qaSideBySide) "com.mica.music.qa" else "com.mica.music"
+        applicationId = qaApplicationIdOverride
+            ?: if (qaSideBySide) "com.mica.music.qa" else "com.mica.music"
         minSdk = 26
         targetSdk = 34
         versionCode = 54

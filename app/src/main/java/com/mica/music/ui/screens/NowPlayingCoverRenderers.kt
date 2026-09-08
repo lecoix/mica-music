@@ -416,11 +416,17 @@ internal fun StandardCoverRenderer(
             )
         }
         val videoSlots = buildList {
-            pinnedVideo.incomingUri?.let { add(it to false) }
-            pinnedVideo.outgoingUri?.takeIf { it != pinnedVideo.incomingUri }?.let { add(it to true) }
+            pinnedVideo.incomingUri?.let { uri ->
+                add(Triple(uri, visibleSong.videoCoverRevision, false))
+            }
+            pinnedVideo.outgoingUri
+                ?.takeIf { it != pinnedVideo.incomingUri }
+                ?.let { uri ->
+                    add(Triple(uri, outgoingSong?.videoCoverRevision.orEmpty(), true))
+                }
         }
-        videoSlots.forEach { (videoUri, asOutgoing) ->
-            key(videoUri) {
+        videoSlots.forEach { (videoUri, videoRevision, asOutgoing) ->
+            key(videoUri, videoRevision) {
                 val holdFullScreenWhileWipe = outgoingSong != null &&
                     !asOutgoing &&
                     pinnedVideo.outgoingUri == null &&
@@ -433,6 +439,7 @@ internal fun StandardCoverRenderer(
                 }
                 VideoAlbumCoverHost(
                     uri = videoUri,
+                    revision = videoRevision,
                     isPlaying = isPlaying && !asOutgoing && videoUriOf(visibleSong) == videoUri,
                     onPlaybackError = { failedVideoCovers[videoUri] = true },
                     modifier = Modifier.size(cover.width, cover.height).then(modifier),

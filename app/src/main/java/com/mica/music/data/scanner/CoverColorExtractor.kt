@@ -20,9 +20,9 @@ object CoverColorExtractor {
         decodeSampled(bytes)?.let { fromBitmap(it) }
 
     fun fromUri(context: Context, uri: Uri): Int? = runCatching {
-        context.contentResolver.openInputStream(uri)?.use { stream ->
-            decodeSampled(stream.readBytes())?.let { fromBitmap(it) }
-        }
+        decodeSampledFromStream {
+            context.contentResolver.openInputStream(uri)
+        }?.let { fromBitmap(it) }
     }.getOrNull()
 
     suspend fun fromUriString(context: Context, uriString: String?): Int? {
@@ -94,6 +94,23 @@ object CoverColorExtractor {
         val w = (source.width * scale).toInt().coerceAtLeast(1)
         val h = (source.height * scale).toInt().coerceAtLeast(1)
         return Bitmap.createScaledBitmap(source, w, h, true)
+    }
+
+    internal fun decodeSampledFromStream(
+        openStream: () -> java.io.InputStream?,
+    ): Bitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        val hasBoundsStream = openStream()?.use { stream ->
+            BitmapFactory.decodeStream(stream, null, bounds)
+            true
+        } ?: false
+        if (!hasBoundsStream || bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+
+        val sample = calculateInSampleSize(bounds, 128)
+        val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+        return openStream()?.use { stream ->
+            BitmapFactory.decodeStream(stream, null, opts)
+        }
     }
 
     private fun decodeSampled(bytes: ByteArray): Bitmap? {

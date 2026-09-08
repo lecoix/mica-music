@@ -8,10 +8,23 @@ import com.mica.music.data.preferences.PlaybackUiPreferences
 import com.mica.music.data.local.CachedLibrary
 import com.mica.music.data.local.LibraryRepository
 import com.mica.music.data.local.LibrarySyncResult
+import com.mica.music.data.library.LibraryAutoSyncStateMutation
+import com.mica.music.data.library.LibraryFollowupOutboxItem
+import com.mica.music.data.library.LibraryRetryItem
+import com.mica.music.data.library.LibrarySyncCheckpoint
+import com.mica.music.data.library.LyricsStagingMode
+import com.mica.music.data.library.LibraryUserExclusion
+import com.mica.music.data.library.PersistedLibraryState
+import com.mica.music.data.library.SourceIdentityKey
 import com.mica.music.data.scanner.FolderScanner
 import com.mica.music.data.scanner.MediaStoreScanner
 import com.mica.music.data.scanner.ScanCacheManager
 import com.mica.music.data.scanner.ScanResult
+import com.mica.music.data.scanner.DiscoveryReport
+import com.mica.music.data.scanner.DiscoveryPartitions
+import com.mica.music.data.scanner.DiscoveryPartitionStatus
+import com.mica.music.data.scanner.DiscoveryCompleteness
+import com.mica.music.data.scanner.SafTreeMetadataSnapshot
 import com.mica.music.data.scanner.VideoCoverPosterPrefetcher
 
 internal interface LibraryScanner {
@@ -36,6 +49,19 @@ internal interface LibraryScanner {
         forceRefreshLyrics = forceRefreshLyrics,
         forceRefreshArtwork = forceRefreshArtwork,
         onLyricsBatch = onLyricsBatch,
+    )
+
+    suspend fun observeFolderMetadata(
+        treeUri: Uri,
+    ): SafTreeMetadataSnapshot = SafTreeMetadataSnapshot(
+        entries = emptyList(),
+        discoveryReport = DiscoveryReport.of(
+            DiscoveryPartitionStatus(
+                partitionKey = DiscoveryPartitions.SAF_TREE,
+                completeness = DiscoveryCompleteness.UNAVAILABLE,
+                detail = "folder-metadata-observer-not-implemented",
+            ),
+        ),
     )
 
     suspend fun scanFolder(
@@ -65,8 +91,88 @@ internal interface LibraryScanner {
     )
 }
 
+internal data class LibraryAutoSyncStoreRow(
+    val song: Song,
+    val queueOrderHint: Int,
+)
+
+internal data class LibraryAutoSyncStoreDelta(
+    val upsertRows: List<LibraryAutoSyncStoreRow>,
+    val removedSongIds: List<String>,
+    val snapshotSongCount: Int,
+    val addedCount: Int,
+    val updatedCount: Int,
+) {
+    init {
+        require(snapshotSongCount >= 0)
+        require(addedCount >= 0)
+        require(updatedCount >= 0)
+        require(upsertRows.map(LibraryAutoSyncStoreRow::song).map(Song::id).distinct().size ==
+            upsertRows.size)
+        require(removedSongIds.distinct().size == removedSongIds.size)
+        require(upsertRows.none { it.song.id in removedSongIds })
+    }
+
+    val removedCount: Int
+        get() = removedSongIds.size
+
+    val unchangedCount: Int
+        get() = (snapshotSongCount - addedCount - updatedCount).coerceAtLeast(0)
+}
+
 internal interface LibraryStore {
     suspend fun loadCached(): CachedLibrary?
+
+    suspend fun loadLibraryState(): PersistedLibraryState? = null
+
+    suspend fun saveLibraryState(state: PersistedLibraryState) = Unit
+
+    suspend fun loadSyncCheckpoints(sourceIdentity: SourceIdentityKey): List<LibrarySyncCheckpoint> =
+        emptyList()
+
+    suspend fun loadRetryItems(sourceIdentity: SourceIdentityKey): List<LibraryRetryItem> =
+        emptyList()
+
+    suspend fun applyAutoSyncState(mutation: LibraryAutoSyncStateMutation) = Unit
+
+    suspend fun loadUserExclusions(sourceIdentity: SourceIdentityKey): List<LibraryUserExclusion> =
+        emptyList()
+
+    suspend fun upsertUserExclusion(exclusion: LibraryUserExclusion) = Unit
+
+    suspend fun removeUserExclusion(sourceIdentity: SourceIdentityKey, stableObjectKey: String) = Unit
+
+    /**
+     * User-exclusion authority mutation. Production stores must persist the exclusion and the
+     * resulting complete snapshot in one transaction before memory publication.
+     */
+    suspend fun commitUserExclusionAuthority(
+        songs: List<Song>,
+        lastScanAtMs: Long,
+        lastScanSource: ScanSource,
+        totalSizeMb: Int,
+        exclusion: LibraryUserExclusion,
+        sortField: SongSortField? = null,
+        sortDirection: SortDirection? = null,
+        fastScrollSectionTargets: Map<String, Int>? = null,
+    ): LibrarySyncResult {
+        upsertUserExclusion(exclusion)
+        return commitScan(
+            songs = songs,
+            lastScanAtMs = lastScanAtMs,
+            lastScanSource = lastScanSource,
+            totalSizeMb = totalSizeMb,
+            sortField = sortField,
+            sortDirection = sortDirection,
+            fastScrollSectionTargets = fastScrollSectionTargets,
+        )
+    }
+
+    suspend fun loadFollowupOutbox(): List<LibraryFollowupOutboxItem> = emptyList()
+
+    suspend fun enqueueFollowupOutbox(item: LibraryFollowupOutboxItem) = Unit
+
+    suspend fun acknowledgeFollowupOutbox(eventId: String): Boolean = true
 
     suspend fun loadLyrics(
         songId: String,
@@ -75,6 +181,11 @@ internal interface LibraryStore {
     ): LyricsDocument = LyricsDocument()
 
     suspend fun applyLyricsBatch(batch: List<ScannedSongLyrics>) = Unit
+
+    suspend fun stageLyrics(scanId: String, batch: List<ScannedSongLyrics>) =
+        applyLyricsBatch(batch)
+
+    suspend fun discardStagedLyrics(scanId: String) = Unit
 
     suspend fun save(
         songs: List<Song>,
@@ -114,6 +225,135 @@ internal interface LibraryStore {
         fastScrollSectionTargets,
     )
 
+    suspend fun commitScanAuthority(
+        songs: List<Song>,
+        lastScanAtMs: Long,
+        lastScanSource: ScanSource,
+        totalSizeMb: Int,
+        state: PersistedLibraryState,
+        autoSyncStateMutation: LibraryAutoSyncStateMutation? = null,
+        stagedLyricsId: String? = null,
+        sortField: SongSortField? = null,
+        sortDirection: SortDirection? = null,
+        fastScrollSectionTargets: Map<String, Int>? = null,
+    ): LibrarySyncResult {
+        val result = commitScan(
+            songs = songs,
+            lastScanAtMs = lastScanAtMs,
+            lastScanSource = lastScanSource,
+            totalSizeMb = totalSizeMb,
+            sortField = sortField,
+            sortDirection = sortDirection,
+            fastScrollSectionTargets = fastScrollSectionTargets,
+        )
+        saveLibraryState(state)
+        autoSyncStateMutation?.let { applyAutoSyncState(it) }
+        return result
+    }
+
+    /**
+     * Visible AUTO publication authority. Production stores must commit the complete next
+     * snapshot, auto-sync checkpoint/retry mutation and durable followups atomically.
+     */
+    suspend fun commitAutoSyncSnapshotAuthority(
+        songs: List<Song>,
+        lastScanAtMs: Long,
+        lastScanSource: ScanSource,
+        totalSizeMb: Int,
+        state: PersistedLibraryState,
+        autoSyncStateMutation: LibraryAutoSyncStateMutation,
+        followupOutboxItems: List<LibraryFollowupOutboxItem>,
+        stagedLyricsId: String? = null,
+        stagedLyricsMode: LyricsStagingMode = LyricsStagingMode.FULL_REPLACE,
+        stagedExternalLyricsId: String? = null,
+        sortField: SongSortField? = null,
+        sortDirection: SortDirection? = null,
+        fastScrollSectionTargets: Map<String, Int>? = null,
+    ): LibrarySyncResult {
+        val result = commitScanAuthorityWithFollowups(
+            songs = songs,
+            lastScanAtMs = lastScanAtMs,
+            lastScanSource = lastScanSource,
+            totalSizeMb = totalSizeMb,
+            state = state,
+            stagedLyricsId = stagedLyricsId,
+            followupOutboxItems = followupOutboxItems,
+            sortField = sortField,
+            sortDirection = sortDirection,
+            fastScrollSectionTargets = fastScrollSectionTargets,
+        )
+        applyAutoSyncState(autoSyncStateMutation)
+        return result
+    }
+
+    /**
+     * Visible AUTO fast path. Production Room persists only the canonical rows touched by the
+     * prepared delta and atomically invalidates derived presentation/browse caches. Non-Room test
+     * stores intentionally fall back to the complete-snapshot seam.
+     */
+    suspend fun commitAutoSyncDeltaAuthority(
+        snapshotSongs: List<Song>,
+        delta: LibraryAutoSyncStoreDelta,
+        lastScanAtMs: Long,
+        lastScanSource: ScanSource,
+        totalSizeMb: Int,
+        state: PersistedLibraryState,
+        autoSyncStateMutation: LibraryAutoSyncStateMutation,
+        followupOutboxItems: List<LibraryFollowupOutboxItem>,
+        stagedLyricsId: String? = null,
+        stagedLyricsMode: LyricsStagingMode = LyricsStagingMode.FULL_REPLACE,
+        stagedExternalLyricsId: String? = null,
+        sortField: SongSortField? = null,
+        sortDirection: SortDirection? = null,
+        fastScrollSectionTargets: Map<String, Int>? = null,
+    ): LibrarySyncResult = commitAutoSyncSnapshotAuthority(
+        songs = snapshotSongs,
+        lastScanAtMs = lastScanAtMs,
+        lastScanSource = lastScanSource,
+        totalSizeMb = totalSizeMb,
+        state = state,
+        autoSyncStateMutation = autoSyncStateMutation,
+        followupOutboxItems = followupOutboxItems,
+        stagedLyricsId = stagedLyricsId,
+        stagedLyricsMode = stagedLyricsMode,
+        stagedExternalLyricsId = stagedExternalLyricsId,
+        sortField = sortField,
+        sortDirection = sortDirection,
+        fastScrollSectionTargets = fastScrollSectionTargets,
+    )
+
+    suspend fun commitScanAuthorityWithFollowups(
+        songs: List<Song>,
+        lastScanAtMs: Long,
+        lastScanSource: ScanSource,
+        totalSizeMb: Int,
+        state: PersistedLibraryState,
+        stagedLyricsId: String? = null,
+        followupOutboxItems: List<LibraryFollowupOutboxItem>,
+        sortField: SongSortField? = null,
+        sortDirection: SortDirection? = null,
+        fastScrollSectionTargets: Map<String, Int>? = null,
+    ): LibrarySyncResult {
+        val result = commitScanAuthority(
+            songs = songs,
+            lastScanAtMs = lastScanAtMs,
+            lastScanSource = lastScanSource,
+            totalSizeMb = totalSizeMb,
+            state = state,
+            stagedLyricsId = stagedLyricsId,
+            sortField = sortField,
+            sortDirection = sortDirection,
+            fastScrollSectionTargets = fastScrollSectionTargets,
+        )
+        followupOutboxItems.forEach { enqueueFollowupOutbox(it) }
+        return result
+    }
+
+    suspend fun clearAuthority(state: PersistedLibraryState) {
+        clear()
+        saveLibraryState(state)
+    }
+
     suspend fun updatePresentation(
         songIds: List<String>,
         sortField: SongSortField,
@@ -150,8 +390,8 @@ internal interface ScanEnvironment {
     fun clearTransientCache()
     /** Background cache maintenance against a snapshot that has already been committed. */
     fun pruneAlbumArtCache(songs: List<Song>)
-    /** Folder-scan only: background first-frame posters for matched video cover URIs. */
-    fun enqueueVideoCoverPosterPrefetch(videoCoverUris: Collection<String>) = Unit
+    /** Folder-scan only: background first-frame posters for matched video covers. */
+    fun enqueueVideoCoverPosterPrefetch(videoCoverRefs: Collection<com.mica.music.data.scanner.VideoCoverPosterRef>) = Unit
     fun persistLastScanSource(source: ScanSource)
     fun lyricsParserVersion(): Int = CURRENT_LYRICS_PARSER_VERSION
     fun persistLyricsParserVersion(version: Int) = Unit
@@ -198,6 +438,14 @@ internal class AndroidLibraryScanner(
         onLyricsBatch = onLyricsBatch,
     )
 
+    override suspend fun observeFolderMetadata(
+        treeUri: Uri,
+    ): SafTreeMetadataSnapshot = FolderScanner.observeMetadata(
+        context = context,
+        treeUri = treeUri,
+        options = LibraryScanSettings.scanOptions(context),
+    )
+
     override suspend fun scanFolder(
         treeUri: Uri,
         cachedSongs: List<Song>,
@@ -239,12 +487,68 @@ internal class AndroidLibraryScanner(
     )
 }
 
-internal class RoomLibraryStore(
-    context: Context,
+internal class RoomLibraryStore internal constructor(
+    private val repository: LibraryRepository,
 ) : LibraryStore {
-    private val repository = LibraryRepository(context)
+    constructor(context: Context) : this(LibraryRepository(context))
 
     override suspend fun loadCached(): CachedLibrary? = repository.loadCached()
+
+    override suspend fun loadLibraryState(): PersistedLibraryState? = repository.loadLibraryState()
+
+    override suspend fun saveLibraryState(state: PersistedLibraryState) = repository.saveLibraryState(state)
+
+    override suspend fun loadSyncCheckpoints(
+        sourceIdentity: SourceIdentityKey,
+    ): List<LibrarySyncCheckpoint> = repository.loadSyncCheckpoints(sourceIdentity)
+
+    override suspend fun loadRetryItems(
+        sourceIdentity: SourceIdentityKey,
+    ): List<LibraryRetryItem> = repository.loadRetryItems(sourceIdentity)
+
+    override suspend fun applyAutoSyncState(mutation: LibraryAutoSyncStateMutation) =
+        repository.applyAutoSyncState(mutation)
+
+    override suspend fun loadUserExclusions(
+        sourceIdentity: SourceIdentityKey,
+    ): List<LibraryUserExclusion> = repository.loadUserExclusions(sourceIdentity)
+
+    override suspend fun upsertUserExclusion(exclusion: LibraryUserExclusion) =
+        repository.upsertUserExclusion(exclusion)
+
+    override suspend fun removeUserExclusion(
+        sourceIdentity: SourceIdentityKey,
+        stableObjectKey: String,
+    ) = repository.removeUserExclusion(sourceIdentity, stableObjectKey)
+
+    override suspend fun commitUserExclusionAuthority(
+        songs: List<Song>,
+        lastScanAtMs: Long,
+        lastScanSource: ScanSource,
+        totalSizeMb: Int,
+        exclusion: LibraryUserExclusion,
+        sortField: SongSortField?,
+        sortDirection: SortDirection?,
+        fastScrollSectionTargets: Map<String, Int>?,
+    ): LibrarySyncResult = repository.commitUserExclusionAuthority(
+        songs = songs,
+        lastScanAtMs = lastScanAtMs,
+        lastScanSource = lastScanSource,
+        totalSizeMb = totalSizeMb,
+        exclusion = exclusion,
+        sortField = sortField,
+        sortDirection = sortDirection,
+        fastScrollSectionTargets = fastScrollSectionTargets,
+    )
+
+    override suspend fun loadFollowupOutbox(): List<LibraryFollowupOutboxItem> =
+        repository.loadFollowupOutbox()
+
+    override suspend fun enqueueFollowupOutbox(item: LibraryFollowupOutboxItem) =
+        repository.enqueueFollowupOutbox(item)
+
+    override suspend fun acknowledgeFollowupOutbox(eventId: String): Boolean =
+        repository.acknowledgeFollowupOutbox(eventId)
 
     override suspend fun loadLyrics(
         songId: String,
@@ -254,6 +558,12 @@ internal class RoomLibraryStore(
 
     override suspend fun applyLyricsBatch(batch: List<ScannedSongLyrics>) =
         repository.applyLyricsBatch(batch)
+
+    override suspend fun stageLyrics(scanId: String, batch: List<ScannedSongLyrics>) =
+        repository.stageLyrics(scanId, batch)
+
+    override suspend fun discardStagedLyrics(scanId: String) =
+        repository.discardStagedLyrics(scanId)
 
     override suspend fun save(
         songs: List<Song>,
@@ -310,6 +620,112 @@ internal class RoomLibraryStore(
         fastScrollSectionTargets,
     )
 
+    override suspend fun commitAutoSyncSnapshotAuthority(
+        songs: List<Song>,
+        lastScanAtMs: Long,
+        lastScanSource: ScanSource,
+        totalSizeMb: Int,
+        state: PersistedLibraryState,
+        autoSyncStateMutation: LibraryAutoSyncStateMutation,
+        followupOutboxItems: List<LibraryFollowupOutboxItem>,
+        stagedLyricsId: String?,
+        stagedLyricsMode: LyricsStagingMode,
+        stagedExternalLyricsId: String?,
+        sortField: SongSortField?,
+        sortDirection: SortDirection?,
+        fastScrollSectionTargets: Map<String, Int>?,
+    ): LibrarySyncResult = repository.commitAutoSyncSnapshotAuthority(
+        songs = songs,
+        lastScanAtMs = lastScanAtMs,
+        lastScanSource = lastScanSource,
+        totalSizeMb = totalSizeMb,
+        state = state,
+        autoSyncStateMutation = autoSyncStateMutation,
+        followupOutboxItems = followupOutboxItems,
+        stagedLyricsId = stagedLyricsId,
+        stagedLyricsMode = stagedLyricsMode,
+        stagedExternalLyricsId = stagedExternalLyricsId,
+        sortField = sortField,
+        sortDirection = sortDirection,
+        fastScrollSectionTargets = fastScrollSectionTargets,
+    )
+
+    override suspend fun commitAutoSyncDeltaAuthority(
+        snapshotSongs: List<Song>,
+        delta: LibraryAutoSyncStoreDelta,
+        lastScanAtMs: Long,
+        lastScanSource: ScanSource,
+        totalSizeMb: Int,
+        state: PersistedLibraryState,
+        autoSyncStateMutation: LibraryAutoSyncStateMutation,
+        followupOutboxItems: List<LibraryFollowupOutboxItem>,
+        stagedLyricsId: String?,
+        stagedLyricsMode: LyricsStagingMode,
+        stagedExternalLyricsId: String?,
+        sortField: SongSortField?,
+        sortDirection: SortDirection?,
+        fastScrollSectionTargets: Map<String, Int>?,
+    ): LibrarySyncResult = repository.commitAutoSyncDeltaAuthority(
+        delta = delta,
+        lastScanAtMs = lastScanAtMs,
+        lastScanSource = lastScanSource,
+        totalSizeMb = totalSizeMb,
+        state = state,
+        autoSyncStateMutation = autoSyncStateMutation,
+        followupOutboxItems = followupOutboxItems,
+        stagedLyricsId = stagedLyricsId,
+        stagedLyricsMode = stagedLyricsMode,
+        stagedExternalLyricsId = stagedExternalLyricsId,
+    )
+
+    override suspend fun commitScanAuthorityWithFollowups(
+        songs: List<Song>,
+        lastScanAtMs: Long,
+        lastScanSource: ScanSource,
+        totalSizeMb: Int,
+        state: PersistedLibraryState,
+        stagedLyricsId: String?,
+        followupOutboxItems: List<LibraryFollowupOutboxItem>,
+        sortField: SongSortField?,
+        sortDirection: SortDirection?,
+        fastScrollSectionTargets: Map<String, Int>?,
+    ): LibrarySyncResult = repository.commitScanAuthorityWithFollowups(
+        songs = songs,
+        lastScanAtMs = lastScanAtMs,
+        lastScanSource = lastScanSource,
+        totalSizeMb = totalSizeMb,
+        state = state,
+        stagedLyricsId = stagedLyricsId,
+        followupOutboxItems = followupOutboxItems,
+        sortField = sortField,
+        sortDirection = sortDirection,
+        fastScrollSectionTargets = fastScrollSectionTargets,
+    )
+
+    override suspend fun commitScanAuthority(
+        songs: List<Song>,
+        lastScanAtMs: Long,
+        lastScanSource: ScanSource,
+        totalSizeMb: Int,
+        state: PersistedLibraryState,
+        autoSyncStateMutation: LibraryAutoSyncStateMutation?,
+        stagedLyricsId: String?,
+        sortField: SongSortField?,
+        sortDirection: SortDirection?,
+        fastScrollSectionTargets: Map<String, Int>?,
+    ): LibrarySyncResult = repository.commitScanAuthority(
+        songs = songs,
+        lastScanAtMs = lastScanAtMs,
+        lastScanSource = lastScanSource,
+        totalSizeMb = totalSizeMb,
+        state = state,
+        autoSyncStateMutation = autoSyncStateMutation,
+        stagedLyricsId = stagedLyricsId,
+        sortField = sortField,
+        sortDirection = sortDirection,
+        fastScrollSectionTargets = fastScrollSectionTargets,
+    )
+
     override suspend fun updatePresentation(
         songIds: List<String>,
         sortField: SongSortField,
@@ -347,6 +763,8 @@ internal class RoomLibraryStore(
         albumFastScrollSectionTargets,
     )
 
+    override suspend fun clearAuthority(state: PersistedLibraryState) = repository.clearAuthority(state)
+
     override suspend fun clear() = repository.clear()
 }
 
@@ -382,12 +800,14 @@ internal class AndroidScanEnvironment(
     override fun pruneAlbumArtCache(songs: List<Song>) =
         ScanCacheManager.pruneAlbumArtCache(context, songs)
 
-    override fun enqueueVideoCoverPosterPrefetch(videoCoverUris: Collection<String>) {
+    override fun enqueueVideoCoverPosterPrefetch(
+        videoCoverRefs: Collection<com.mica.music.data.scanner.VideoCoverPosterRef>,
+    ) {
         if (!PlaybackUiPreferences.videoAlbumCoverEnabled(context)) {
             VideoCoverPosterPrefetcher.cancel()
             return
         }
-        VideoCoverPosterPrefetcher.enqueue(context, videoCoverUris)
+        VideoCoverPosterPrefetcher.enqueue(context, videoCoverRefs)
     }
 
     override fun persistLastScanSource(source: ScanSource) =

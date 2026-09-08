@@ -4,6 +4,11 @@ import com.mica.music.data.Song
 import java.text.Normalizer
 import java.util.Locale
 
+internal data class MusicVideoMatchGroupKey(
+    val folderPath: String,
+    val normalizedBaseName: String,
+)
+
 /** Linear-time, directory-scoped matcher for audio files and MP4 sidecars. */
 internal object MusicVideoMatcher {
     private val whitespace = Regex("\\s+")
@@ -39,10 +44,44 @@ internal object MusicVideoMatcher {
             matches[song.id]?.let { video ->
                 song.copy(
                     musicVideoUri = video.uri,
-                    musicVideoRevision = "${video.uri}|${video.sizeBytes}|${video.lastModifiedMs}",
+                    musicVideoRevision = video.revision,
                 )
             } ?: withoutMusicVideo(song)
         }
+    }
+
+    fun groupKey(song: Song): MusicVideoMatchGroupKey =
+        MusicVideoMatchGroupKey(song.folderPath, normalize(song.baseName()))
+
+    fun groupKey(video: VideoCoverFile): MusicVideoMatchGroupKey =
+        MusicVideoMatchGroupKey(video.folderPath, normalize(video.baseName))
+
+    fun affectedGroupKeys(
+        songs: Collection<Song> = emptyList(),
+        videos: Collection<VideoCoverFile> = emptyList(),
+    ): Set<MusicVideoMatchGroupKey> = buildSet {
+        songs.forEach { add(groupKey(it)) }
+        videos.forEach { add(groupKey(it)) }
+    }
+
+    /**
+     * Recomputes only normalized basename families whose membership changed.
+     *
+     * Callers handling rename/remove must include both the old and new group keys. This preserves
+     * exact-match precedence while allowing a newly-added duplicate audio/video to invalidate a
+     * previously unique pairing in the same normalized family.
+     */
+    fun attachAffected(
+        songs: List<Song>,
+        videos: List<VideoCoverFile>,
+        affectedGroups: Set<MusicVideoMatchGroupKey>,
+    ): List<Song> {
+        if (songs.isEmpty() || affectedGroups.isEmpty()) return songs
+        val affectedSongs = songs.filter { groupKey(it) in affectedGroups }
+        if (affectedSongs.isEmpty()) return songs
+        val affectedVideos = videos.filter { groupKey(it) in affectedGroups }
+        val rematchedById = attach(affectedSongs, affectedVideos).associateBy(Song::id)
+        return songs.map { rematchedById[it.id] ?: it }
     }
 
     private fun matchUniqueGroups(

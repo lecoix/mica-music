@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import com.mica.music.util.DiagnosticLog
+import java.io.ByteArrayOutputStream
 import java.io.FileInputStream
 
 /**
@@ -225,19 +226,29 @@ internal fun readHeadCompat(context: Context, uri: Uri, maxBytes: Int): ByteArra
 /** Equivalent to InputStream.readNBytes(limit), but available on every supported Android API. */
 internal fun java.io.InputStream.readUpToCompat(limit: Int): ByteArray {
     require(limit >= 0) { "limit must be non-negative" }
-    val buffer = ByteArray(limit)
-    var offset = 0
-    while (offset < limit) {
-        val count = read(buffer, offset, limit - offset)
+    if (limit == 0) return ByteArray(0)
+
+    // Do not preallocate the full limit: external lyrics allow up to 10 MiB,
+    // while the common case is only a few KiB. A limit-sized buffer can OOM a
+    // long-running scan even when the actual sidecar is tiny.
+    val chunk = ByteArray(minOf(limit, 8 * 1024))
+    val output = ByteArrayOutputStream(chunk.size)
+    var total = 0
+    while (total < limit) {
+        val count = read(chunk, 0, minOf(chunk.size, limit - total))
         when {
-            count > 0 -> offset += count
+            count > 0 -> {
+                output.write(chunk, 0, count)
+                total += count
+            }
             count < 0 -> break
             else -> {
                 val next = read()
                 if (next < 0) break
-                buffer[offset++] = next.toByte()
+                output.write(next)
+                total += 1
             }
         }
     }
-    return if (offset == limit) buffer else buffer.copyOf(offset)
+    return output.toByteArray()
 }

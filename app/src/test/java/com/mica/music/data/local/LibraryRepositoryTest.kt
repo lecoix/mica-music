@@ -17,12 +17,27 @@ import com.mica.music.data.LyricsFormat
 import com.mica.music.data.LyricsOrigin
 import com.mica.music.data.LyricsSlots
 import com.mica.music.data.ScannedSongLyrics
+import com.mica.music.data.Song
 import com.mica.music.data.LyricsSlot
+import com.mica.music.data.library.LibraryAccessState
+import com.mica.music.data.library.LibraryAutoSyncStateMutation
+import com.mica.music.data.library.LibraryFollowupOutboxItem
+import com.mica.music.data.library.LibraryIntentState
+import com.mica.music.data.library.LibraryRetryItem
+import com.mica.music.data.library.LibraryRetryKind
+import com.mica.music.data.library.LibrarySyncCheckpoint
+import com.mica.music.data.library.LibraryUserExclusion
+import com.mica.music.data.library.PersistedLibraryState
+import com.mica.music.data.library.SourceActivation
+import com.mica.music.data.library.SourceIdentityKey
+import com.mica.music.data.library.LibrarySourceState
 import com.mica.music.testutil.SongFixtures
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -79,6 +94,541 @@ class LibraryRepositoryTest {
         repository.save(SongFixtures.queue(2), 100, ScanSource.DEVICE, 2)
         repository.clear()
         assertNull(repository.loadCached())
+    }
+
+    @Test
+    fun checkpointAndRetryCommitAtomically() = runTest {
+        val source = SourceIdentityKey.device()
+        val checkpoint = LibrarySyncCheckpoint(
+            sourceIdentity = source,
+            partitionKey = "external_primary",
+            providerVersion = "v1",
+            generation = 42L,
+            configFingerprint = "cfg",
+            lastSuccessfulAutoSyncAtMs = 1234L,
+        )
+        val retry = LibraryRetryItem(
+            sourceIdentity = source,
+            retryKey = "song-1@rev-1",
+            activationEpoch = 7L,
+            stableObjectKey = "song-1",
+            observedFingerprint = "rev-1",
+            retryKind = LibraryRetryKind.OBJECT_PROBE,
+            failureKind = "metadata",
+            attemptCount = 1,
+            nextRetryAtMs = 9999L,
+        )
+
+        repository.applyAutoSyncState(
+            LibraryAutoSyncStateMutation(
+                sourceIdentity = source,
+                checkpoints = listOf(checkpoint),
+                retryUpserts = listOf(retry),
+            ),
+        )
+
+        assertEquals(listOf(checkpoint), repository.loadSyncCheckpoints(source))
+        assertEquals(listOf(retry), repository.loadRetryItems(source))
+    }
+
+    @Test
+    fun retryInsertFailureRollsBackCheckpointAdvance() = runTest {
+        val source = SourceIdentityKey.device()
+        database.openHelper.writableDatabase.execSQL(
+            """
+            CREATE TRIGGER fail_library_retry_insert
+            BEFORE INSERT ON library_retry_items
+            BEGIN
+                SELECT RAISE(ABORT, 'forced retry failure');
+            END
+            """.trimIndent(),
+        )
+        val checkpoint = LibrarySyncCheckpoint(
+            sourceIdentity = source,
+            partitionKey = "external_primary",
+            providerVersion = "v2",
+            generation = 99L,
+            configFingerprint = "cfg",
+            lastSuccessfulAutoSyncAtMs = 2222L,
+        )
+        val retry = LibraryRetryItem(
+            sourceIdentity = source,
+            retryKey = "song-fail@rev",
+            activationEpoch = 1L,
+            stableObjectKey = "song-fail",
+            observedFingerprint = "rev",
+            retryKind = LibraryRetryKind.OBJECT_PROBE,
+            failureKind = "forced",
+            attemptCount = 1,
+            nextRetryAtMs = 3333L,
+        )
+
+        try {
+            repository.applyAutoSyncState(
+                LibraryAutoSyncStateMutation(
+                    sourceIdentity = source,
+                    checkpoints = listOf(checkpoint),
+                    retryUpserts = listOf(retry),
+                ),
+            )
+            fail("expected retry insert to abort transaction")
+        } catch (_: Exception) {
+            // Expected: the trigger aborts the single Room transaction.
+        }
+
+        assertTrue(repository.loadSyncCheckpoints(source).isEmpty())
+        assertTrue(repository.loadRetryItems(source).isEmpty())
+    }
+
+    @Test
+    fun autoSnapshotCheckpointAndFollowupRollbackTogetherWhenFollowupInsertFails() = runTest {
+        val source = SourceIdentityKey.device()
+        val activeState = PersistedLibraryState(
+            intent = LibraryIntentState.ACTIVE,
+            access = LibraryAccessState.AVAILABLE,
+            sourceState = LibrarySourceState(
+                active = SourceActivation(source, activationEpoch = 1L),
+            ),
+            configFingerprint = "cfg",
+        )
+        val initial = SongFixtures.queue(2)
+        repository.commitScanAuthority(
+            songs = initial,
+            lastScanAtMs = 100L,
+            lastScanSource = ScanSource.DEVICE,
+            totalSizeMb = 2,
+            state = activeState,
+        )
+        val checkpoint = LibrarySyncCheckpoint(
+            sourceIdentity = source,
+            partitionKey = "mediastore:audio",
+            providerVersion = "v3",
+            generation = 101L,
+            configFingerprint = "cfg",
+            lastSuccessfulAutoSyncAtMs = 2_000L,
+        )
+        val followup = LibraryFollowupOutboxItem(
+            eventId = "fail-auto-followup",
+            libraryRevision = 1L,
+            action = "PLAYLIST_REMOVE_LIBRARY_MEMBERSHIP",
+            sourceIdentity = source,
+            activationEpoch = 1L,
+            stableObjectKey = initial.first().id,
+            payload = "songId=${initial.first().id}",
+            createdAtMs = 2_000L,
+        )
+        database.openHelper.writableDatabase.execSQL(
+            """
+            CREATE TRIGGER fail_auto_followup
+            BEFORE INSERT ON library_followup_outbox
+            BEGIN
+                SELECT RAISE(ABORT, 'forced auto followup failure');
+            END
+            """.trimIndent(),
+        )
+
+        try {
+            repository.commitAutoSyncSnapshotAuthority(
+                songs = listOf(initial.last()),
+                lastScanAtMs = 100L,
+                lastScanSource = ScanSource.DEVICE,
+                totalSizeMb = 1,
+                state = activeState,
+                autoSyncStateMutation = LibraryAutoSyncStateMutation(
+                    sourceIdentity = source,
+                    checkpoints = listOf(checkpoint),
+                ),
+                followupOutboxItems = listOf(followup),
+            )
+            fail("expected followup insert to abort auto snapshot transaction")
+        } catch (_: Exception) {
+            // Expected: snapshot, checkpoint and outbox share one Room transaction.
+        }
+
+        val cached = repository.loadCached()!!
+        assertEquals(initial.map(Song::id), cached.songs.map(Song::id))
+        assertTrue(repository.loadSyncCheckpoints(source).isEmpty())
+        assertTrue(repository.loadFollowupOutbox().isEmpty())
+        assertEquals(activeState, repository.loadLibraryState())
+    }
+    @Test
+    fun autoSnapshotPromotesStagedLyricsWithCheckpointAndRetryInSameCommit() = runTest {
+        val source = SourceIdentityKey.folder("content://provider/tree/music")
+        val state = PersistedLibraryState(
+            intent = LibraryIntentState.ACTIVE,
+            access = LibraryAccessState.AVAILABLE,
+            sourceState = LibrarySourceState(
+                active = SourceActivation(source, activationEpoch = 7L),
+            ),
+            configFingerprint = "cfg",
+        )
+        val oldLyrics = SongFixtures.song("old-lyrics").lyricsDocument.copy(
+            format = LyricsFormat.LRC,
+            origin = LyricsOrigin.EXTERNAL,
+        )
+        val oldSong = SongFixtures.song("saf-stage-success").copy(
+            title = "Before",
+            dateModifiedMs = 1L,
+            lyricsDocument = oldLyrics,
+            lyricsLoaded = true,
+        )
+        repository.commitScanAuthority(
+            songs = listOf(oldSong),
+            lastScanAtMs = 100L,
+            lastScanSource = ScanSource.FOLDER,
+            totalSizeMb = 1,
+            state = state,
+        )
+        val newSong = oldSong.copy(
+            title = "After",
+            dateModifiedMs = 2L,
+            lyricsDocument = LyricsDocument(),
+            lyricsLoaded = false,
+        )
+        val newLyrics = oldLyrics.copy(format = LyricsFormat.TTML)
+        val scanId = "saf-auto-stage-success"
+        repository.stageLyrics(
+            scanId,
+            listOf(
+                ScannedSongLyrics(
+                    newSong.id,
+                    newSong.lyricsCacheRevision,
+                    LyricsSlots(externalTtml = newLyrics),
+                ),
+            ),
+        )
+        assertEquals(1, pendingLyricsCount(scanId))
+
+        val checkpoint = LibrarySyncCheckpoint(
+            sourceIdentity = source,
+            partitionKey = "saf:tree",
+            providerVersion = "saf-full-walk-v1",
+            generation = 0L,
+            configFingerprint = "cfg",
+            lastSuccessfulAutoSyncAtMs = 1_000L,
+        )
+        val retry = LibraryRetryItem(
+            sourceIdentity = source,
+            retryKey = "saf-object-probe:" + newSong.id,
+            activationEpoch = 7L,
+            stableObjectKey = newSong.id,
+            observedFingerprint = "fp",
+            retryKind = LibraryRetryKind.OBJECT_PROBE,
+            failureKind = "probe",
+            attemptCount = 1,
+            nextRetryAtMs = 2_000L,
+        )
+
+        repository.commitAutoSyncSnapshotAuthority(
+            songs = listOf(newSong),
+            lastScanAtMs = 100L,
+            lastScanSource = ScanSource.FOLDER,
+            totalSizeMb = 1,
+            state = state,
+            autoSyncStateMutation = LibraryAutoSyncStateMutation(
+                sourceIdentity = source,
+                checkpoints = listOf(checkpoint),
+                retryUpserts = listOf(retry),
+            ),
+            followupOutboxItems = emptyList(),
+            stagedLyricsId = scanId,
+        )
+
+        assertEquals("After", repository.loadCached()!!.songs.single().title)
+        assertEquals(newLyrics, repository.lyricsById(newSong.id))
+        assertEquals(listOf(checkpoint), repository.loadSyncCheckpoints(source))
+        assertEquals(listOf(retry), repository.loadRetryItems(source))
+        assertEquals(0, pendingLyricsCount(scanId))
+        assertEquals(state, repository.loadLibraryState())
+    }
+
+    @Test
+    fun autoSnapshotFailureRollsBackStagedLyricsCheckpointRetryAndSnapshotTogether() = runTest {
+        val source = SourceIdentityKey.folder("content://provider/tree/music")
+        val state = PersistedLibraryState(
+            intent = LibraryIntentState.ACTIVE,
+            access = LibraryAccessState.AVAILABLE,
+            sourceState = LibrarySourceState(
+                active = SourceActivation(source, activationEpoch = 8L),
+            ),
+            configFingerprint = "cfg",
+        )
+        val oldLyrics = SongFixtures.song("old-lyrics-failure").lyricsDocument.copy(
+            format = LyricsFormat.LRC,
+            origin = LyricsOrigin.EXTERNAL,
+        )
+        val oldSong = SongFixtures.song("saf-stage-failure").copy(
+            title = "Before",
+            dateModifiedMs = 1L,
+            lyricsDocument = oldLyrics,
+            lyricsLoaded = true,
+        )
+        repository.commitScanAuthority(
+            songs = listOf(oldSong),
+            lastScanAtMs = 100L,
+            lastScanSource = ScanSource.FOLDER,
+            totalSizeMb = 1,
+            state = state,
+        )
+        val newSong = oldSong.copy(
+            title = "After",
+            dateModifiedMs = 2L,
+            lyricsDocument = LyricsDocument(),
+            lyricsLoaded = false,
+        )
+        val newLyrics = oldLyrics.copy(format = LyricsFormat.TTML)
+        val scanId = "saf-auto-stage-failure"
+        repository.stageLyrics(
+            scanId,
+            listOf(
+                ScannedSongLyrics(
+                    newSong.id,
+                    newSong.lyricsCacheRevision,
+                    LyricsSlots(externalTtml = newLyrics),
+                ),
+            ),
+        )
+        assertEquals(1, pendingLyricsCount(scanId))
+        val checkpoint = LibrarySyncCheckpoint(
+            sourceIdentity = source,
+            partitionKey = "saf:tree",
+            providerVersion = "saf-full-walk-v1",
+            generation = 0L,
+            configFingerprint = "cfg",
+            lastSuccessfulAutoSyncAtMs = 1_000L,
+        )
+        val retry = LibraryRetryItem(
+            sourceIdentity = source,
+            retryKey = "saf-object-probe:" + newSong.id,
+            activationEpoch = 8L,
+            stableObjectKey = newSong.id,
+            observedFingerprint = "fp",
+            retryKind = LibraryRetryKind.OBJECT_PROBE,
+            failureKind = "probe",
+            attemptCount = 1,
+            nextRetryAtMs = 2_000L,
+        )
+        database.openHelper.writableDatabase.execSQL(
+            """
+            CREATE TRIGGER fail_saf_auto_song_insert
+            BEFORE INSERT ON songs
+            WHEN NEW.id = 'saf-stage-failure'
+            BEGIN
+                SELECT RAISE(ABORT, 'forced saf auto snapshot failure');
+            END
+            """.trimIndent(),
+        )
+
+        try {
+            repository.commitAutoSyncSnapshotAuthority(
+                songs = listOf(newSong),
+                lastScanAtMs = 100L,
+                lastScanSource = ScanSource.FOLDER,
+                totalSizeMb = 1,
+                state = state,
+                autoSyncStateMutation = LibraryAutoSyncStateMutation(
+                    sourceIdentity = source,
+                    checkpoints = listOf(checkpoint),
+                    retryUpserts = listOf(retry),
+                ),
+                followupOutboxItems = emptyList(),
+                stagedLyricsId = scanId,
+            )
+            fail("expected song insert to abort SAF AUTO authority transaction")
+        } catch (_: Exception) {
+            // Expected: lyrics promotion, auto state and snapshot are one Room transaction.
+        }
+
+        assertEquals("Before", repository.loadCached()!!.songs.single().title)
+        assertEquals(oldLyrics, repository.lyricsById(oldSong.id))
+        assertTrue(repository.loadSyncCheckpoints(source).isEmpty())
+        assertTrue(repository.loadRetryItems(source).isEmpty())
+        assertEquals(1, pendingLyricsCount(scanId))
+        assertEquals(state, repository.loadLibraryState())
+    }
+
+    @Test
+    fun clearAuthorityDropsCheckpointAndRetryButPreservesExclusionAndOutbox() = runTest {
+        val source = SourceIdentityKey.device()
+        val checkpoint = LibrarySyncCheckpoint(
+            sourceIdentity = source,
+            partitionKey = "external_primary",
+            providerVersion = "v1",
+            generation = 4L,
+            configFingerprint = "cfg",
+            lastSuccessfulAutoSyncAtMs = 100L,
+        )
+        val retry = LibraryRetryItem(
+            sourceIdentity = source,
+            retryKey = "retry-key",
+            activationEpoch = 1L,
+            stableObjectKey = "stable-song",
+            observedFingerprint = "fingerprint",
+            retryKind = LibraryRetryKind.OBJECT_PROBE,
+            failureKind = "probe",
+            attemptCount = 2,
+            nextRetryAtMs = 500L,
+        )
+        val exclusion = LibraryUserExclusion(
+            sourceIdentity = source,
+            stableObjectKey = "excluded-song",
+            exclusionRevision = 3L,
+            createdAtMs = 10L,
+        )
+        val outbox = LibraryFollowupOutboxItem(
+            eventId = "evt-1",
+            libraryRevision = 8L,
+            action = "PLAYLIST_REMOVE_USER_EXCLUDED",
+            sourceIdentity = source,
+            activationEpoch = null,
+            stableObjectKey = exclusion.stableObjectKey,
+            payload = "{}",
+            createdAtMs = 11L,
+        )
+        repository.applyAutoSyncState(
+            LibraryAutoSyncStateMutation(
+                sourceIdentity = source,
+                checkpoints = listOf(checkpoint),
+                retryUpserts = listOf(retry),
+            ),
+        )
+        repository.upsertUserExclusion(exclusion)
+        repository.enqueueFollowupOutbox(outbox)
+        repository.save(SongFixtures.queue(2), 100, ScanSource.DEVICE, 2)
+
+        repository.clearAuthority(
+            PersistedLibraryState(
+                intent = LibraryIntentState.CLEARED_BY_USER,
+                access = LibraryAccessState.AVAILABLE,
+                sourceState = LibrarySourceState(),
+                configFingerprint = "cfg",
+            ),
+        )
+
+        assertNull(repository.loadCached())
+        assertTrue(repository.loadSyncCheckpoints(source).isEmpty())
+        assertTrue(repository.loadRetryItems(source).isEmpty())
+        assertEquals(listOf(exclusion), repository.loadUserExclusions(source))
+        assertEquals(listOf(outbox), repository.loadFollowupOutbox())
+        assertEquals(LibraryIntentState.CLEARED_BY_USER, repository.loadLibraryState()?.intent)
+    }
+
+    @Test
+    fun acknowledgeFollowupDeletesOnlyRequestedEvent() = runTest {
+        val source = SourceIdentityKey.device()
+        val first = LibraryFollowupOutboxItem(
+            eventId = "evt-first",
+            libraryRevision = 1L,
+            action = "A",
+            sourceIdentity = source,
+            activationEpoch = 1L,
+            stableObjectKey = "song-a",
+            payload = "{}",
+            createdAtMs = 1L,
+        )
+        val second = first.copy(
+            eventId = "evt-second",
+            stableObjectKey = "song-b",
+            createdAtMs = 2L,
+        )
+        repository.enqueueFollowupOutbox(first)
+        repository.enqueueFollowupOutbox(second)
+
+        assertTrue(repository.acknowledgeFollowupOutbox(first.eventId))
+
+        assertEquals(listOf(second), repository.loadFollowupOutbox())
+    }
+
+    @Test
+    fun followupOutboxRollsBackWhenSnapshotMutationFails() = runTest {
+        val source = SourceIdentityKey.device()
+        val songs = SongFixtures.queue(2)
+        repository.save(songs, 100, ScanSource.DEVICE, 2)
+        database.openHelper.writableDatabase.execSQL(
+            """
+            CREATE TRIGGER fail_song_delete_for_followup
+            BEFORE DELETE ON songs
+            BEGIN
+                SELECT RAISE(ABORT, 'forced song delete failure');
+            END
+            """.trimIndent(),
+        )
+        val followup = LibraryFollowupOutboxItem(
+            eventId = "evt-atomic-followup",
+            libraryRevision = 9L,
+            action = "PLAYLIST_REMOVE_LIBRARY_MEMBERSHIP",
+            sourceIdentity = source,
+            activationEpoch = 1L,
+            stableObjectKey = songs.first().id,
+            payload = "songId=${songs.first().id}",
+            createdAtMs = 10L,
+        )
+        val state = PersistedLibraryState(
+            intent = LibraryIntentState.ACTIVE,
+            access = LibraryAccessState.AVAILABLE,
+            sourceState = LibrarySourceState(),
+            configFingerprint = "cfg",
+        )
+
+        try {
+            repository.commitScanAuthorityWithFollowups(
+                songs = listOf(songs.last()),
+                lastScanAtMs = 101,
+                lastScanSource = ScanSource.DEVICE,
+                totalSizeMb = 1,
+                state = state,
+                followupOutboxItems = listOf(followup),
+            )
+            fail("expected snapshot mutation to abort transaction")
+        } catch (_: Exception) {
+            // Snapshot, authority state and outbox are one Room transaction.
+        }
+
+        assertTrue(repository.loadFollowupOutbox().isEmpty())
+        assertEquals(
+            songs.map(Song::id),
+            repository.loadCached()!!.songs.map(Song::id),
+        )
+    }
+    @Test
+    fun userExclusionRollsBackWhenSnapshotMutationFails() = runTest {
+        val source = SourceIdentityKey.device()
+        val songs = SongFixtures.queue(2)
+        repository.save(songs, 100, ScanSource.DEVICE, 2)
+        database.openHelper.writableDatabase.execSQL(
+            """
+            CREATE TRIGGER fail_song_delete_for_exclusion
+            BEFORE DELETE ON songs
+            BEGIN
+                SELECT RAISE(ABORT, 'forced song delete failure');
+            END
+            """.trimIndent(),
+        )
+        val exclusion = LibraryUserExclusion(
+            sourceIdentity = source,
+            stableObjectKey = songs.first().id,
+            exclusionRevision = 1L,
+            createdAtMs = 1L,
+        )
+
+        try {
+            repository.commitUserExclusionAuthority(
+                songs = listOf(songs.last()),
+                lastScanAtMs = 100,
+                lastScanSource = ScanSource.DEVICE,
+                totalSizeMb = 1,
+                exclusion = exclusion,
+            )
+            fail("expected snapshot mutation to abort transaction")
+        } catch (_: Exception) {
+            // The exclusion and snapshot share one Room transaction.
+        }
+
+        assertTrue(repository.loadUserExclusions(source).isEmpty())
+        assertEquals(
+            songs.map(Song::id),
+            repository.loadCached()!!.songs.map(Song::id),
+        )
     }
 
     @Test
@@ -323,6 +873,14 @@ class LibraryRepositoryTest {
         assertEquals(mapOf("#" to 0), cached.fastScrollSectionTargets)
         assertEquals(lyricsBefore, database.songDao().getById(songs[0].id)!!.lyricsJson)
     }
+
+    private fun pendingLyricsCount(scanId: String): Int =
+        database.openHelper.writableDatabase
+            .query("SELECT COUNT(*) FROM song_lyrics_pending WHERE scanId = ?", arrayOf(scanId))
+            .use { cursor ->
+                check(cursor.moveToFirst())
+                cursor.getInt(0)
+            }
 
     @Test
     fun daoReplaceAllIsAtomicFromCallerPerspective() = runTest {

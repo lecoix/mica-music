@@ -15,6 +15,8 @@ internal object LibraryScanSettings {
     private const val KEY_EXCLUDED_SCAN_DIRECTORIES = "excluded_scan_directories"
     private const val KEY_LIBRARY_TREE_URI = "library_tree_uri"
     private const val KEY_LIBRARY_FOLDER_LABEL = "library_folder_label"
+    private const val KEY_PENDING_LIBRARY_TREE_URI = "pending_library_tree_uri"
+    private const val KEY_PENDING_LIBRARY_FOLDER_LABEL = "pending_library_folder_label"
     private const val KEY_LAST_SCAN_SOURCE = "last_scan_source"
     private const val KEY_LYRICS_PARSER_VERSION = "lyrics_parser_version"
     private const val KEY_LYRICS_RETRY_REQUIRED = "lyrics_retry_required"
@@ -80,6 +82,26 @@ internal object LibraryScanSettings {
             .apply()
     }
 
+    fun pendingLibraryTreeUri(context: Context): Uri? =
+        MicaSettingsStore.prefs(context).getString(KEY_PENDING_LIBRARY_TREE_URI, null)?.toUri()
+
+    fun pendingLibraryFolderLabel(context: Context): String? =
+        MicaSettingsStore.prefs(context).getString(KEY_PENDING_LIBRARY_FOLDER_LABEL, null)
+
+    fun setPendingLibraryFolder(context: Context, treeUri: Uri, label: String) {
+        MicaSettingsStore.prefs(context).edit()
+            .putString(KEY_PENDING_LIBRARY_TREE_URI, treeUri.toString())
+            .putString(KEY_PENDING_LIBRARY_FOLDER_LABEL, label)
+            .apply()
+    }
+
+    fun clearPendingLibraryFolder(context: Context) {
+        MicaSettingsStore.prefs(context).edit()
+            .remove(KEY_PENDING_LIBRARY_TREE_URI)
+            .remove(KEY_PENDING_LIBRARY_FOLDER_LABEL)
+            .apply()
+    }
+
     fun lastScanSource(context: Context): ScanSource =
         ScanSource.fromStorage(MicaSettingsStore.prefs(context).getString(KEY_LAST_SCAN_SOURCE, null))
 
@@ -115,4 +137,20 @@ internal object LibraryScanSettings {
         deepMetadataProbe = deepMetadataProbe(context),
         excludedDirectories = excludedScanDirectories(context),
     )
+
+    /**
+     * Stable identity for scanner semantics. Runtime force-refresh knobs are deliberately excluded.
+     * A changed value invalidates operation/checkpoint eligibility but not long-lived source identity.
+     */
+    fun configFingerprint(context: Context): String {
+        val options = scanOptions(context)
+        val excluded = options.excludedDirectories.sorted().joinToString(separator = "\u001F")
+        return buildString {
+            append("scan-v1")
+            append("|min=").append(options.minDurationMs)
+            append("|mime=").append(options.includeNonMusicByMime)
+            append("|deep=").append(options.deepMetadataProbe)
+            append("|excluded=").append(excluded)
+        }
+    }
 }

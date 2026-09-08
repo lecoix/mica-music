@@ -23,6 +23,8 @@ class SongEntityTest {
             discNumber = 2,
             releaseDate = "2024-02-29",
             embeddedLyricsProbeRevision = "1\u0001round-trip\u00011000000\u00012000",
+            videoCoverUri = "content://library/Album.mp4",
+            videoCoverRevision = "content://library/Album.mp4|111|222",
             musicVideoUri = "content://library/round-trip.mp4",
             musicVideoRevision = "content://library/round-trip.mp4|123|456",
         )

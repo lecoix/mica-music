@@ -13,6 +13,11 @@ import com.mica.music.util.DiagnosticLog
         SongLyricsEntity::class,
         PendingSongLyricsEntity::class,
         LibraryMetaEntity::class,
+        LibraryStateEntity::class,
+        LibrarySyncCheckpointEntity::class,
+        LibraryRetryItemEntity::class,
+        LibraryFollowupOutboxEntity::class,
+        LibraryUserExclusionEntity::class,
         BrowseGroupEntity::class,
         PlaylistEntity::class,
         PlaylistSongEntity::class,
@@ -20,7 +25,7 @@ import com.mica.music.util.DiagnosticLog
         RemoteSourceEntity::class,
         RemoteTrackEntity::class,
     ],
-    version = 26,
+    version = 28,
     exportSchema = true,
 )
 abstract class MicaDatabase : RoomDatabase() {
@@ -30,6 +35,16 @@ abstract class MicaDatabase : RoomDatabase() {
     abstract fun songLyricsDao(): SongLyricsDao
 
     abstract fun libraryMetaDao(): LibraryMetaDao
+
+    abstract fun libraryStateDao(): LibraryStateDao
+
+    abstract fun librarySyncStateDao(): LibrarySyncStateDao
+
+    abstract fun libraryRetryItemDao(): LibraryRetryItemDao
+
+    abstract fun libraryFollowupOutboxDao(): LibraryFollowupOutboxDao
+
+    abstract fun libraryUserExclusionDao(): LibraryUserExclusionDao
 
     abstract fun browseGroupDao(): BrowseGroupDao
 
@@ -82,6 +97,8 @@ abstract class MicaDatabase : RoomDatabase() {
                             MIGRATION_23_24,
                             MIGRATION_24_25,
                             MIGRATION_25_26,
+                            MIGRATION_26_27,
+                            MIGRATION_27_28,
                         )
                         .build()
                         .also {

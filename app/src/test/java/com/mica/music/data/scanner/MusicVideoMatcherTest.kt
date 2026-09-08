@@ -72,6 +72,74 @@ class MusicVideoMatcherTest {
     }
 
     @Test
+    fun affectedGroupRecomputeInvalidatesPreviouslyUniqueMatchWhenDuplicateAudioAppears() {
+        val original = SongFixtures.song("original").copy(
+            fileName = "Song.flac",
+            folderPath = "Album",
+        )
+        val duplicate = SongFixtures.song("duplicate").copy(
+            fileName = "Song.mp3",
+            folderPath = "Album",
+        )
+        val untouched = SongFixtures.song("untouched").copy(
+            fileName = "Other.flac",
+            folderPath = "Album",
+            musicVideoUri = "content://video/other",
+            musicVideoRevision = "content://video/other|1|2",
+        )
+        val video = VideoCoverFile("content://video/song", "Album", "Song", 10L, 20L)
+        val previouslyMatched = MusicVideoMatcher.attach(listOf(original), listOf(video)).single()
+        val nextSongs = listOf(previouslyMatched, duplicate, untouched)
+
+        val result = MusicVideoMatcher.attachAffected(
+            songs = nextSongs,
+            videos = listOf(video),
+            affectedGroups = setOf(MusicVideoMatcher.groupKey(duplicate)),
+        )
+
+        assertNull(result.first { it.id == original.id }.musicVideoUri)
+        assertNull(result.first { it.id == duplicate.id }.musicVideoUri)
+        assertEquals(
+            untouched.musicVideoUri,
+            result.first { it.id == untouched.id }.musicVideoUri,
+        )
+    }
+
+    @Test
+    fun affectedGroupRecomputeCanRestoreMatchAfterDuplicateRemoval() {
+        val remaining = SongFixtures.song("remaining").copy(
+            fileName = "Song.flac",
+            folderPath = "Album",
+        )
+        val removed = SongFixtures.song("removed").copy(
+            fileName = " song .mp3",
+            folderPath = "Album",
+        )
+        val video = VideoCoverFile("content://video/song", "Album", "Song", 10L, 20L)
+        val oldGroup = MusicVideoMatcher.groupKey(removed)
+
+        val result = MusicVideoMatcher.attachAffected(
+            songs = listOf(remaining),
+            videos = listOf(video),
+            affectedGroups = setOf(oldGroup),
+        )
+
+        assertEquals(video.uri, result.single().musicVideoUri)
+        assertEquals(video.revision, result.single().musicVideoRevision)
+    }
+
+    @Test
+    fun affectedGroupKeyNormalizesUnicodeWhitespaceAndCase() {
+        val song = SongFixtures.song("s").copy(
+            fileName = "ＡＢ   Song.flac",
+            folderPath = "Folder",
+        )
+        val video = VideoCoverFile("content://v", "Folder", "ab song")
+
+        assertEquals(MusicVideoMatcher.groupKey(song), MusicVideoMatcher.groupKey(video))
+    }
+
+    @Test
     fun noMatchClearsStalePairing() {
         val stale = SongFixtures.song("one").copy(
             musicVideoUri = "content://stale",

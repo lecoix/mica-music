@@ -2,13 +2,28 @@ package com.mica.music.data
 
 import android.content.Context
 import android.net.Uri
+import com.mica.music.data.library.AndroidDeviceShadowProbeRuntime
+import com.mica.music.data.library.AndroidDeviceRetryObservationRuntime
+import com.mica.music.data.library.DeviceRetryObservationRuntime
+import com.mica.music.data.library.SafShadowProbeRuntime
+import com.mica.music.data.library.NoopSafShadowProbeRuntime
+import com.mica.music.data.library.AndroidSafShadowProbeRuntime
+import com.mica.music.data.library.DeviceShadowProbeRuntime
+import com.mica.music.data.library.LibraryUserExclusion
+import com.mica.music.data.library.NoopDeviceShadowProbeRuntime
+import com.mica.music.data.library.NoopDeviceRetryObservationRuntime
 import com.mica.music.data.library.MusicLibraryBacking
+import com.mica.music.data.library.userExclusionStableObjectKey
 import com.mica.music.data.preferences.LibraryScanSettings
+import com.mica.music.data.scanner.AndroidDeviceAutoSyncShadow
+import com.mica.music.data.scanner.DeviceAutoSyncShadow
+import com.mica.music.data.scanner.NoopDeviceAutoSyncShadow
 import com.mica.music.data.scanner.canPersistCoverColor
 import com.mica.music.util.DiagnosticLog
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 enum class StartupBrowseTarget {
     NONE,
@@ -23,6 +38,11 @@ class MusicLibrary internal constructor(
     scanEnvironment: ScanEnvironment,
     mainDispatcher: CoroutineDispatcher,
     ioDispatcher: CoroutineDispatcher,
+    deviceAutoSyncShadow: DeviceAutoSyncShadow = NoopDeviceAutoSyncShadow,
+    deviceShadowProbeRuntime: DeviceShadowProbeRuntime = NoopDeviceShadowProbeRuntime,
+    deviceRetryObservationRuntime: DeviceRetryObservationRuntime =
+        NoopDeviceRetryObservationRuntime,
+    safShadowProbeRuntime: SafShadowProbeRuntime = NoopSafShadowProbeRuntime,
 ) {
     private val backing = MusicLibraryBacking(
         context = context,
@@ -31,6 +51,10 @@ class MusicLibrary internal constructor(
         scanEnvironment = scanEnvironment,
         mainDispatcher = mainDispatcher,
         ioDispatcher = ioDispatcher,
+        deviceAutoSyncShadow = deviceAutoSyncShadow,
+        deviceShadowProbeRuntime = deviceShadowProbeRuntime,
+        deviceRetryObservationRuntime = deviceRetryObservationRuntime,
+        safShadowProbeRuntime = safShadowProbeRuntime,
     )
 
     constructor(context: Context) : this(
@@ -40,6 +64,10 @@ class MusicLibrary internal constructor(
         scanEnvironment = AndroidScanEnvironment(context),
         mainDispatcher = Dispatchers.Main.immediate,
         ioDispatcher = Dispatchers.IO,
+        deviceAutoSyncShadow = AndroidDeviceAutoSyncShadow(context),
+        deviceShadowProbeRuntime = AndroidDeviceShadowProbeRuntime(context),
+        deviceRetryObservationRuntime = AndroidDeviceRetryObservationRuntime(context),
+        safShadowProbeRuntime = AndroidSafShadowProbeRuntime(context),
     )
 
     val songs get() = backing.songs
@@ -48,6 +76,10 @@ class MusicLibrary internal constructor(
     val songIds get() = backing.songIds
 
     val queueMetadataRevision get() = backing.queueMetadataRevision
+
+    internal val libraryChangeRevision get() = backing.libraryChangeRevision
+
+    internal val lastLibraryChangeSet get() = backing.lastLibraryChangeSet
 
     val lyricsDataVersion get() = backing.lyricsDataVersion
 
@@ -63,6 +95,8 @@ class MusicLibrary internal constructor(
 
     val isScanning get() = backing.isScanning
 
+    val isUserVisibleScanning get() = backing.isUserVisibleScanning
+
     val hasScanned get() = backing.hasScanned
 
     val totalSizeMb get() = backing.totalSizeMb
@@ -74,6 +108,8 @@ class MusicLibrary internal constructor(
     val libraryFolderUri get() = backing.libraryFolderUri
 
     val libraryFolderLabel get() = backing.libraryFolderLabel
+
+    val scanLibraryFolderLabel get() = backing.folder.displayFolderLabel()
 
     val lastScanSource get() = backing.lastScanSource
 
@@ -128,10 +164,8 @@ class MusicLibrary internal constructor(
     }
 
     private fun persistCoverColorAsync(songId: String, albumArtUri: String?, argb: Int) {
-        val generation = backing.scanGeneration
         backing.ioScope.launch {
-            backing.storeWriteIfCurrentGeneration(
-                expectedGeneration = generation,
+            backing.storeWriteIfCurrentObjectState(
                 isCurrent = {
                     canPersistCoverColor(backing.songById(songId), songId, albumArtUri, argb)
                 },
@@ -161,8 +195,123 @@ class MusicLibrary internal constructor(
         priority: List<LyricsSlot> = DEFAULT_LYRICS_SLOT_PRIORITY,
     ) = backing.lyricsHydrator.prefetch(song, priority)
 
-    /** 从曲库移除（不删物理文件）；播放队列由调用方同步。 */
-    fun removeSongFromLibrary(songId: String) = backing.catalog.removeSong(songId)
+    /**
+     * 从曲库移除并持久化 user exclusion。Room authority 成功后才发布内存，避免 AUTO/FULL
+     * 在重启后重新发现同一对象。
+     */
+    suspend fun removeSongFromLibrary(
+        song: Song,
+        persistExclusion: Boolean = true,
+    ): Boolean {
+        if (backing.released) return false
+        val sourceIdentity = backing.sourceState.active?.sourceIdentity ?: return false
+        val lastScanAtMs = backing.lastScanAtMs ?: return false
+        val stableObjectKey = userExclusionStableObjectKey(song)
+
+        repeat(USER_EXCLUSION_REBASE_ATTEMPTS) {
+            val catalogRevision = backing.catalogRevision
+            val presentationRevision = backing.presentationRevision
+            val currentScanned = backing.catalog.scannedSongsSnapshot()
+            if (currentScanned.none { it.id == song.id }) return true
+
+            val prepared = backing.catalog.prepareLibrarySongs(
+                raw = currentScanned.filterNot { it.id == song.id },
+                field = backing.sortField,
+                direction = backing.sortDirection,
+                diagnosticTag = "LibraryMutation",
+                diagnosticReason = if (persistExclusion) "user-exclusion" else "physical-delete",
+            )
+            val createdAtMs = backing.scanEnvironment.currentTimeMillis()
+            val exclusion = if (persistExclusion) {
+                val existingExclusions = backing.libraryStore.loadUserExclusions(sourceIdentity)
+                val exclusionRevision = maxOf(
+                    createdAtMs,
+                    (existingExclusions.maxOfOrNull { it.exclusionRevision } ?: 0L) + 1L,
+                )
+                LibraryUserExclusion(
+                    sourceIdentity = sourceIdentity,
+                    stableObjectKey = stableObjectKey,
+                    exclusionRevision = exclusionRevision,
+                    createdAtMs = createdAtMs,
+                )
+            } else {
+                null
+            }
+            val remainingTotalSizeMb =
+                (prepared.scanned.sumOf { it.sizeBytes.coerceAtLeast(0L) } / (1024L * 1024L)).toInt()
+
+            val committed = backing.replaceSnapshotAuthority(
+                expectedCatalogRevision = catalogRevision,
+                expectedPresentationRevision = presentationRevision,
+                expectedSourceIdentity = sourceIdentity,
+                storeBlock = {
+                    if (exclusion != null) {
+                        backing.libraryStore.commitUserExclusionAuthority(
+                            songs = prepared.scanned,
+                            lastScanAtMs = lastScanAtMs,
+                            lastScanSource = sourceIdentity.source,
+                            totalSizeMb = remainingTotalSizeMb,
+                            exclusion = exclusion,
+                            sortField = backing.sortField,
+                            sortDirection = backing.sortDirection,
+                            fastScrollSectionTargets = prepared.fastScrollIndex?.sectionTargets,
+                        )
+                    } else {
+                        backing.libraryStore.commitScan(
+                            songs = prepared.scanned,
+                            lastScanAtMs = lastScanAtMs,
+                            lastScanSource = sourceIdentity.source,
+                            totalSizeMb = remainingTotalSizeMb,
+                            sortField = backing.sortField,
+                            sortDirection = backing.sortDirection,
+                            fastScrollSectionTargets = prepared.fastScrollIndex?.sectionTargets,
+                        )
+                    }
+                },
+                publishBlock = { _, _ ->
+                    backing.catalog.adoptPrepared(prepared)
+                    backing.catalog.persistPreparedCustomOrderIfCurrent(prepared)
+                    backing.totalSizeMb = remainingTotalSizeMb
+                    val revision = ++backing.libraryChangeRevision
+                    backing.lastLibraryChangeSet = com.mica.music.data.library.LibraryChangeSet(
+                        libraryRevision = revision,
+                        cause = com.mica.music.data.library.LibraryOperationCause.LOCAL_USER_DELETE,
+                        addedIds = emptySet(),
+                        updatedIds = emptySet(),
+                        membershipChanges = listOf(
+                            com.mica.music.data.library.MembershipChange(
+                                stableObjectKey = stableObjectKey,
+                                songId = song.id,
+                                reason = if (exclusion != null) {
+                                    com.mica.music.data.library.MembershipRemovalReason.USER_EXCLUDED
+                                } else {
+                                    com.mica.music.data.library.MembershipRemovalReason.CONFIRMED_MISSING
+                                },
+                                evidenceRevision = exclusion?.exclusionRevision?.toString()
+                                    ?: "local-physical-delete:$createdAtMs",
+                                sourceIdentity = sourceIdentity,
+                            ),
+                        ),
+                    )
+                },
+            )
+            if (committed != null) return true
+        }
+        return false
+    }
+
+    private companion object {
+        const val USER_EXCLUSION_REBASE_ATTEMPTS = 3
+    }
+
+    internal suspend fun loadFollowupOutbox():
+        List<com.mica.music.data.library.LibraryFollowupOutboxItem> =
+        withContext(Dispatchers.IO) { backing.libraryStore.loadFollowupOutbox() }
+
+    internal suspend fun acknowledgeFollowupOutbox(eventId: String): Boolean =
+        withContext(Dispatchers.IO) {
+            backing.libraryStore.acknowledgeFollowupOutbox(eventId)
+        }
 
     fun recentSongs(): List<Song> = backing.browse.recentSongs()
 
@@ -267,12 +416,50 @@ class MusicLibrary internal constructor(
 
     suspend fun scanLibraryFolder() = backing.scanOrchestrator.scanLibraryFolder()
 
+    /**
+     * Internal diagnostics seam used only by debug/QA controls.
+     *
+     * This executes the existing shadow orchestrator without publishing AUTO state. Production
+     * dirty signals still enter exclusively through [LibrarySyncScheduler].
+     */
+    internal suspend fun seedSafShadowCanonicalForDiagnostics() =
+        backing.scanOrchestrator.seedSafShadowCanonicalForDiagnostics()
+
+    internal suspend fun runAutoSyncShadowForDiagnostics(
+        cause: com.mica.music.data.library.LibraryOperationCause =
+            com.mica.music.data.library.LibraryOperationCause.SAF_PERIODIC_VERIFY,
+        requestSequence: Long = android.os.SystemClock.elapsedRealtime(),
+        publishSafAuthority: Boolean = false,
+    ) {
+        val operation = com.mica.music.data.library.ScheduledLibraryOperation(
+            request = com.mica.music.data.library.LibraryOperationRequest.AutoSync(cause),
+            requestSequence = requestSequence,
+            dirtySequenceAtStart = backing.syncScheduler.dirtySequence,
+        )
+        if (publishSafAuthority) {
+            backing.scanOrchestrator.executeAutoSyncForReadiness(operation)
+        } else {
+            backing.scanOrchestrator.executeAutoSyncShadowForDiagnostics(operation)
+        }
+    }
+
     fun launchRefreshSongMetadata(songId: String) =
         backing.scanOrchestrator.launchRefreshSongMetadata(songId)
 
     fun clearScanSyncSummary() {
         backing.lastScanSyncSummary = null
     }
+
+    fun onForegroundChanged(inForeground: Boolean) {
+        backing.isAutoSyncForeground = inForeground
+        backing.dirtySignalObserver.onForegroundChanged(inForeground)
+    }
+
+    internal fun setPlaybackIoSnapshotProvider(
+        provider: () -> com.mica.music.data.library.LibraryPlaybackIoSnapshot,
+    ) = backing.setPlaybackIoSnapshotProvider(provider)
+
+    internal fun onPlaybackIoLeaseChanged() = backing.onPlaybackIoLeaseChanged()
 
     fun release() = backing.release()
 }

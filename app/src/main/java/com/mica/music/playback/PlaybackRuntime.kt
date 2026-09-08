@@ -1096,7 +1096,10 @@ internal class PlaybackRuntime(
             if (c == null) pendingQueue = songQueue
             else {
                 if (c.mediaItemCount > 0) {
-                    syncQueueToService(c, currentIndex, runCatching { c.currentPosition }.getOrDefault(0L), true)
+                    refreshControllerMediaItemForSongIfNeeded(
+                        c = c,
+                        songId = currentSong?.id,
+                    )
                 }
                 syncPlaybackState()
             }
@@ -1569,9 +1572,46 @@ internal class PlaybackRuntime(
                 resolveControllerIndexForSongId(expectedController, songId) ?: navigationPlan.serviceIndex
             }
         }
-        TrackSwitchPerformance.mark("audio-start", "index=$serviceIndex songId=$songId")
-        expectedController.seekTo(serviceIndex, positionMs.toLong())
+        val refreshedServiceIndex =
+            refreshControllerMediaItemForSongIfNeeded(
+                c = expectedController,
+                songId = songId,
+                knownServiceIndex = serviceIndex,
+            ) ?: serviceIndex
+        TrackSwitchPerformance.mark("audio-start", "index=$refreshedServiceIndex songId=$songId")
+        expectedController.seekTo(refreshedServiceIndex, positionMs.toLong())
         expectedController.play()
+    }
+
+    private fun refreshControllerMediaItemForSongIfNeeded(
+        c: MediaController,
+        songId: String?,
+        knownServiceIndex: Int? = null,
+    ): Int? {
+        val safeSongId = songId ?: return null
+        val logicalSong = songQueue.firstOrNull { it.id == safeSongId } ?: return null
+        val serviceIndex = knownServiceIndex
+            ?.takeIf { index ->
+                index in 0 until c.mediaItemCount &&
+                    runCatching { c.getMediaItemAt(index).mediaId == safeSongId }.getOrDefault(false)
+            }
+            ?: resolveControllerIndexForSongId(c, safeSongId)
+            ?: return null
+        val serviceItem = runCatching { c.getMediaItemAt(serviceIndex) }.getOrNull() ?: return serviceIndex
+        if (
+            SongMediaItemCodec.metadataRevision(serviceItem) !=
+            SongMediaItemCodec.metadataRevision(logicalSong) &&
+            c.isCommandAvailable(Player.COMMAND_CHANGE_MEDIA_ITEMS)
+        ) {
+            c.replaceMediaItem(serviceIndex, logicalSong.toMediaItem(appCtx))
+            DiagnosticLog.event(
+                "QueueSync",
+                "controller-refresh-current-metadata index=" + serviceIndex +
+                    " song=" + safeSongId + " queue=" + songQueue.size +
+                    " serviceItems=" + c.mediaItemCount,
+            )
+        }
+        return serviceIndex
     }
 
     private fun resolveControllerIndexForSongId(c: Player, songId: String): Int? {

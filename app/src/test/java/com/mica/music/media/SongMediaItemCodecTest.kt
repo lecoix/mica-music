@@ -23,6 +23,7 @@ class SongMediaItemCodecTest {
             discNumber = 2,
             replayGain = ReplayGainTags(-6f, 0.9f, -4f, 0.8f),
             videoCoverUri = "content://library/Album.mp4",
+            videoCoverRevision = "content://library/Album.mp4|111|222",
             musicVideoUri = "content://library/dsd.mp4",
             musicVideoRevision = "content://library/dsd.mp4|123|456",
         )
@@ -68,6 +69,15 @@ class SongMediaItemCodecTest {
         assertEquals(revision, SongMediaItemCodec.metadataRevision(song.copy(metadataScanVersion = 0)))
         assertNotEquals(revision, SongMediaItemCodec.metadataRevision(song.copy(title = "updated")))
         assertNotEquals(revision, SongMediaItemCodec.metadataRevision(song.copy(releaseDate = "2024-02-29")))
+        assertNotEquals(
+            revision,
+            SongMediaItemCodec.metadataRevision(
+                song.copy(
+                    videoCoverUri = "content://library/album.mp4",
+                    videoCoverRevision = "content://library/album.mp4|1|2",
+                ),
+            ),
+        )
         assertNotEquals(
             revision,
             SongMediaItemCodec.metadataRevision(

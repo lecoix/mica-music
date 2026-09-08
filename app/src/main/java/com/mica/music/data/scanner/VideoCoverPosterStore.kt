@@ -39,40 +39,43 @@ internal object VideoCoverPosterStore {
         },
     )
 
-    fun get(context: Context, uri: String): Bitmap? {
+    fun get(context: Context, uri: String, revision: String): Bitmap? {
         if (uri.isBlank()) return null
-        memory.get(uri)?.takeUnless { it.isRecycled }?.let { return it }
-        val file = fileFor(context, uri)
+        val key = cacheKey(uri, revision)
+        memory.get(key)?.takeUnless { it.isRecycled }?.let { return it }
+        val file = fileFor(context, key)
         if (!file.isFile) return null
         return try {
-            BitmapFactory.decodeFile(file.absolutePath)?.also { memory.put(uri, it) }
+            BitmapFactory.decodeFile(file.absolutePath)?.also { memory.put(key, it) }
         } catch (_: Exception) {
             null
         }
     }
 
-    fun isCached(context: Context, uri: String): Boolean {
+    fun isCached(context: Context, uri: String, revision: String): Boolean {
         if (uri.isBlank()) return false
-        memory.get(uri)?.takeUnless { it.isRecycled }?.let { return true }
-        val file = fileFor(context, uri)
+        val key = cacheKey(uri, revision)
+        memory.get(key)?.takeUnless { it.isRecycled }?.let { return true }
+        val file = fileFor(context, key)
         return isReadablePoster(file)
     }
 
-    fun put(context: Context, uri: String, bitmap: Bitmap) {
+    fun put(context: Context, uri: String, revision: String, bitmap: Bitmap) {
         if (uri.isBlank() || bitmap.isRecycled) return
-        memory.put(uri, bitmap)
+        val key = cacheKey(uri, revision)
+        memory.put(key, bitmap)
         val appContext = context.applicationContext
         val copy = bitmap.config?.let { bitmap.copy(it, false) } ?: return
-        diskExecutor.execute(DiskWriteTask(appContext, uri, copy))
+        diskExecutor.execute(DiskWriteTask(appContext, key, copy))
     }
 
     private class DiskWriteTask(
         private val context: Context,
-        private val uri: String,
+        private val cacheKey: String,
         private val copy: Bitmap,
     ) : Runnable {
         override fun run() {
-            val file = fileFor(context, uri)
+            val file = fileFor(context, cacheKey)
             val temporary = File(file.parentFile, "${file.name}.part")
             try {
                 file.parentFile?.mkdirs()
@@ -135,9 +138,14 @@ internal object VideoCoverPosterStore {
             }
     }
 
-    private fun fileFor(context: Context, uri: String): File {
+    internal fun cacheKey(uri: String, revision: String): String = "$uri\u0001$revision"
+
+    internal fun fileForTest(context: Context, uri: String, revision: String): File =
+        fileFor(context, cacheKey(uri, revision))
+
+    private fun fileFor(context: Context, key: String): File {
         val digester = MessageDigest.getInstance("SHA-256")
-        val hex = digester.digest(uri.toByteArray()).joinToString("") { b ->
+        val hex = digester.digest(key.toByteArray()).joinToString("") { b ->
             "%02x".format(b)
         }
         return File(context.cacheDir, "video_cover_posters/$hex.jpg")

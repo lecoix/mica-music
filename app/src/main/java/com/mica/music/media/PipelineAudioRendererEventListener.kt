@@ -6,6 +6,7 @@ import androidx.media3.exoplayer.DecoderCounters
 import androidx.media3.exoplayer.DecoderReuseEvaluation
 import androidx.media3.exoplayer.audio.AudioRendererEventListener
 import androidx.media3.exoplayer.audio.AudioSink
+import com.mica.music.util.DiagnosticLog
 
 /** P0 wrapper: logs decoder input and AudioTrack delivery, then delegates. */
 @UnstableApi
@@ -58,6 +59,12 @@ internal class PipelineAudioRendererEventListener(
     }
 
     override fun onAudioSinkError(audioSinkError: Exception) {
+        DiagnosticLog.event(
+            "AudioPipeline",
+            "sink-error type=${audioSinkError.javaClass.simpleName} " +
+                "message=${audioSinkError.message.orEmpty()}",
+            audioSinkError,
+        )
         delegate?.onAudioSinkError(audioSinkError)
     }
 
@@ -70,6 +77,11 @@ internal class PipelineAudioRendererEventListener(
         bufferSizeMs: Long,
         elapsedSinceLastFeedMs: Long,
     ) {
+        DiagnosticLog.event(
+            "AudioPipeline",
+            "underrun bufferSize=$bufferSize bufferSizeMs=$bufferSizeMs " +
+                "elapsedSinceLastFeedMs=$elapsedSinceLastFeedMs",
+        )
         delegate?.onAudioUnderrun(bufferSize, bufferSizeMs, elapsedSinceLastFeedMs)
     }
 

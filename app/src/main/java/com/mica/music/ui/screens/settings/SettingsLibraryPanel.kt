@@ -39,38 +39,44 @@ internal fun LibraryScanSettingsPanel(
         title = "远程曲库",
         subtitle = "支持 Navidrome / OpenSubsonic、WebDAV、SMB · 每个来源独立同步",
         onClick = onOpenRemoteMusic,
-        enabled = !library.isScanning,
+        enabled = !library.isUserVisibleScanning,
     )
 
     SettingsSectionTitle("本地曲库与扫描")
 
     SettingsActionRow(
         title = "曲库文件夹",
-        subtitle = library.libraryFolderLabel?.let { "当前：$it" } ?: "未选择 · 通过系统文件选择器授权目录",
+        subtitle = library.scanLibraryFolderLabel?.let { label ->
+            if (library.libraryFolderLabel != null && library.libraryFolderLabel != label) {
+                "待切换：$label · 当前：${library.libraryFolderLabel}"
+            } else {
+                "当前：$label"
+            }
+        } ?: "未选择 · 通过系统文件选择器授权目录",
         onClick = onChooseLibraryFolder,
-        enabled = !library.isScanning,
+        enabled = !library.isUserVisibleScanning,
     )
 
     SettingsActionRow(
         title = "重新扫描曲库",
         subtitle = when {
-            library.isScanning -> library.scanProgressLabel ?: "扫描中…"
+            library.isUserVisibleScanning -> library.scanProgressLabel ?: "扫描中…"
             library.hasLibraryFolder() && !library.hasAudioReadPermission() ->
-                "将扫描「${library.libraryFolderLabel}」"
+                "将扫描「${library.scanLibraryFolderLabel}」"
             !library.hasAudioReadPermission() && !library.hasLibraryFolder() ->
                 "需要授予读取音频权限，或先选择曲库文件夹"
             library.lastScanAtMs == null -> "尚未扫描"
             else -> "共 ${library.songs.size} 首 · ${library.totalSizeMb} MB"
         },
         onClick = onRescan,
-        enabled = !library.isScanning,
+        enabled = !library.isUserVisibleScanning,
     )
 
     SettingsActionRow(
         title = "扫描全部音乐",
         subtitle = "扫描本机全部音频 · 需要读取音频权限",
         onClick = onScanAllMusic,
-        enabled = !library.isScanning,
+        enabled = !library.isUserVisibleScanning,
     )
 
     SettingsActionRow(
@@ -81,7 +87,7 @@ internal fun LibraryScanSettingsPanel(
             "已排除 ${excludedDirectories.size} 个目录 · 更改后自动重扫"
         },
         onClick = onEditExcludedDirectories,
-        enabled = !library.isScanning &&
+        enabled = !library.isUserVisibleScanning &&
             (library.songs.isNotEmpty() || excludedDirectories.isNotEmpty()),
     )
 

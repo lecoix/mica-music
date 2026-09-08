@@ -88,6 +88,7 @@ data class SongEntity(
     val loudnessSourceModifiedMs: Long = 0L,
     val loudnessAnalyzerRevision: Int = 0,
     val videoCoverUri: String? = null,
+    val videoCoverRevision: String = "",
     val musicVideoUri: String? = null,
     val musicVideoRevision: String = "",
 )
@@ -138,6 +139,7 @@ data class SongSummaryEntity(
     val loudnessSourceModifiedMs: Long,
     val loudnessAnalyzerRevision: Int,
     val videoCoverUri: String?,
+    val videoCoverRevision: String,
     val musicVideoUri: String?,
     val musicVideoRevision: String,
 )
@@ -210,6 +212,7 @@ fun SongEntity.toSong(): Song = Song(
     ),
     lyricsDocument = LyricsDocumentCodec.decode(lyricsJson),
     videoCoverUri = videoCoverUri,
+    videoCoverRevision = videoCoverRevision,
     musicVideoUri = musicVideoUri,
     musicVideoRevision = musicVideoRevision,
 )
@@ -260,6 +263,7 @@ fun SongSummaryEntity.toSong(): Song = Song(
     ),
     lyricsLoaded = false,
     videoCoverUri = videoCoverUri,
+    videoCoverRevision = videoCoverRevision,
     musicVideoUri = musicVideoUri,
     musicVideoRevision = musicVideoRevision,
 )
@@ -283,6 +287,7 @@ fun SongEntity.scanFingerprint(): String = buildString {
     append(discNumber); append('\u0001')
     append(albumArtUri); append('\u0001')
     append(videoCoverUri); append('\u0001')
+    append(videoCoverRevision); append('\u0001')
     append(musicVideoUri); append('\u0001')
     append(musicVideoRevision); append('\u0001')
     append(externalLyricsSignature); append('\u0001')
@@ -334,6 +339,7 @@ fun Song.toEntity(queueOrder: Int, preservedLyricsJson: String? = null): SongEnt
     loudnessSourceModifiedMs = loudnessAnalysis.sourceModifiedMs,
     loudnessAnalyzerRevision = loudnessAnalysis.analyzerRevision,
     videoCoverUri = videoCoverUri,
+    videoCoverRevision = videoCoverRevision,
     musicVideoUri = musicVideoUri,
     musicVideoRevision = musicVideoRevision,
 ).also {

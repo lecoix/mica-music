@@ -13,11 +13,21 @@ class LibraryPlaybackQueueCoordinatorTest {
         var connectCount = 0
         var bootstrapResult = false
         var bootstrapResolver: ((String) -> Song?)? = null
+        var currentSongIdOverride: String? = null
+        var isPlayingOverride: Boolean = false
         val setQueueCalls = mutableListOf<List<Song>>()
+        val removeQueueCalls = mutableListOf<Int>()
         val refreshCalls = mutableListOf<List<Song>>()
 
         override val currentQueueIds: List<String>
             get() = queuedSongs.map { it.id }
+
+        override val currentSongId: String?
+            get() = currentSongIdOverride
+                ?: queuedSongs.firstOrNull()?.id
+
+        override val isPlaying: Boolean
+            get() = isPlayingOverride
 
         override val queueSize: Int
             get() = queuedSongs.size
@@ -36,6 +46,13 @@ class LibraryPlaybackQueueCoordinatorTest {
             setQueueCalls += newQueue
         }
 
+        override fun removeFromQueue(index: Int) {
+            removeQueueCalls += index
+            if (index in queuedSongs.indices) {
+                queuedSongs = queuedSongs.toMutableList().also { it.removeAt(index) }
+            }
+        }
+
         override fun refreshQueueMetadata(songs: List<Song>) {
             refreshCalls += songs
         }
@@ -45,10 +62,12 @@ class LibraryPlaybackQueueCoordinatorTest {
         songs: List<Song>,
         songIds: List<String> = songs.map { it.id },
         hasScanned: Boolean = true,
+        changeSet: com.mica.music.data.library.LibraryChangeSet? = null,
     ): LibraryQueueSyncInput = LibraryQueueSyncInput(
         songs = songs,
         songIds = songIds,
         hasScanned = hasScanned,
+        changeSet = changeSet,
         songById = { id -> songs.firstOrNull { it.id == id } },
     )
 
@@ -139,6 +158,128 @@ class LibraryPlaybackQueueCoordinatorTest {
     }
 
     @Test
+    fun autoSyncRemovalSelectivelyRemovesOnlyMissingLibraryItem() {
+        val coordinator = LibraryPlaybackQueueCoordinator()
+        val keep = SongFixtures.song("keep")
+        val removed = SongFixtures.song("removed")
+        val tail = SongFixtures.song("tail")
+        val target = FakeTarget().apply {
+            queuedSongs = listOf(keep, removed, tail)
+            currentSongIdOverride = keep.id
+        }
+
+        coordinator.sync("seed", libraryInput(listOf(keep, removed, tail)), target)
+        target.setQueueCalls.clear()
+        target.removeQueueCalls.clear()
+        target.refreshCalls.clear()
+
+        coordinator.sync(
+            reason = "auto",
+            library = libraryInput(
+                songs = listOf(keep, tail),
+                changeSet = autoRemovalChangeSet(removed.id),
+            ),
+            player = target,
+        )
+
+        assertTrue(target.setQueueCalls.isEmpty())
+        assertEquals(listOf(1), target.removeQueueCalls)
+        assertEquals(listOf(keep, tail), target.queuedSongs)
+        assertEquals(listOf(keep, tail), target.refreshCalls.single())
+    }
+
+    @Test
+    fun autoSyncRemovalPreservesMixedQueueEntries() {
+        val coordinator = LibraryPlaybackQueueCoordinator()
+        val keep = SongFixtures.song("keep")
+        val removed = SongFixtures.song("removed")
+        val remote = SongFixtures.song("remote-external")
+        val target = FakeTarget().apply {
+            queuedSongs = listOf(remote, keep, removed)
+            currentSongIdOverride = remote.id
+        }
+
+        coordinator.sync("seed", libraryInput(listOf(keep, removed)), target)
+        target.setQueueCalls.clear()
+        target.removeQueueCalls.clear()
+        target.refreshCalls.clear()
+
+        coordinator.sync(
+            reason = "auto",
+            library = libraryInput(
+                songs = listOf(keep),
+                changeSet = autoRemovalChangeSet(removed.id),
+            ),
+            player = target,
+        )
+
+        assertTrue(target.setQueueCalls.isEmpty())
+        assertEquals(listOf(2), target.removeQueueCalls)
+        assertEquals(listOf(remote, keep), target.queuedSongs)
+    }
+
+    @Test
+    fun autoSyncRemovalKeepsCurrentlyPlayingOrphanUntilTransition() {
+        val coordinator = LibraryPlaybackQueueCoordinator()
+        val orphan = SongFixtures.song("orphan")
+        val next = SongFixtures.song("next")
+        val target = FakeTarget().apply {
+            queuedSongs = listOf(orphan, next)
+            currentSongIdOverride = orphan.id
+            isPlayingOverride = true
+        }
+
+        coordinator.sync("seed", libraryInput(listOf(orphan, next)), target)
+        target.setQueueCalls.clear()
+        target.removeQueueCalls.clear()
+
+        coordinator.sync(
+            reason = "auto",
+            library = libraryInput(
+                songs = listOf(next),
+                changeSet = autoRemovalChangeSet(orphan.id),
+            ),
+            player = target,
+        )
+
+        assertTrue(target.setQueueCalls.isEmpty())
+        assertTrue(target.removeQueueCalls.isEmpty())
+        assertEquals(listOf(orphan, next), target.queuedSongs)
+
+        coordinator.onPlaybackCurrentChanged(target)
+        assertTrue(target.removeQueueCalls.isEmpty())
+    }
+
+    @Test
+    fun deferredPlayingOrphanIsPurgedAfterNaturalTransition() {
+        val coordinator = LibraryPlaybackQueueCoordinator()
+        val orphan = SongFixtures.song("orphan")
+        val next = SongFixtures.song("next")
+        val target = FakeTarget().apply {
+            queuedSongs = listOf(orphan, next)
+            currentSongIdOverride = orphan.id
+            isPlayingOverride = true
+        }
+
+        coordinator.sync("seed", libraryInput(listOf(orphan, next)), target)
+        coordinator.sync(
+            reason = "auto",
+            library = libraryInput(
+                songs = listOf(next),
+                changeSet = autoRemovalChangeSet(orphan.id),
+            ),
+            player = target,
+        )
+        target.removeQueueCalls.clear()
+
+        target.currentSongIdOverride = next.id
+        coordinator.onPlaybackCurrentChanged(target)
+
+        assertEquals(listOf(0), target.removeQueueCalls)
+        assertEquals(listOf(next), target.queuedSongs)
+    }
+
+    @Test
     fun unchangedLibraryIdsRefreshMetadataOnly() {
         val coordinator = LibraryPlaybackQueueCoordinator()
         val songs = SongFixtures.queue(2)
@@ -211,6 +352,25 @@ class LibraryPlaybackQueueCoordinatorTest {
         assertEquals(reordered, target.refreshCalls.single())
         assertEquals(original, target.queuedSongs)
     }
+
+    private fun autoRemovalChangeSet(
+        songId: String,
+    ): com.mica.music.data.library.LibraryChangeSet =
+        com.mica.music.data.library.LibraryChangeSet(
+            libraryRevision = 1L,
+            cause = com.mica.music.data.library.LibraryOperationCause.MEDIASTORE_AUDIO_DIRTY,
+            addedIds = emptySet(),
+            updatedIds = emptySet(),
+            membershipChanges = listOf(
+                com.mica.music.data.library.MembershipChange(
+                    stableObjectKey = songId,
+                    songId = songId,
+                    reason = com.mica.music.data.library.MembershipRemovalReason.CONFIRMED_MISSING,
+                    evidenceRevision = "test",
+                    sourceIdentity = com.mica.music.data.library.SourceIdentityKey.device(),
+                ),
+            ),
+        )
 
     @Test
     fun deleteSongLibrarySyncRefreshesWithoutSecondSetQueue() {

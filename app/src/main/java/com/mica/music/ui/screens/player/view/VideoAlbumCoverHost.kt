@@ -34,6 +34,7 @@ import com.mica.music.util.DiagnosticLog
 @Composable
 internal fun VideoAlbumCoverHost(
     uri: String,
+    revision: String,
     isPlaying: Boolean,
     onPlaybackError: () -> Unit,
     modifier: Modifier = Modifier,
@@ -42,8 +43,10 @@ internal fun VideoAlbumCoverHost(
     val lifecycleState by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
     if (!lifecycleState.isAtLeast(Lifecycle.State.RESUMED)) return
 
-    var poster by remember(uri) { mutableStateOf(VideoCoverPosterStore.get(context, uri)) }
-    var videoReady by remember(uri) { mutableStateOf(false) }
+    var poster by remember(uri, revision) {
+        mutableStateOf(VideoCoverPosterStore.get(context, uri, revision))
+    }
+    var videoReady by remember(uri, revision) { mutableStateOf(false) }
 
     Box(modifier = modifier) {
         val frame = poster
@@ -62,7 +65,7 @@ internal fun VideoAlbumCoverHost(
                 view.onPlaybackError = onPlaybackError
                 view.onFirstFrame = { captured ->
                     if (captured != null) {
-                        VideoCoverPosterStore.put(context, uri, captured)
+                        VideoCoverPosterStore.put(context, uri, revision, captured)
                         poster = captured
                     }
                     videoReady = true

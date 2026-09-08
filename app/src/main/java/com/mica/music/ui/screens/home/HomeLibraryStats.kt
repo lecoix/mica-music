@@ -73,7 +73,7 @@ internal fun rememberLibraryStatsBarModel(
         songs,
         library.totalSizeMb,
         library.lastScanAtMs,
-        library.isScanning,
+        library.isUserVisibleScanning,
         library.scanProgressLabel,
         library.sortField,
         library.sortDirection,
@@ -138,7 +138,7 @@ internal fun resolveLibraryStatsBarModel(
     return when (section) {
         HomeSection.Songs -> LibraryStatsBarModel(
             segments = buildSongListSegments(library, songListInfoVisibility),
-            isScanning = library.isScanning,
+            isScanning = library.isUserVisibleScanning,
             scanProgressLabel = library.scanProgressLabel,
             scanError = library.lastScanError,
             showSortAction = true,
@@ -203,7 +203,7 @@ internal fun resolveLibraryStatsBarModel(
                     browseListInfoVisibility.artistCustomText.trim()
                         .takeIf { browseListInfoVisibility.showArtistCustomText && it.isNotEmpty() },
                 ) + browseScanSegments(library, browseListInfoVisibility.showArtistLastScanTime),
-                isScanning = library.isScanning,
+                isScanning = library.isUserVisibleScanning,
                 scanProgressLabel = library.scanProgressLabel,
                 scanError = library.lastScanError,
                 showSortAction = true,
@@ -227,7 +227,7 @@ internal fun resolveLibraryStatsBarModel(
                     browseListInfoVisibility.albumCustomText.trim()
                         .takeIf { browseListInfoVisibility.showAlbumCustomText && it.isNotEmpty() },
                 ) + browseScanSegments(library, browseListInfoVisibility.showAlbumLastScanTime),
-                isScanning = library.isScanning,
+                isScanning = library.isUserVisibleScanning,
                 scanProgressLabel = library.scanProgressLabel,
                 scanError = library.lastScanError,
                 showSortAction = true,
@@ -242,7 +242,7 @@ internal fun resolveLibraryStatsBarModel(
                     folderRootCountLabel(library, folderBrowseMode),
                     folderBrowseMode.label,
                 ) + scanSegments,
-                isScanning = library.isScanning,
+                isScanning = library.isUserVisibleScanning,
                 scanProgressLabel = library.scanProgressLabel,
                 scanError = library.lastScanError,
                 showFolderModeAction = true,
@@ -256,7 +256,7 @@ internal fun resolveLibraryStatsBarModel(
                             folderRootCountLabel(library, folderBrowseMode),
                             folderBrowseMode.label,
                         ) + scanSegments,
-                        isScanning = library.isScanning,
+                        isScanning = library.isUserVisibleScanning,
                         scanProgressLabel = library.scanProgressLabel,
                         scanError = library.lastScanError,
                         showFolderModeAction = true,
@@ -341,7 +341,7 @@ private fun buildSongListSegments(
 
 private fun songListScanSegments(library: MusicLibrary, showLastScanTime: Boolean): List<String> =
     when {
-        library.isScanning -> listOf("扫描中")
+        library.isUserVisibleScanning -> listOf("扫描中")
         !library.scanProgressLabel.isNullOrBlank() -> listOf(library.scanProgressLabel!!)
         showLastScanTime && library.lastScanAtMs != null -> listOf(formatLastScan(library.lastScanAtMs))
         else -> emptyList()
@@ -361,7 +361,7 @@ private fun subsetStats(songs: List<Song>, library: MusicLibrary): LibraryStatsB
 
 private fun libraryScanSegments(library: MusicLibrary): List<String> =
     when {
-        library.isScanning -> listOf("扫描中")
+        library.isUserVisibleScanning -> listOf("扫描中")
         !library.scanProgressLabel.isNullOrBlank() -> listOf(library.scanProgressLabel!!)
         library.lastScanAtMs != null -> listOf(formatLastScan(library.lastScanAtMs))
         else -> emptyList()
@@ -369,7 +369,7 @@ private fun libraryScanSegments(library: MusicLibrary): List<String> =
 
 private fun browseScanSegments(library: MusicLibrary, showLastScanTime: Boolean): List<String> =
     when {
-        library.isScanning -> listOf("扫描中")
+        library.isUserVisibleScanning -> listOf("扫描中")
         !library.scanProgressLabel.isNullOrBlank() -> listOf(library.scanProgressLabel!!)
         showLastScanTime && library.lastScanAtMs != null -> listOf(formatLastScan(library.lastScanAtMs))
         else -> emptyList()

@@ -48,6 +48,85 @@ class DatabaseMigrationTest {
     }
 
     @Test
+    fun migrationTwentySixToTwentySevenAddsLibraryAutoSyncStateTables() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(null)
+                .callback(object : SupportSQLiteOpenHelper.Callback(26) {
+                    override fun onCreate(db: SupportSQLiteDatabase) = Unit
+                    override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+                })
+                .build(),
+        )
+        val db = helper.writableDatabase
+
+        MIGRATION_26_27.migrate(db)
+
+        assertTrue(tableExists(db, "library_state"))
+        assertTrue(tableExists(db, "library_sync_state"))
+        assertTrue(tableExists(db, "library_retry_items"))
+        assertTrue(tableExists(db, "library_followup_outbox"))
+        assertTrue(tableExists(db, "library_user_exclusions"))
+        assertEquals(
+            setOf(
+                "source",
+                "stableIdentity",
+                "partitionKey",
+                "providerVersion",
+                "generation",
+                "configFingerprint",
+                "lastSuccessfulAutoSyncAtMs",
+            ),
+            tableColumns(db, "library_sync_state"),
+        )
+        assertEquals(
+            setOf(
+                "source",
+                "stableIdentity",
+                "retryKey",
+                "activationEpoch",
+                "stableObjectKey",
+                "observedFingerprint",
+                "retryKind",
+                "failureKind",
+                "attemptCount",
+                "nextRetryAtMs",
+            ),
+            tableColumns(db, "library_retry_items"),
+        )
+        helper.close()
+    }
+
+    @Test
+    fun migrationTwentySevenToTwentyEightAddsVideoCoverRevisionWithEmptyDefault() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(null)
+                .callback(object : SupportSQLiteOpenHelper.Callback(27) {
+                    override fun onCreate(db: SupportSQLiteDatabase) {
+                        db.execSQL("CREATE TABLE songs (id TEXT NOT NULL PRIMARY KEY)")
+                        db.execSQL("INSERT INTO songs(id) VALUES ('legacy')")
+                    }
+
+                    override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+                })
+                .build(),
+        )
+        val db = helper.writableDatabase
+
+        MIGRATION_27_28.migrate(db)
+
+        assertTrue(tableColumns(db, "songs").contains("videoCoverRevision"))
+        db.query("SELECT videoCoverRevision FROM songs WHERE id = 'legacy'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("", cursor.getString(0))
+        }
+        helper.close()
+    }
+
+    @Test
     fun migrationTwentyOneToTwentyTwoAddsRemoteTablesToMainlineSchema() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val helper = FrameworkSQLiteOpenHelperFactory().create(

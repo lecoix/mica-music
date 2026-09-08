@@ -62,6 +62,11 @@ internal data class ScannedSong(
     val lyrics: LyricsProbeResult = LyricsProbeResult.NotProbed,
 )
 
+internal enum class AudioMetadataProbeArtifactPolicy {
+    FULL_SCAN,
+    READ_ONLY_CANONICAL,
+}
+
 internal data class TagInfo(
     val title: String,
     val artist: String,
@@ -180,6 +185,8 @@ object AudioMetadataProbe {
         draft: TrackDraft,
         profiler: ScanProfiler? = null,
         cachedSong: Song? = null,
+        artifactPolicy: AudioMetadataProbeArtifactPolicy =
+            AudioMetadataProbeArtifactPolicy.FULL_SCAN,
     ): ScannedSong {
         val appCtx = context.applicationContext
         val uri = Uri.parse(draft.mediaUri)
@@ -187,7 +194,14 @@ object AudioMetadataProbe {
             profiler.measureOptional("dsdMetadata") {
                 DsdMetadataReader.read(appCtx, uri, draft)
             }?.let { dsd ->
-                return dsd.toScannedSong(appCtx, draft, uri, profiler, cachedSong)
+                return dsd.toScannedSong(
+                    appCtx,
+                    draft,
+                    uri,
+                    profiler,
+                    cachedSong,
+                    artifactPolicy,
+                )
             }
         }
         val metadata = TrackMetadata.fallback(
@@ -211,13 +225,21 @@ object AudioMetadataProbe {
         val comment = profiler.measureOptional("comment") {
             readComment(appCtx, uri, lyricDraft)
         }
-        val albumArtUri = profiler.measureOptional("albumArt") {
-            resolveAlbumArtFromStoreOnly(context, draft.albumId)
+        val albumArtUri = when (artifactPolicy) {
+            AudioMetadataProbeArtifactPolicy.FULL_SCAN ->
+                profiler.measureOptional("albumArt") {
+                    resolveAlbumArtFromStoreOnly(context, draft.albumId)
+                }
+            AudioMetadataProbeArtifactPolicy.READ_ONLY_CANONICAL -> null
         }
-        val coverArgb = profiler.measureOptional("coverColor") {
-            resolveCoverColor(appCtx, null, uri, draft.albumId, albumArtUri)
+        val coverArgb = when (artifactPolicy) {
+            AudioMetadataProbeArtifactPolicy.FULL_SCAN ->
+                profiler.measureOptional("coverColor") {
+                    resolveCoverColor(appCtx, null, uri, draft.albumId, albumArtUri)
+                } ?: draft.coverColorArgb
+            AudioMetadataProbeArtifactPolicy.READ_ONLY_CANONICAL ->
+                cachedSong?.coverColorArgb ?: draft.coverColorArgb
         }
-            ?: draft.coverColorArgb
         return ScannedSong(
             song = draft.copy(coverColorArgb = coverArgb).toSong(
                 appCtx,
@@ -239,6 +261,8 @@ object AudioMetadataProbe {
         profiler: ScanProfiler? = null,
         cachedSong: Song? = null,
         technicalProbeFailures: AtomicInteger? = null,
+        artifactPolicy: AudioMetadataProbeArtifactPolicy =
+            AudioMetadataProbeArtifactPolicy.FULL_SCAN,
     ): ScannedSong {
         val appCtx = context.applicationContext
         val uri = Uri.parse(draft.mediaUri)
@@ -246,7 +270,14 @@ object AudioMetadataProbe {
             profiler.measureOptional("dsdMetadata") {
                 DsdMetadataReader.read(appCtx, uri, draft)
             }?.let { dsd ->
-                return dsd.toScannedSong(appCtx, draft, uri, profiler, cachedSong)
+                return dsd.toScannedSong(
+                    appCtx,
+                    draft,
+                    uri,
+                    profiler,
+                    cachedSong,
+                    artifactPolicy,
+                )
             }
         }
         val requiresTrackProbe = draft.requiresAudioTrackProbe()
@@ -285,6 +316,7 @@ object AudioMetadataProbe {
                 profiler,
                 cachedSong,
                 technicalProbeFailures,
+                artifactPolicy,
             )
         }
         // TagLib 整体失败时，WAV 仍先尝试 JAudioTagger，再由 Retriever/MediaStore 补空字段。
@@ -352,26 +384,31 @@ object AudioMetadataProbe {
                 comment = comment,
                 codecLabel = trackProbe?.trackMime ?: metadata.playbackMimeType,
             )
-            val artKey = artCacheKey(withMeta)
             val wavCoverBytes = wavFallback?.frontCoverBytes?.takeIf { it.isNotEmpty() }
-            val albumArtUri = profiler.measureOptional("albumArt") {
-                if (wavCoverBytes != null) {
-                    resolveAlbumArtFromBytes(
-                        appCtx,
-                        wavCoverBytes,
-                        artKey,
-                        withMeta.albumId,
-                        withMeta.scanSongId(),
-                    )
-                } else {
-                    resolveAlbumArt(
-                        appCtx,
-                        retriever,
-                        artKey,
-                        withMeta.albumId,
-                        withMeta.scanSongId(),
-                    )
+            val albumArtUri = when (artifactPolicy) {
+                AudioMetadataProbeArtifactPolicy.FULL_SCAN -> {
+                    val artKey = artCacheKey(withMeta)
+                    profiler.measureOptional("albumArt") {
+                        if (wavCoverBytes != null) {
+                            resolveAlbumArtFromBytes(
+                                appCtx,
+                                wavCoverBytes,
+                                artKey,
+                                withMeta.albumId,
+                                withMeta.scanSongId(),
+                            )
+                        } else {
+                            resolveAlbumArt(
+                                appCtx,
+                                retriever,
+                                artKey,
+                                withMeta.albumId,
+                                withMeta.scanSongId(),
+                            )
+                        }
+                    }
                 }
+                AudioMetadataProbeArtifactPolicy.READ_ONLY_CANONICAL -> null
             }
             val lyrics = profiler.measureOptional("lyrics") {
                 readScanLyrics(
@@ -383,11 +420,21 @@ object AudioMetadataProbe {
                     profiler = profiler,
                 )
             }
-            val coverArgb = profiler.measureOptional("coverColor") {
-                wavCoverBytes?.let { CoverColorExtractor.fromBytes(it) }
-                    ?: resolveCoverColor(appCtx, retriever, uri, withMeta.albumId, albumArtUri)
+            val coverArgb = when (artifactPolicy) {
+                AudioMetadataProbeArtifactPolicy.FULL_SCAN ->
+                    profiler.measureOptional("coverColor") {
+                        wavCoverBytes?.let { CoverColorExtractor.fromBytes(it) }
+                            ?: resolveCoverColor(
+                                appCtx,
+                                retriever,
+                                uri,
+                                withMeta.albumId,
+                                albumArtUri,
+                            )
+                    } ?: withMeta.coverColorArgb
+                AudioMetadataProbeArtifactPolicy.READ_ONLY_CANONICAL ->
+                    cachedSong?.coverColorArgb ?: withMeta.coverColorArgb
             }
-                ?: withMeta.coverColorArgb
             ScannedSong(
                 song = withMeta.copy(coverColorArgb = coverArgb).toSong(
                     appCtx,
@@ -438,8 +485,12 @@ object AudioMetadataProbe {
                 song = draft.toSong(
                     appCtx,
                     metadata,
-                    albumArtUri = profiler.measureOptional("albumArt") {
-                        resolveAlbumArtFromStoreOnly(appCtx, draft.albumId)
+                    albumArtUri = when (artifactPolicy) {
+                        AudioMetadataProbeArtifactPolicy.FULL_SCAN ->
+                            profiler.measureOptional("albumArt") {
+                                resolveAlbumArtFromStoreOnly(appCtx, draft.albumId)
+                            }
+                        AudioMetadataProbeArtifactPolicy.READ_ONLY_CANONICAL -> null
                     },
                     lyricsDocument = lyrics.selectedOrCached(cachedSong),
                     copyrightOverride = copyright,
@@ -468,6 +519,8 @@ object AudioMetadataProbe {
         profiler: ScanProfiler?,
         cachedSong: Song?,
         technicalProbeFailures: AtomicInteger? = null,
+        artifactPolicy: AudioMetadataProbeArtifactPolicy =
+            AudioMetadataProbeArtifactPolicy.FULL_SCAN,
     ): ScannedSong {
         val primaryTags = TagInfo(
             title = tagLib.title,
@@ -622,15 +675,20 @@ object AudioMetadataProbe {
             comment = comment,
             codecLabel = trackProbe?.trackMime ?: playbackMime,
         )
-        val artKey = artCacheKey(withMeta)
-        val albumArtUri = profiler.measureOptional("albumArt") {
-            resolveAlbumArtFromBytes(
-                context,
-                coverBytes,
-                artKey,
-                withMeta.albumId,
-                withMeta.scanSongId(),
-            )
+        val albumArtUri = when (artifactPolicy) {
+            AudioMetadataProbeArtifactPolicy.FULL_SCAN -> {
+                val artKey = artCacheKey(withMeta)
+                profiler.measureOptional("albumArt") {
+                    resolveAlbumArtFromBytes(
+                        context,
+                        coverBytes,
+                        artKey,
+                        withMeta.albumId,
+                        withMeta.scanSongId(),
+                    )
+                }
+            }
+            AudioMetadataProbeArtifactPolicy.READ_ONLY_CANONICAL -> null
         }
         val lyrics = profiler.measureOptional("lyrics") {
             readScanLyrics(
@@ -642,10 +700,15 @@ object AudioMetadataProbe {
                 profiler = profiler,
             )
         }
-        val coverArgb = profiler.measureOptional("coverColor") {
-            coverBytes?.let { CoverColorExtractor.fromBytes(it) }
-                ?: resolveCoverColor(context, null, uri, withMeta.albumId, albumArtUri)
-        } ?: withMeta.coverColorArgb
+        val coverArgb = when (artifactPolicy) {
+            AudioMetadataProbeArtifactPolicy.FULL_SCAN ->
+                profiler.measureOptional("coverColor") {
+                    coverBytes?.let { CoverColorExtractor.fromBytes(it) }
+                        ?: resolveCoverColor(context, null, uri, withMeta.albumId, albumArtUri)
+                } ?: withMeta.coverColorArgb
+            AudioMetadataProbeArtifactPolicy.READ_ONLY_CANONICAL ->
+                cachedSong?.coverColorArgb ?: withMeta.coverColorArgb
+        }
         return ScannedSong(
             song = withMeta.copy(coverColorArgb = coverArgb).toSong(
                 context = context,
@@ -991,6 +1054,8 @@ object AudioMetadataProbe {
         uri: Uri,
         profiler: ScanProfiler?,
         cachedSong: Song?,
+        artifactPolicy: AudioMetadataProbeArtifactPolicy =
+            AudioMetadataProbeArtifactPolicy.FULL_SCAN,
     ): ScannedSong {
         val title = tags.title.ifBlank { draft.title }
         val artist = tags.artist.ifBlank { draft.artist }
@@ -1018,14 +1083,23 @@ object AudioMetadataProbe {
                 profiler = profiler,
             )
         }
-        val albumArtUri = profiler.measureOptional("albumArt") {
-            saveEmbeddedPictureBytes(context, albumArtBytes, enriched.scanSongId())
+        val albumArtUri = when (artifactPolicy) {
+            AudioMetadataProbeArtifactPolicy.FULL_SCAN ->
+                profiler.measureOptional("albumArt") {
+                    saveEmbeddedPictureBytes(context, albumArtBytes, enriched.scanSongId())
+                }
+            AudioMetadataProbeArtifactPolicy.READ_ONLY_CANONICAL -> null
         }
-        val coverArgb = profiler.measureOptional("coverColor") {
-            albumArtBytes
-                ?.let { CoverColorExtractor.fromBytes(it) }
-                ?: resolveCoverColor(context, null, uri, enriched.albumId, albumArtUri)
-        } ?: enriched.coverColorArgb
+        val coverArgb = when (artifactPolicy) {
+            AudioMetadataProbeArtifactPolicy.FULL_SCAN ->
+                profiler.measureOptional("coverColor") {
+                    albumArtBytes
+                        ?.let { CoverColorExtractor.fromBytes(it) }
+                        ?: resolveCoverColor(context, null, uri, enriched.albumId, albumArtUri)
+                } ?: enriched.coverColorArgb
+            AudioMetadataProbeArtifactPolicy.READ_ONLY_CANONICAL ->
+                cachedSong?.coverColorArgb ?: enriched.coverColorArgb
+        }
         return ScannedSong(
             song = enriched.copy(coverColorArgb = coverArgb).toSong(
                 context = context,
@@ -1158,7 +1232,11 @@ object AudioMetadataProbe {
                 CoverColorExtractor.fromUri(context, albumUri)?.let { return it }
             }
         }
-        return CoverColorExtractor.fromUri(context, mediaUri)
+        // The media URI points at the audio object, not artwork. Feeding it to BitmapFactory can
+        // scan a very large audio stream while looking for an image header and used to amplify the
+        // full-scan memory spike. Embedded/store artwork candidates above are the only valid image
+        // sources here; keep the existing color when none is available.
+        return null
     }
 
     private fun TrackDraft.toSong(

@@ -392,3 +392,90 @@ val MIGRATION_25_26 = object : Migration(25, 26) {
         db.execSQL("UPDATE remote_sources SET lastSyncAtMs = 0 WHERE enabled = 1")
     }
 }
+
+val MIGRATION_26_27 = object : Migration(26, 27) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS library_state (
+                id INTEGER NOT NULL,
+                intent TEXT NOT NULL,
+                access TEXT NOT NULL,
+                activeSource TEXT NOT NULL,
+                activeStableIdentity TEXT NOT NULL,
+                activeEpoch INTEGER NOT NULL,
+                pendingSource TEXT NOT NULL,
+                pendingStableIdentity TEXT NOT NULL,
+                pendingEpoch INTEGER NOT NULL,
+                configFingerprint TEXT NOT NULL,
+                PRIMARY KEY(id)
+            )
+            """.trimIndent(),
+        )
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS library_sync_state (
+                source TEXT NOT NULL,
+                stableIdentity TEXT NOT NULL,
+                partitionKey TEXT NOT NULL,
+                providerVersion TEXT NOT NULL,
+                generation INTEGER NOT NULL,
+                configFingerprint TEXT NOT NULL,
+                lastSuccessfulAutoSyncAtMs INTEGER NOT NULL,
+                PRIMARY KEY(source, stableIdentity, partitionKey)
+            )
+            """.trimIndent(),
+        )
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS library_retry_items (
+                source TEXT NOT NULL,
+                stableIdentity TEXT NOT NULL,
+                retryKey TEXT NOT NULL,
+                activationEpoch INTEGER,
+                stableObjectKey TEXT NOT NULL,
+                observedFingerprint TEXT NOT NULL,
+                retryKind TEXT NOT NULL,
+                failureKind TEXT NOT NULL,
+                attemptCount INTEGER NOT NULL,
+                nextRetryAtMs INTEGER NOT NULL,
+                PRIMARY KEY(source, stableIdentity, retryKey)
+            )
+            """.trimIndent(),
+        )
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS library_followup_outbox (
+                eventId TEXT NOT NULL,
+                libraryRevision INTEGER NOT NULL,
+                action TEXT NOT NULL,
+                source TEXT NOT NULL,
+                stableIdentity TEXT NOT NULL,
+                activationEpoch INTEGER,
+                stableObjectKey TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                createdAtMs INTEGER NOT NULL,
+                PRIMARY KEY(eventId)
+            )
+            """.trimIndent(),
+        )
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS library_user_exclusions (
+                source TEXT NOT NULL,
+                stableIdentity TEXT NOT NULL,
+                stableObjectKey TEXT NOT NULL,
+                exclusionRevision INTEGER NOT NULL,
+                createdAtMs INTEGER NOT NULL,
+                PRIMARY KEY(source, stableIdentity, stableObjectKey)
+            )
+            """.trimIndent(),
+        )
+    }
+}
+
+val MIGRATION_27_28 = object : Migration(27, 28) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE songs ADD COLUMN videoCoverRevision TEXT NOT NULL DEFAULT ''")
+    }
+}

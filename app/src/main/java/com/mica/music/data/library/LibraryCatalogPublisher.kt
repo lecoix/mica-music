@@ -11,6 +11,7 @@ import com.mica.music.data.SongChangeDiagnostics
 import com.mica.music.data.SongSortField
 import com.mica.music.data.SortDirection
 import com.mica.music.data.scanner.canPersistCoverColor
+import com.mica.music.data.scanner.toDeviceShadowCanonicalSong
 import com.mica.music.util.DiagnosticLog
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -49,6 +50,7 @@ internal class LibraryCatalogPublisher(
     }
 
     fun updateSort(field: SongSortField, direction: SortDirection) {
+        backing.presentationRevision++
         if (field == SongSortField.CUSTOM && LibraryBrowseSettings.customSongOrderIds(backing.context).isEmpty()) {
             LibraryBrowseSettings.setCustomSongOrderIds(backing.context, backing.songs.map { it.id })
         }
@@ -66,6 +68,7 @@ internal class LibraryCatalogPublisher(
         if (fromIndex !in reordered.indices || toIndex !in reordered.indices || fromIndex == toIndex) return false
         val moved = reordered.removeAt(fromIndex)
         reordered.add(toIndex, moved)
+        backing.presentationRevision++
         publishVisibleSongs(reordered)
         LibraryBrowseSettings.setCustomSongOrderIds(backing.context, reordered.map { it.id })
         persistPresentationAsync()
@@ -73,19 +76,41 @@ internal class LibraryCatalogPublisher(
     }
 
     fun updateCustomSongOrderLocked(locked: Boolean) {
+        if (backing.customSongOrderLocked == locked) return
+        backing.presentationRevision++
         backing.customSongOrderLocked = locked
         LibraryBrowseSettings.setCustomSongOrderLocked(backing.context, locked)
     }
 
-    fun publishVisibleSongs(list: List<Song>, fastScrollIndex: com.mica.music.data.FastScrollIndex? = null) {
+    fun publishVisibleSongs(
+        list: List<Song>,
+        fastScrollIndex: com.mica.music.data.FastScrollIndex? = null,
+        shadowAuthorityMutation: Boolean? = null,
+    ) {
         val previous = backing.songs
-        if (previous != list) backing.catalogRevision++
+        if (previous != list) {
+            backing.catalogRevision++
+            val authorityChanged = shadowAuthorityMutation
+                ?: !previous.hasSameShadowAuthority(list)
+            if (authorityChanged) {
+                backing.shadowAuthorityRevision++
+            }
+        }
         if (!previous.hasSameQueueMetadata(list)) backing.queueMetadataRevision++
         backing.replaceSongs(list)
         backing.songIds = list.map { it.id }
         backing.songFastScrollLabels = fastScrollIndex?.labels
         backing.songFastScrollSectionTargets = fastScrollIndex?.sectionTargets
     }
+
+    private fun List<Song>.hasSameShadowAuthority(other: List<Song>): Boolean =
+        size == other.size && other.associateBy(Song::id).let { byId ->
+            all { old ->
+                val new = byId[old.id] ?: return@let false
+                old.toDeviceShadowCanonicalSong(old.id) ==
+                    new.toDeviceShadowCanonicalSong(new.id)
+            }
+        }
 
     private fun List<Song>.hasSameQueueMetadata(other: List<Song>): Boolean =
         size == other.size && other.associateBy(Song::id).let { byId ->
@@ -154,7 +179,10 @@ internal class LibraryCatalogPublisher(
     }
 
     fun removeSong(songId: String) {
-        scannedSongs = scannedSongs.filterNot { it.id == songId }
+        val updated = scannedSongs.filterNot { it.id == songId }
+        if (updated.size == scannedSongs.size) return
+        backing.catalogRevision++
+        scannedSongs = updated
         applyCurrentSort()
         if (backing.lastScanAtMs != null) {
             persistSongsAsync()
@@ -170,6 +198,7 @@ internal class LibraryCatalogPublisher(
             totalListenSeconds = stats.totalListenSeconds,
             lastPlayedAtMs = stats.lastPlayedAtMs,
         )
+        if (updatedScanned == oldScanned) return
         DiagnosticLog.event(
             "LibraryMutation",
             "diag=play-stats-song-update song=${songId.takeLast(12)} " +
@@ -180,6 +209,7 @@ internal class LibraryCatalogPublisher(
                 "sort=${backing.sortField}/${backing.sortDirection} " +
                 "visibleIndex=${backing.songs.indexOfFirst { it.id == songId }}",
         )
+        backing.catalogRevision++
         scannedSongs = scannedSongs.toMutableList().also { it[scannedIndex] = updatedScanned }
         when (backing.sortField) {
             SongSortField.PLAY_COUNT,
@@ -190,7 +220,11 @@ internal class LibraryCatalogPublisher(
                     backing.sortField,
                     backing.sortDirection,
                 )
-                publishVisibleSongs(presentation.visible, presentation.fastScrollIndex)
+                publishVisibleSongs(
+                    presentation.visible,
+                    presentation.fastScrollIndex,
+                    shadowAuthorityMutation = false,
+                )
             }
             else -> {
                 val visibleIndex = backing.songs.indexOfFirst { it.id == songId }
@@ -212,10 +246,10 @@ internal class LibraryCatalogPublisher(
         if (current.coverColorArgb == argb) return
         if (!canPersistCoverColor(current, songId, albumArtUri, argb)) return
         val updated = current.copy(coverColorArgb = argb)
+        backing.catalogRevision++
         scannedSongs = scannedSongs.toMutableList().also { it[scannedIndex] = updated }
         val visibleIndex = backing.songs.indexOfFirst { it.id == songId }
         if (visibleIndex >= 0) {
-            backing.catalogRevision++
             backing.replaceSongAt(visibleIndex, updated)
         }
     }
@@ -227,11 +261,13 @@ internal class LibraryCatalogPublisher(
     ) {
         val scannedIndex = scannedSongs.indexOfFirst { it.id == songId }
         if (scannedIndex < 0) return
-        val updated = scannedSongs[scannedIndex].copy(loudnessAnalysis = analysis)
+        val current = scannedSongs[scannedIndex]
+        val updated = current.copy(loudnessAnalysis = analysis)
+        if (updated == current) return
+        backing.catalogRevision++
         scannedSongs = scannedSongs.toMutableList().also { it[scannedIndex] = updated }
         val visibleIndex = backing.songs.indexOfFirst { it.id == songId }
         if (visibleIndex >= 0) {
-            backing.catalogRevision++
             if (notifyQueueMetadata) backing.queueMetadataRevision++
             backing.replaceSongAt(visibleIndex, updated)
         }
@@ -249,41 +285,73 @@ internal class LibraryCatalogPublisher(
         diagnosticReason: String,
         useInputOrder: Boolean = false,
         cachedSectionTargets: Map<String, Int>? = null,
-    ): PreparedLibrarySongs = withContext(backing.ioDispatcher) {
-        val statsStartedMs = SystemClock.elapsedRealtime()
-        val playStats = backing.scanEnvironment.playStatsSnapshot(raw.map(Song::id))
-        val scanned = raw.map { song -> song.withPlayStats(playStats) }
-        DiagnosticLog.event(
-            diagnosticTag,
-            "$diagnosticReason stats durMs=${SystemClock.elapsedRealtime() - statsStartedMs} songs=${scanned.size}",
-        )
+        releaseLoadedLyrics: Boolean = false,
+    ): PreparedLibrarySongs {
+        // Capture all mutable catalog/presentation inputs before leaving the owner dispatcher.
+        val catalogRevision = backing.catalogRevision
+        val presentationRevision = backing.presentationRevision
+        val customOrderIds = LibraryBrowseSettings.customSongOrderIds(backing.context)
+        return withContext(backing.ioDispatcher) {
+            val statsStartedMs = SystemClock.elapsedRealtime()
+            val playStats = backing.scanEnvironment.playStatsSnapshot(raw.map(Song::id))
+            val scanned = raw.map { song ->
+                val withStats = song.withPlayStats(playStats)
+                if (releaseLoadedLyrics && withStats.lyricsLoaded) {
+                    withStats.copy(
+                        lyricsDocument = com.mica.music.data.LyricsDocument(),
+                        lyricsLoaded = false,
+                    )
+                } else {
+                    withStats
+                }
+            }
+            DiagnosticLog.event(
+                diagnosticTag,
+                "$diagnosticReason stats durMs=${SystemClock.elapsedRealtime() - statsStartedMs} songs=${scanned.size}",
+            )
 
-        val presentationStartedMs = SystemClock.elapsedRealtime()
-        val presentation = LibraryPresentationBuilder.prepare(
-            scannedSongs = scanned,
-            field = field,
-            direction = direction,
-            useInputOrder = useInputOrder,
-            cachedSectionTargets = cachedSectionTargets,
-            customOrderIds = LibraryBrowseSettings.customSongOrderIds(backing.context),
-        )
-        if (field == SongSortField.CUSTOM) {
-            LibraryBrowseSettings.setCustomSongOrderIds(backing.context, presentation.visible.map { it.id })
+            val presentationStartedMs = SystemClock.elapsedRealtime()
+            val timedPresentation = LibraryPresentationBuilder.prepareTimed(
+                scannedSongs = scanned,
+                field = field,
+                direction = direction,
+                useInputOrder = useInputOrder,
+                cachedSectionTargets = cachedSectionTargets,
+                customOrderIds = customOrderIds,
+            )
+            val presentation = timedPresentation.presentation
+            val proposedCustomOrder = if (field == SongSortField.CUSTOM) {
+                presentation.visible.map(Song::id).takeIf { it != customOrderIds }
+            } else {
+                null
+            }
+            DiagnosticLog.event(
+                diagnosticTag,
+                "$diagnosticReason presentation durMs=${SystemClock.elapsedRealtime() - presentationStartedMs} " +
+                    "sortMs=${timedPresentation.timing.sortMs} " +
+                    "labelsMs=${timedPresentation.timing.labelsMs} " +
+                    "sectionsMs=${timedPresentation.timing.sectionsMs} " +
+                    "raw=${scanned.size} visible=${presentation.visible.size} sort=$field/$direction " +
+                    "cachedOrder=$useInputOrder labels=${presentation.fastScrollIndex?.labels?.size ?: 0} " +
+                    "sections=${presentation.fastScrollIndex?.sectionTargets?.size ?: 0} " +
+                    "cachedSections=${cachedSectionTargets != null}",
+            )
+
+            PreparedLibrarySongs(
+                scanned = scanned,
+                visible = presentation.visible,
+                fastScrollIndex = presentation.fastScrollIndex,
+                catalogRevision = catalogRevision,
+                presentationRevision = presentationRevision,
+                customOrderIdsToPersist = proposedCustomOrder,
+            )
         }
-        DiagnosticLog.event(
-            diagnosticTag,
-            "$diagnosticReason presentation durMs=${SystemClock.elapsedRealtime() - presentationStartedMs} " +
-                "raw=${scanned.size} visible=${presentation.visible.size} sort=$field/$direction " +
-                "cachedOrder=$useInputOrder labels=${presentation.fastScrollIndex?.labels?.size ?: 0} " +
-                "sections=${presentation.fastScrollIndex?.sectionTargets?.size ?: 0} " +
-                "cachedSections=${cachedSectionTargets != null}",
-        )
+    }
 
-        PreparedLibrarySongs(
-            scanned = scanned,
-            visible = presentation.visible,
-            fastScrollIndex = presentation.fastScrollIndex,
-        )
+    fun persistPreparedCustomOrderIfCurrent(prepared: PreparedLibrarySongs) {
+        val ids = prepared.customOrderIdsToPersist ?: return
+        if (backing.presentationRevision != prepared.presentationRevision) return
+        LibraryBrowseSettings.setCustomSongOrderIds(backing.context, ids)
     }
 
     private fun Song.withPlayStats(playStats: PlayStatsSnapshot): Song {

@@ -3,9 +3,9 @@ package com.mica.music.data.scanner
 import android.graphics.Bitmap
 import androidx.test.core.app.ApplicationProvider
 import java.io.File
-import java.security.MessageDigest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -16,27 +16,31 @@ class VideoCoverPosterPrefetcherTest {
 
     @Test
     fun prefetchSkipsCachedDedupesAndStoresExtracted() {
-        val cached = setOf("content://cached")
-        val extracted = mutableListOf<String>()
-        val stored = mutableListOf<String>()
+        val cached = setOf(VideoCoverPosterRef("content://cached", "r1"))
+        val extracted = mutableListOf<VideoCoverPosterRef>()
+        val stored = mutableListOf<VideoCoverPosterRef>()
+        val fresh = VideoCoverPosterRef("content://fresh", "r2")
         val stats = VideoCoverPosterPrefetcher.prefetchVideoCoverPosters(
-            uris = listOf(
-                "content://cached",
-                "content://fresh",
-                "content://fresh",
-                "",
-                "content://fail",
+            refs = listOf(
+                VideoCoverPosterRef("content://cached", "r1"),
+                fresh,
+                fresh,
+                VideoCoverPosterRef("", ""),
+                VideoCoverPosterRef("content://fail", "r3"),
             ),
             isCached = { it in cached },
-            extract = { uri ->
-                extracted += uri
-                if (uri.endsWith("fail")) null
+            extract = { ref ->
+                extracted += ref
+                if (ref.uri.endsWith("fail")) null
                 else Bitmap.createBitmap(8, 8, Bitmap.Config.ARGB_8888)
             },
-            store = { uri, _ -> stored += uri },
+            store = { ref, _ -> stored += ref },
         )
-        assertEquals(listOf("content://fresh", "content://fail"), extracted)
-        assertEquals(listOf("content://fresh"), stored)
+        assertEquals(
+            listOf(fresh, VideoCoverPosterRef("content://fail", "r3")),
+            extracted,
+        )
+        assertEquals(listOf(fresh), stored)
         assertEquals(
             VideoCoverPosterPrefetcher.PrefetchStats(
                 total = 3,
@@ -49,11 +53,36 @@ class VideoCoverPosterPrefetcherTest {
     }
 
     @Test
+    fun sameUriDifferentRevisionIsNotDeduped() {
+        val uri = "content://same"
+        val extracted = mutableListOf<VideoCoverPosterRef>()
+        val stats = VideoCoverPosterPrefetcher.prefetchVideoCoverPosters(
+            refs = listOf(
+                VideoCoverPosterRef(uri, "old"),
+                VideoCoverPosterRef(uri, "new"),
+            ),
+            isCached = { false },
+            extract = { ref ->
+                extracted += ref
+                Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888)
+            },
+            store = { _, bitmap -> if (!bitmap.isRecycled) bitmap.recycle() },
+        )
+
+        assertEquals(2, stats.total)
+        assertEquals(listOf("old", "new"), extracted.map { it.revision })
+    }
+
+    @Test
     fun prefetchStopsWhenCancelled() {
         var calls = 0
         var go = true
         VideoCoverPosterPrefetcher.prefetchVideoCoverPosters(
-            uris = listOf("content://a", "content://b", "content://c"),
+            refs = listOf(
+                VideoCoverPosterRef("content://a", "a"),
+                VideoCoverPosterRef("content://b", "b"),
+                VideoCoverPosterRef("content://c", "c"),
+            ),
             isCached = { false },
             extract = {
                 calls++
@@ -69,23 +98,23 @@ class VideoCoverPosterPrefetcherTest {
     @Test
     fun prefetchDoesNotStoreWhenCancelledDuringExtraction() {
         var go = true
-        val stored = mutableListOf<String>()
+        val stored = mutableListOf<VideoCoverPosterRef>()
         val bitmap = Bitmap.createBitmap(4, 4, Bitmap.Config.ARGB_8888)
 
         try {
             val stats = VideoCoverPosterPrefetcher.prefetchVideoCoverPosters(
-                uris = listOf("content://cancel-during-extract"),
+                refs = listOf(VideoCoverPosterRef("content://cancel-during-extract", "r1")),
                 isCached = { false },
                 extract = {
                     go = false
                     bitmap
                 },
-                store = { uri, _ -> stored += uri },
+                store = { ref, _ -> stored += ref },
                 shouldContinue = { go },
             )
 
             assertEquals(0, stats.stored)
-            assertEquals(emptyList<String>(), stored)
+            assertEquals(emptyList<VideoCoverPosterRef>(), stored)
             assertTrue(bitmap.isRecycled)
         } finally {
             if (!bitmap.isRecycled) bitmap.recycle()
@@ -96,19 +125,28 @@ class VideoCoverPosterPrefetcherTest {
     fun corruptedDiskPosterIsNotReportedAsCached() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val uri = "content://video/corrupt-${System.nanoTime()}"
-        val hex = MessageDigest.getInstance("SHA-256")
-            .digest(uri.toByteArray())
-            .joinToString("") { "%02x".format(it) }
-        val file = File(context.cacheDir, "video_cover_posters/$hex.jpg")
+        val revision = "same-uri-revision"
+        val file = VideoCoverPosterStore.fileForTest(context, uri, revision)
         file.parentFile?.mkdirs()
         file.writeBytes(byteArrayOf())
 
         try {
             assertTrue(file.isFile)
-            assertTrue(!VideoCoverPosterStore.isCached(context, uri))
+            assertTrue(!VideoCoverPosterStore.isCached(context, uri, revision))
         } finally {
             file.delete()
         }
+    }
+
+    @Test
+    fun sameUriDifferentRevisionUsesDifferentDiskCacheFile() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val uri = "content://video/same"
+
+        val oldFile = VideoCoverPosterStore.fileForTest(context, uri, "old|1|2")
+        val newFile = VideoCoverPosterStore.fileForTest(context, uri, "new|3|4")
+
+        assertNotEquals(oldFile.absolutePath, newFile.absolutePath)
     }
 
     @Test

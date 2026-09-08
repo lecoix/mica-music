@@ -7,10 +7,11 @@ import com.mica.music.data.MusicLibrary
 import com.mica.music.data.Song
 import com.mica.music.util.DiagnosticLog
 
-data class LibraryQueueSyncInput(
+internal data class LibraryQueueSyncInput(
     val songs: List<Song>,
     val songIds: List<String>,
     val hasScanned: Boolean,
+    val changeSet: com.mica.music.data.library.LibraryChangeSet?,
     val songById: (String) -> Song?,
 )
 
@@ -20,10 +21,13 @@ internal class LibraryPlaybackQueueCoordinator(
 ) {
     internal interface Target {
         val currentQueueIds: List<String>
+        val currentSongId: String?
+        val isPlaying: Boolean
         val queueSize: Int
         fun connectIfNeeded()
         fun bootstrapQueue(resolveSong: (String) -> Song?): Boolean
         fun setQueue(queue: List<Song>)
+        fun removeFromQueue(index: Int)
         fun refreshQueueMetadata(songs: List<Song>)
     }
 
@@ -42,6 +46,9 @@ internal class LibraryPlaybackQueueCoordinator(
                 songs = songs,
                 libraryIds = library.songIds,
                 currentQueueIds = currentQueueIds,
+                changeSet = library.changeSet,
+                currentSongId = player.currentSongId,
+                isPlaying = player.isPlaying,
             )
         ) {
             LibraryQueueSyncPlan.SkipEmpty -> {
@@ -80,11 +87,38 @@ internal class LibraryPlaybackQueueCoordinator(
                 player.setQueue(plan.songs)
                 logEffectEnd(reason, effectStartedMs, player.queueSize)
             }
+            is LibraryQueueSyncPlan.ReconcileQueue -> {
+                logEffectStart(reason, plan, songs.size, currentQueueIds.size)
+                currentQueueIds.withIndex()
+                    .filter { (_, id) -> id in plan.removeIds }
+                    .map { it.index }
+                    .sortedDescending()
+                    .forEach(player::removeFromQueue)
+                if (plan.songs.isNotEmpty()) {
+                    player.refreshQueueMetadata(plan.songs)
+                }
+                logEffectEnd(reason, effectStartedMs, player.queueSize)
+            }
             is LibraryQueueSyncPlan.RefreshMetadata -> {
                 logEffectStart(reason, plan, songs.size, currentQueueIds.size)
                 player.refreshQueueMetadata(plan.songs)
                 logEffectEnd(reason, effectStartedMs, player.queueSize)
             }
+        }
+    }
+
+    fun onPlaybackCurrentChanged(player: Target) {
+        val orphanId = policy.orphanToPurgeAfterPlaybackTransition(
+            currentSongId = player.currentSongId,
+            currentQueueIds = player.currentQueueIds,
+        ) ?: return
+        val index = player.currentQueueIds.indexOf(orphanId)
+        if (index >= 0) {
+            DiagnosticLog.event(
+                "LibraryQueue",
+                "purge deferred orphan id=$orphanId index=$index",
+            )
+            player.removeFromQueue(index)
         }
     }
 
@@ -117,6 +151,7 @@ internal fun MusicLibrary.toLibraryQueueSyncInput(
         songs = songs,
         songIds = songIds,
         hasScanned = hasScanned,
+        changeSet = lastLibraryChangeSet,
         songById = resolver,
     )
 
@@ -124,6 +159,12 @@ internal fun PlayerController.asLibraryPlaybackQueueTarget(): LibraryPlaybackQue
     object : LibraryPlaybackQueueCoordinator.Target {
         override val currentQueueIds: List<String>
             get() = playbackQueueState.queue.map { it.id }
+
+        override val currentSongId: String?
+            get() = playbackQueueState.queue.getOrNull(playbackQueueState.currentIndex)?.id
+
+        override val isPlaying: Boolean
+            get() = playbackSurfaceState.isPlaying
 
         override val queueSize: Int
             get() = playbackQueueState.queue.size
@@ -135,6 +176,9 @@ internal fun PlayerController.asLibraryPlaybackQueueTarget(): LibraryPlaybackQue
 
         override fun setQueue(queue: List<Song>) = this@asLibraryPlaybackQueueTarget.setQueue(queue)
 
+        override fun removeFromQueue(index: Int) =
+            this@asLibraryPlaybackQueueTarget.removeFromQueue(index)
+
         override fun refreshQueueMetadata(songs: List<Song>) =
             this@asLibraryPlaybackQueueTarget.refreshQueueMetadata(songs)
     }
@@ -145,6 +189,7 @@ private fun LibraryQueueSyncPlan.previousLibraryIdsSize(): Int =
         LibraryQueueSyncPlan.BootstrapOnly -> 0
         is LibraryQueueSyncPlan.BootstrapOrSetQueue -> previousLibraryIdsSize
         is LibraryQueueSyncPlan.SetQueue -> previousLibraryIdsSize
+        is LibraryQueueSyncPlan.ReconcileQueue -> previousLibraryIdsSize
         is LibraryQueueSyncPlan.RefreshMetadata -> previousLibraryIdsSize
     }
 
@@ -154,5 +199,6 @@ private fun LibraryQueueSyncPlan.currentQueueWasLibrary(): Boolean =
         LibraryQueueSyncPlan.BootstrapOnly -> false
         is LibraryQueueSyncPlan.BootstrapOrSetQueue -> currentQueueWasLibrary
         is LibraryQueueSyncPlan.SetQueue -> currentQueueWasLibrary
+        is LibraryQueueSyncPlan.ReconcileQueue -> currentQueueWasLibrary
         is LibraryQueueSyncPlan.RefreshMetadata -> currentQueueWasLibrary
     }

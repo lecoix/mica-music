@@ -7,10 +7,12 @@ import androidx.lifecycle.viewModelScope
 import com.mica.music.data.AppUiSettings
 import com.mica.music.data.PlayHistoryStore
 import com.mica.music.playback.LibraryPlaybackQueueCoordinator
+import com.mica.music.playback.PlaybackExecutionState
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.Song
 import com.mica.music.data.StartupBrowseTarget
 import com.mica.music.data.remote.RemotePlayStatsPresentation
+import com.mica.music.data.library.LibraryPlaybackIoSnapshot
 import com.mica.music.data.remote.toPlaybackSong
 import com.mica.music.data.scanner.CoverColorPersistence
 import com.mica.music.playback.asLibraryPlaybackQueueTarget
@@ -37,11 +39,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val remotePlayStatsPresentation = RemotePlayStatsPresentation()
     val remotePlayStats = remotePlayStatsPresentation.stats
     private val libraryPlaybackQueueSync = LibraryPlaybackQueueCoordinator()
+    private val libraryFollowupConsumer = LibraryFollowupConsumer(
+        loadOutbox = library::loadFollowupOutbox,
+        acknowledge = library::acknowledgeFollowupOutbox,
+        removeSongFromAllPlaylists = playlistStore::removeSongFromAllPlaylists,
+    )
     private val coverColorPersistenceSink = CoverColorPersistence.Sink { songId, albumArtUri, argb ->
         library.applyCoverColorArgb(songId, albumArtUri, argb)
     }
 
     init {
+        library.setPlaybackIoSnapshotProvider {
+            val surface = playerController.playbackSurfaceState
+            val current = surface.currentSong
+            val activeInstance = current != null && when (surface.playbackStatus.execution) {
+                PlaybackExecutionState.PAUSED,
+                PlaybackExecutionState.PREPARING,
+                PlaybackExecutionState.BUFFERING,
+                PlaybackExecutionState.PLAYING,
+                PlaybackExecutionState.SUPPRESSED,
+                -> true
+                PlaybackExecutionState.UNAVAILABLE,
+                PlaybackExecutionState.IDLE,
+                PlaybackExecutionState.ENDED,
+                PlaybackExecutionState.ERROR,
+                -> false
+            }
+            LibraryPlaybackIoSnapshot(
+                currentStableObjectKey = current?.id,
+                currentMediaUri = current?.mediaUri,
+                hasActivePlaybackInstance = activeInstance,
+            )
+        }
         playbackStatistics.attachPresentationSink(this) { songId, stats ->
             library.applyPlayStats(songId, stats)
             remotePlayStatsPresentation.applyLive(songId, stats)
@@ -71,6 +100,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // The identity migration runs inside the library DB load. Refresh the eagerly
             // constructed preference-backed playlist store after that migration completes.
             playlistStore.reloadFromStorage()
+            libraryFollowupConsumer.drain()
             val songs = library.songs
             DiagnosticLog.event(
                 "LibraryStartup",
@@ -90,6 +120,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             library = library.toLibraryQueueSyncInput(::resolveSong),
             player = playerController.asLibraryPlaybackQueueTarget(),
         )
+    }
+
+    fun consumeLibraryFollowups() {
+        viewModelScope.launch {
+            libraryFollowupConsumer.drain()
+        }
+    }
+
+    fun onPlaybackCurrentChanged() {
+        libraryPlaybackQueueSync.onPlaybackCurrentChanged(
+            playerController.asLibraryPlaybackQueueTarget(),
+        )
+        library.onPlaybackIoLeaseChanged()
     }
 
     fun resolveSong(id: String): Song? =

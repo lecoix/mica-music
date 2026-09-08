@@ -78,7 +78,7 @@ internal fun SettingsOverlays(
         ExcludedDirectoriesDialog(
             excludedDirectories = excludedDirectories,
             candidateDirectories = scanDirectoryCandidates(library.songs),
-            isScanning = library.isScanning,
+            isScanning = library.isUserVisibleScanning,
             onConfirm = { directories ->
                 onConfirmExcludedDirectories(directories)
                 onDismissExcludedDirectories()

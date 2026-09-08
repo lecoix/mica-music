@@ -155,28 +155,39 @@ fun openSongInTagEditor(context: Context, song: Song): Boolean {
 
 data class DeleteSongResult(
     val fileDeleted: Boolean,
+    val libraryRemoved: Boolean,
     val queueChanged: Boolean,
 ) {
     val message: String
-        get() = if (fileDeleted) "已从设备删除" else "已从曲库移除（无法删除文件）"
+        get() = when {
+            fileDeleted && libraryRemoved -> "已从设备删除"
+            fileDeleted -> "已从设备删除（曲库将在下次扫描更新）"
+            libraryRemoved -> "已从曲库移除（无法删除文件）"
+            else -> "无法删除文件或从曲库移除"
+        }
 }
 
-fun deleteSongEverywhere(
+suspend fun deleteSongEverywhere(
     context: Context,
     song: Song,
     currentQueue: List<Song>,
-    removeFromLibrary: (String) -> Unit,
+    removeFromLibrary: suspend (Song, persistExclusion: Boolean) -> Boolean,
     removeFromAllPlaylists: (String) -> Unit,
     setQueue: (List<Song>) -> Unit,
     deleteFile: (Context, Song) -> Boolean = ::deleteSongFile,
 ): DeleteSongResult {
     val fileDeleted = deleteFile(context, song)
-    removeFromLibrary(song.id)
-    removeFromAllPlaylists(song.id)
-    val remaining = currentQueue.filterNot { it.id == song.id }
-    setQueue(remaining)
+    val libraryRemoved = removeFromLibrary(song, !fileDeleted)
+    val shouldRemoveReferences = fileDeleted || libraryRemoved
+    val remaining = if (shouldRemoveReferences) {
+        removeFromAllPlaylists(song.id)
+        currentQueue.filterNot { it.id == song.id }.also(setQueue)
+    } else {
+        currentQueue
+    }
     return DeleteSongResult(
         fileDeleted = fileDeleted,
+        libraryRemoved = libraryRemoved,
         queueChanged = remaining.size != currentQueue.size,
     )
 }

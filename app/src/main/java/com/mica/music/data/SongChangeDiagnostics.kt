@@ -10,6 +10,7 @@ internal object SongChangeDiagnostics {
         if (old.metadata != new.metadata) add("metadata")
         if (old.albumArtUri != new.albumArtUri) add("albumArtUri")
         if (old.videoCoverUri != new.videoCoverUri) add("videoCoverUri")
+        if (old.videoCoverRevision != new.videoCoverRevision) add("videoCoverRevision")
         if (old.musicVideoUri != new.musicVideoUri) add("musicVideoUri")
         if (old.musicVideoRevision != new.musicVideoRevision) add("musicVideoRevision")
         if (old.coverColorArgb != new.coverColorArgb) add("coverColorArgb")

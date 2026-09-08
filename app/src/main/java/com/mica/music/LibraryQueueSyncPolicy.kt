@@ -1,6 +1,10 @@
 package com.mica.music
 
 import com.mica.music.data.Song
+import com.mica.music.data.library.LibraryChangeSet
+import com.mica.music.data.library.LibraryOperationCause
+import com.mica.music.data.library.MembershipRemovalReason
+import com.mica.music.data.library.isAutoSyncCause
 
 internal sealed class LibraryQueueSyncPlan {
     data object SkipEmpty : LibraryQueueSyncPlan()
@@ -15,6 +19,13 @@ internal sealed class LibraryQueueSyncPlan {
         val previousLibraryIdsSize: Int,
         val currentQueueWasLibrary: Boolean,
     ) : LibraryQueueSyncPlan()
+    data class ReconcileQueue(
+        val removeIds: Set<String>,
+        val songs: List<Song>,
+        val preservedCurrentOrphanId: String?,
+        val previousLibraryIdsSize: Int,
+        val currentQueueWasLibrary: Boolean,
+    ) : LibraryQueueSyncPlan()
     data class RefreshMetadata(
         val songs: List<Song>,
         val previousLibraryIdsSize: Int,
@@ -24,16 +35,65 @@ internal sealed class LibraryQueueSyncPlan {
 
 internal class LibraryQueueSyncPolicy {
     private var previousLibraryIds: List<String> = emptyList()
+    private var pendingCurrentOrphanId: String? = null
 
-    /**
-     * 曲库 [libraryIds] 顺序变化但集合不变时走 [LibraryQueueSyncPlan.RefreshMetadata]，
-     * 不重排当前播放队列；仅当队列仍含已从曲库移除的 id 时才 [LibraryQueueSyncPlan.SetQueue]。
-     */
     fun plan(
         songs: List<Song>,
         libraryIds: List<String>,
         currentQueueIds: List<String>,
+        changeSet: LibraryChangeSet? = null,
+        currentSongId: String? = null,
+        isPlaying: Boolean = false,
     ): LibraryQueueSyncPlan {
+        val previousIds = previousLibraryIds
+        val currentQueueWasLibrary = previousIds.isNotEmpty() && currentQueueIds == previousIds
+
+        val evidenceRemovedIds = changeSet
+            ?.membershipChanges
+            ?.asSequence()
+            ?.filter { it.reason.removesFromVisibleLibrary() }
+            ?.mapNotNull { it.songId }
+            ?.toSet()
+            .orEmpty()
+
+        if (changeSet?.cause == LibraryOperationCause.LOCAL_USER_DELETE) {
+            previousLibraryIds = libraryIds
+            return when {
+                currentQueueIds.isEmpty() && songs.isEmpty() -> LibraryQueueSyncPlan.SkipEmpty
+                currentQueueIds.isEmpty() -> LibraryQueueSyncPlan.BootstrapOrSetQueue(
+                    songs = songs,
+                    previousLibraryIdsSize = previousIds.size,
+                    currentQueueWasLibrary = currentQueueWasLibrary,
+                )
+                else -> LibraryQueueSyncPlan.RefreshMetadata(
+                    songs = songs,
+                    previousLibraryIdsSize = previousIds.size,
+                    currentQueueWasLibrary = currentQueueWasLibrary,
+                )
+            }
+        }
+
+        if (changeSet?.cause?.isAutoSyncCause() == true && evidenceRemovedIds.isNotEmpty()) {
+            val currentOrphan = currentSongId?.takeIf { currentId ->
+                isPlaying &&
+                    currentId in evidenceRemovedIds &&
+                    currentId in currentQueueIds
+            }
+            if (currentOrphan != null) pendingCurrentOrphanId = currentOrphan
+            val removeIds = evidenceRemovedIds
+                .asSequence()
+                .filter { it in currentQueueIds && it != currentOrphan }
+                .toSet()
+            previousLibraryIds = libraryIds
+            return LibraryQueueSyncPlan.ReconcileQueue(
+                removeIds = removeIds,
+                songs = songs,
+                preservedCurrentOrphanId = currentOrphan,
+                previousLibraryIdsSize = previousIds.size,
+                currentQueueWasLibrary = currentQueueWasLibrary,
+            )
+        }
+
         if (songs.isEmpty()) {
             return if (currentQueueIds.isEmpty()) {
                 LibraryQueueSyncPlan.BootstrapOnly
@@ -41,8 +101,7 @@ internal class LibraryQueueSyncPolicy {
                 LibraryQueueSyncPlan.SkipEmpty
             }
         }
-        val previousIds = previousLibraryIds
-        val currentQueueWasLibrary = previousIds.isNotEmpty() && currentQueueIds == previousIds
+
         val previousIdSet = previousIds.toSet()
         val libraryIdSet = libraryIds.toSet()
         val currentQueueHasRemovedLibrarySongs = previousIds != libraryIds &&
@@ -66,4 +125,32 @@ internal class LibraryQueueSyncPolicy {
             )
         }
     }
+
+    /**
+     * Returns a previously preserved playing orphan once playback has naturally moved away from it.
+     */
+    fun orphanToPurgeAfterPlaybackTransition(
+        currentSongId: String?,
+        currentQueueIds: List<String>,
+    ): String? {
+        val orphan = pendingCurrentOrphanId ?: return null
+        if (orphan !in currentQueueIds) {
+            pendingCurrentOrphanId = null
+            return null
+        }
+        if (currentSongId == orphan) return null
+        pendingCurrentOrphanId = null
+        return orphan
+    }
 }
+
+private fun MembershipRemovalReason.removesFromVisibleLibrary(): Boolean =
+    when (this) {
+        MembershipRemovalReason.CONFIRMED_MISSING,
+        MembershipRemovalReason.FILTERED_OUT,
+        MembershipRemovalReason.TRASHED,
+        MembershipRemovalReason.SOURCE_REPLACED,
+        MembershipRemovalReason.USER_EXCLUDED,
+        -> true
+        MembershipRemovalReason.UNAVAILABLE -> false
+    }

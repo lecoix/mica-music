@@ -6,6 +6,7 @@ import android.net.Uri
 import androidx.test.core.app.ApplicationProvider
 import com.mica.music.data.Song
 import com.mica.music.testutil.SongFixtures
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -17,30 +18,32 @@ import org.robolectric.RobolectricTestRunner
 @RunWith(RobolectricTestRunner::class)
 class SongActionsTest {
     @Test
-    fun deleteSongEverywhereRemovesCurrentPlayingSongFromQueue() {
+    fun deleteSongEverywhereRemovesCurrentPlayingSongFromQueue() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val current = SongFixtures.song("current")
         val next = SongFixtures.song("next")
         var updatedQueue: List<Song>? = null
+        var persistExclusion: Boolean? = null
 
         val result = deleteSongEverywhere(
             context = context,
             song = current,
             currentQueue = listOf(current, next),
-            removeFromLibrary = {},
+            removeFromLibrary = { _, persist -> persistExclusion = persist; true },
             removeFromAllPlaylists = {},
             setQueue = { updatedQueue = it },
             deleteFile = { _, _ -> true },
         )
 
         assertTrue(result.fileDeleted)
+        assertFalse(persistExclusion!!)
         assertTrue(result.queueChanged)
         assertEquals("已从设备删除", result.message)
         assertEquals(listOf(next), updatedQueue)
     }
 
     @Test
-    fun deleteSongEverywhereRemovesNonCurrentSongFromQueue() {
+    fun deleteSongEverywhereRemovesNonCurrentSongFromQueue() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val current = SongFixtures.song("current")
         val middle = SongFixtures.song("middle")
@@ -51,7 +54,7 @@ class SongActionsTest {
             context = context,
             song = middle,
             currentQueue = listOf(current, middle, tail),
-            removeFromLibrary = {},
+            removeFromLibrary = { _, persist -> assertFalse(persist); true },
             removeFromAllPlaylists = {},
             setQueue = { updatedQueue = it },
             deleteFile = { _, _ -> true },
@@ -63,7 +66,7 @@ class SongActionsTest {
     }
 
     @Test
-    fun deleteSongEverywhereKeepsRemovalFlowWhenFileDeleteFails() {
+    fun deleteSongEverywhereKeepsRemovalFlowWhenFileDeleteFails() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val target = SongFixtures.song("target")
         val other = SongFixtures.song("other")
@@ -75,7 +78,11 @@ class SongActionsTest {
             context = context,
             song = target,
             currentQueue = listOf(other, target),
-            removeFromLibrary = { removedFromLibrary = it },
+            removeFromLibrary = { removed, persist ->
+                removedFromLibrary = removed.id
+                assertTrue(persist)
+                true
+            },
             removeFromAllPlaylists = { removedFromPlaylists = it },
             setQueue = { updatedQueue = it },
             deleteFile = { _, _ -> false },
@@ -87,6 +94,32 @@ class SongActionsTest {
         assertEquals("target", removedFromLibrary)
         assertEquals("target", removedFromPlaylists)
         assertEquals(listOf(other), updatedQueue)
+    }
+
+    @Test
+    fun deleteSongEverywhereKeepsReferencesWhenBothDeletePathsFail() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val target = SongFixtures.song("target")
+        val other = SongFixtures.song("other")
+        var playlistRemovalCalls = 0
+        var queueSetCalls = 0
+
+        val result = deleteSongEverywhere(
+            context = context,
+            song = target,
+            currentQueue = listOf(other, target),
+            removeFromLibrary = { _, persist -> assertTrue(persist); false },
+            removeFromAllPlaylists = { playlistRemovalCalls++ },
+            setQueue = { queueSetCalls++ },
+            deleteFile = { _, _ -> false },
+        )
+
+        assertFalse(result.fileDeleted)
+        assertFalse(result.libraryRemoved)
+        assertFalse(result.queueChanged)
+        assertEquals("无法删除文件或从曲库移除", result.message)
+        assertEquals(0, playlistRemovalCalls)
+        assertEquals(0, queueSetCalls)
     }
 
     @Test

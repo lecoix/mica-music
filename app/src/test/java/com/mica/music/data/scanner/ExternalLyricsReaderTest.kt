@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.test.core.app.ApplicationProvider
 import java.io.ByteArrayInputStream
 import java.io.File
+import java.io.InputStream
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -30,6 +31,31 @@ class ExternalLyricsReaderTest {
                 ByteArrayInputStream(byteArrayOf(1, 2, 3, 4, 5)),
                 maxBytes = 4,
             ),
+        )
+    }
+
+    @Test
+    fun boundedLyricsReadUsesSmallStreamingReads() {
+        val payload = "[00:01.00]streamed".toByteArray()
+        val input = object : InputStream() {
+            private var offset = 0
+
+            override fun read(): Int =
+                if (offset >= payload.size) -1 else payload[offset++].toInt() and 0xff
+
+            override fun read(buffer: ByteArray, off: Int, len: Int): Int {
+                assertTrue("bulk read should stay bounded, requested=$len", len <= 64 * 1024)
+                if (offset >= payload.size) return -1
+                val count = minOf(len, payload.size - offset)
+                payload.copyInto(buffer, destinationOffset = off, startIndex = offset, endIndex = offset + count)
+                offset += count
+                return count
+            }
+        }
+
+        assertArrayEquals(
+            payload,
+            ExternalLyricsReader.readBoundedLyricsBytes(input),
         )
     }
 
