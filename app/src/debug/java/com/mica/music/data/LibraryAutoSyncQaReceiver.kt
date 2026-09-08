@@ -1,13 +1,19 @@
 package com.mica.music.data
 
 import android.content.BroadcastReceiver
+import android.content.ContentUris
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import android.os.Build
 import android.os.Debug
+import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.provider.DocumentsContract
+import android.provider.MediaStore
 import android.util.Log
 import com.mica.music.MicaApp
 import com.mica.music.data.library.LibraryOperationCause
@@ -24,11 +30,11 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * Debug-only S4 SAF real-provider gate.
+ * Debug-only S3/S4 automatic-library-sync QA gates.
  *
- * One explicit broadcast performs:
- * BASELINE Full -> scenario mutation -> SAF shadow AUTO -> same-scenario Full oracle.
- * Production AUTO publication remains disabled; this only drives the existing shadow path.
+ * The S4 scenario action keeps the original shadow oracle flow. The S3 DEVICE authority action
+ * deliberately exercises the ordinary production observer/scheduler/publication path against an
+ * isolated app-owned MediaStore fixture, then restores the fixture without deleting it.
  */
 class LibraryAutoSyncQaReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -270,6 +276,394 @@ class LibraryAutoSyncQaReceiver : BroadcastReceiver() {
             Log.e(TAG, "gate-failed scenario=" + scenarioName, error)
         } finally {
             library?.release()
+        }
+    }
+
+    internal fun runDeviceAuthorityGate(appContext: Context) {
+        require(Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            "DEVICE real-authority Gate requires Android 11+ MediaStore semantics"
+        }
+        val target = ensureDeviceGateTarget(appContext)
+        require(
+            target.row.ownerPackageName == null ||
+                target.row.ownerPackageName == appContext.packageName,
+        ) {
+            "Refusing to mutate DEVICE Gate row owned by ${target.row.ownerPackageName}"
+        }
+
+        val originalBackup = if (!target.created && target.row.sizeBytes > 0L) {
+            File.createTempFile("mica-s3-device-authority-", ".bak", appContext.cacheDir).also {
+                copyUriToFile(appContext, target.uri, it)
+            }
+        } else {
+            null
+        }
+        val originalDigest = originalBackup?.let(::sha256)
+        var baselineDigest: String? = null
+        var baselineSong: Song? = null
+        var library: MusicLibrary? = null
+        var foreground = false
+        var restoreRequired = false
+        var restoreSucceeded = false
+
+        try {
+            TestDocumentsProvider.resetScenario()
+            val baselineFixture = deviceGateFixtureAudioUri(appContext)
+            writeDeviceGatePayload(appContext, target.uri, baselineFixture)
+            restoreRequired = originalBackup != null
+            val baselineRow = waitForDeviceGateRow(appContext, target.uri) {
+                !it.isPending && it.sizeBytes > 0L
+            }
+            baselineDigest = sha256(appContext, target.uri)
+
+            library = MusicLibrary(appContext)
+            val fullStartedMs = SystemClock.elapsedRealtime()
+            runBlocking { library.scanDeviceWide() }
+            require(library.lastScanSource == ScanSource.DEVICE && library.lastScanError == null) {
+                "DEVICE Gate baseline Full failed: source=${library.lastScanSource} " +
+                    "error=${library.lastScanError}"
+            }
+            val stableKey = "ms_${ContentUris.parseId(target.uri)}"
+            baselineSong = library.songs.singleOrNull { it.id == stableKey }
+                ?: error("DEVICE Gate baseline row not present in Full catalog: $stableKey")
+            require(baselineSong.sizeBytes == baselineRow.sizeBytes && baselineSong.durationSec > 0) {
+                "DEVICE Gate baseline payload did not resolve canonically: " +
+                    "rowSize=${baselineRow.sizeBytes} songSize=${baselineSong.sizeBytes} " +
+                    "durationSec=${baselineSong.durationSec}"
+            }
+            Log.i(
+                DEVICE_TAG,
+                "device-authority-baseline-complete stableKey=$stableKey " +
+                    "created=${target.created} songs=${library.songs.size} " +
+                    "durationSec=${baselineSong.durationSec} size=${baselineSong.sizeBytes} " +
+                    "sha256=$baselineDigest fullMs=" +
+                    (SystemClock.elapsedRealtime() - fullStartedMs),
+            )
+
+            library.onForegroundChanged(true)
+            foreground = true
+
+            TestDocumentsProvider.setScenario(TestDocumentsProvider.FixtureScenario.CHANGED.name)
+            val changedFixture = deviceGateFixtureAudioUri(appContext)
+            val mutationStartedMs = SystemClock.elapsedRealtime()
+            writeDeviceGatePayload(appContext, target.uri, changedFixture)
+            restoreRequired = true
+            TestDocumentsProvider.resetScenario()
+
+            val changedRow = waitForDeviceGateRow(appContext, target.uri) {
+                !it.isPending && it.sizeBytes > 0L && it.sizeBytes != baselineRow.sizeBytes
+            }
+            val changedDigest = sha256(appContext, target.uri)
+            require(changedDigest != baselineDigest) {
+                "DEVICE Gate mutation did not change payload digest"
+            }
+            require(
+                waitUntil(DEVICE_SCHEDULER_GATE_TIMEOUT_MS) {
+                    library.songs.singleOrNull { it.id == stableKey }?.let { current ->
+                        current.sizeBytes == changedRow.sizeBytes &&
+                            current.durationSec != baselineSong.durationSec
+                    } == true
+                },
+            ) {
+                "Ordinary DEVICE scheduler did not publish changed payload before timeout"
+            }
+
+            val autoTarget = library.songs.single { it.id == stableKey }
+            val changeSet = library.lastLibraryChangeSet
+            Log.i(
+                DEVICE_TAG,
+                "device-authority-scheduler-complete stableKey=$stableKey " +
+                    "elapsedMs=" + (SystemClock.elapsedRealtime() - mutationStartedMs) +
+                    " duration=${baselineSong.durationSec}->${autoTarget.durationSec} " +
+                    " size=${baselineSong.sizeBytes}->${autoTarget.sizeBytes} " +
+                    " revision=${changeSet?.libraryRevision} cause=${changeSet?.cause} " +
+                    "sha256=$changedDigest",
+            )
+
+            val reloaded = MusicLibrary(appContext)
+            try {
+                runBlocking { reloaded.loadCachedLibrary() }
+                val cachedTarget = reloaded.songs.singleOrNull { it.id == stableKey }
+                    ?: error("DEVICE real AUTO row missing after cold cache reload")
+                require(
+                    cachedTarget.durationSec == autoTarget.durationSec &&
+                        cachedTarget.sizeBytes == autoTarget.sizeBytes
+                ) {
+                    "DEVICE real AUTO memory/cache authority diverged"
+                }
+                Log.i(
+                    DEVICE_TAG,
+                    "device-authority-cache-reload-complete songs=${reloaded.songs.size} " +
+                        "durationSec=${cachedTarget.durationSec} size=${cachedTarget.sizeBytes}",
+                )
+            } finally {
+                reloaded.release()
+            }
+
+            val oracleStartedMs = SystemClock.elapsedRealtime()
+            runBlocking { library.scanDeviceWide() }
+            require(library.lastScanError == null && library.lastScanSource == ScanSource.DEVICE) {
+                "DEVICE Full oracle failed: error=${library.lastScanError}"
+            }
+            val oracleTarget = library.songs.single { it.id == stableKey }
+            require(
+                oracleTarget.durationSec == autoTarget.durationSec &&
+                    oracleTarget.sizeBytes == autoTarget.sizeBytes &&
+                    oracleTarget.dateModifiedMs == autoTarget.dateModifiedMs &&
+                    oracleTarget.title == autoTarget.title
+            ) {
+                "DEVICE AUTO target diverged from Full oracle"
+            }
+            Log.i(
+                DEVICE_TAG,
+                "device-authority-oracle-complete songs=${library.songs.size} " +
+                    "durationSec=${oracleTarget.durationSec} size=${oracleTarget.sizeBytes} " +
+                    "fullMs=" + (SystemClock.elapsedRealtime() - oracleStartedMs),
+            )
+        } finally {
+            TestDocumentsProvider.resetScenario()
+            if (restoreRequired) {
+                try {
+                    val expectedDigest = if (originalBackup != null) {
+                        setDeviceGatePending(appContext, target.uri, true)
+                        copyFileToUri(appContext, originalBackup, target.uri)
+                        setDeviceGatePending(appContext, target.uri, false)
+                        originalDigest
+                    } else {
+                        val baselineFixture = deviceGateFixtureAudioUri(appContext)
+                        writeDeviceGatePayload(appContext, target.uri, baselineFixture)
+                        baselineDigest
+                    }
+                    val restoredRow = waitForDeviceGateRow(appContext, target.uri) {
+                        !it.isPending && it.sizeBytes > 0L
+                    }
+                    if (expectedDigest != null) {
+                        check(sha256(appContext, target.uri) == expectedDigest) {
+                            "Restored DEVICE fixture digest does not match expected content"
+                        }
+                    }
+                    val activeLibrary = library
+                    val initialBaselineSong = baselineSong
+                    if (activeLibrary != null && foreground) {
+                        check(
+                            waitUntil(DEVICE_SCHEDULER_GATE_TIMEOUT_MS) {
+                                activeLibrary.songs.singleOrNull {
+                                    it.id == "ms_${ContentUris.parseId(target.uri)}"
+                                }?.let { current ->
+                                    current.sizeBytes == restoredRow.sizeBytes &&
+                                        (
+                                            originalBackup != null ||
+                                                initialBaselineSong == null ||
+                                                current.durationSec == initialBaselineSong.durationSec
+                                            )
+                                } == true
+                            },
+                        ) {
+                            "DEVICE scheduler did not restore catalog authority after fixture restore"
+                        }
+                    }
+                    restoreSucceeded = true
+                    Log.i(
+                        DEVICE_TAG,
+                        "device-authority-fixture-restored created=${target.created} " +
+                            "size=${restoredRow.sizeBytes} sha256=$expectedDigest",
+                    )
+                } catch (restoreError: Throwable) {
+                    Log.e(
+                        DEVICE_TAG,
+                        "device-authority-restore-failed backup=${originalBackup?.absolutePath}",
+                        restoreError,
+                    )
+                }
+            }
+            if (foreground) {
+                library?.onForegroundChanged(false)
+            }
+            library?.release()
+            if (originalBackup != null && (!restoreRequired || restoreSucceeded)) {
+                recycleQaBackup(appContext, originalBackup, DEVICE_TAG)
+            }
+        }
+    }
+
+    private data class DeviceGateTarget(
+        val uri: Uri,
+        val created: Boolean,
+        val row: DeviceGateMediaRow,
+    )
+
+    private data class DeviceGateMediaRow(
+        val uri: Uri,
+        val sizeBytes: Long,
+        val dateModifiedMs: Long,
+        val isPending: Boolean,
+        val ownerPackageName: String?,
+    )
+
+    private fun ensureDeviceGateTarget(context: Context): DeviceGateTarget {
+        val collection = MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        val resolver = context.contentResolver
+        val relativePath = Environment.DIRECTORY_MUSIC + "/MicaDeviceAutoSyncGate/"
+        val displayName = "device-authority.wav"
+        val rows = mutableListOf<DeviceGateMediaRow>()
+        resolver.query(
+            collection,
+            arrayOf(
+                MediaStore.Audio.Media._ID,
+                MediaStore.Audio.Media.SIZE,
+                MediaStore.Audio.Media.DATE_MODIFIED,
+                MediaStore.Audio.Media.IS_PENDING,
+                MediaStore.Audio.Media.OWNER_PACKAGE_NAME,
+            ),
+            "${MediaStore.Audio.Media.DISPLAY_NAME}=? AND " +
+                "${MediaStore.Audio.Media.RELATIVE_PATH}=?",
+            arrayOf(displayName, relativePath),
+            null,
+        )?.use { cursor ->
+            val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
+            val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.SIZE)
+            val modifiedCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_MODIFIED)
+            val pendingCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.IS_PENDING)
+            val ownerCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.OWNER_PACKAGE_NAME)
+            while (cursor.moveToNext()) {
+                val id = cursor.getLong(idCol)
+                rows += DeviceGateMediaRow(
+                    uri = ContentUris.withAppendedId(collection, id),
+                    sizeBytes = cursor.getLong(sizeCol),
+                    dateModifiedMs = cursor.getLong(modifiedCol) * 1000L,
+                    isPending = cursor.getInt(pendingCol) != 0,
+                    ownerPackageName = cursor.getString(ownerCol),
+                )
+            }
+        }
+        require(rows.size <= 1) {
+            "DEVICE Gate path is not isolated; duplicate rows=${rows.size}"
+        }
+        rows.singleOrNull()?.let { return DeviceGateTarget(it.uri, false, it) }
+
+        val createdUri = resolver.insert(
+            collection,
+            ContentValues().apply {
+                put(MediaStore.Audio.Media.DISPLAY_NAME, displayName)
+                put(MediaStore.Audio.Media.MIME_TYPE, "audio/wav")
+                put(MediaStore.Audio.Media.RELATIVE_PATH, relativePath)
+                put(MediaStore.Audio.Media.IS_MUSIC, 1)
+                put(MediaStore.Audio.Media.IS_PENDING, 1)
+            },
+        ) ?: error("Failed to create isolated DEVICE Gate MediaStore row")
+        val row = queryDeviceGateRow(context, createdUri)
+        return DeviceGateTarget(createdUri, true, row)
+    }
+
+    private fun queryDeviceGateRow(context: Context, uri: Uri): DeviceGateMediaRow {
+        context.contentResolver.query(
+            uri,
+            arrayOf(
+                MediaStore.Audio.Media._ID,
+                MediaStore.Audio.Media.SIZE,
+                MediaStore.Audio.Media.DATE_MODIFIED,
+                MediaStore.Audio.Media.IS_PENDING,
+                MediaStore.Audio.Media.OWNER_PACKAGE_NAME,
+            ),
+            null,
+            null,
+            null,
+        )?.use { cursor ->
+            check(cursor.moveToFirst()) { "DEVICE Gate MediaStore row disappeared: $uri" }
+            return DeviceGateMediaRow(
+                uri = uri,
+                sizeBytes = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.SIZE)),
+                dateModifiedMs =
+                    cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_MODIFIED)) *
+                        1000L,
+                isPending =
+                    cursor.getInt(cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.IS_PENDING)) != 0,
+                ownerPackageName =
+                    cursor.getString(
+                        cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.OWNER_PACKAGE_NAME),
+                    ),
+            )
+        }
+        error("Cannot query DEVICE Gate MediaStore row: $uri")
+    }
+
+    private fun waitForDeviceGateRow(
+        context: Context,
+        uri: Uri,
+        predicate: (DeviceGateMediaRow) -> Boolean,
+    ): DeviceGateMediaRow {
+        val deadline = SystemClock.elapsedRealtime() + DEVICE_MEDIASTORE_SETTLE_TIMEOUT_MS
+        var latest = queryDeviceGateRow(context, uri)
+        while (SystemClock.elapsedRealtime() < deadline) {
+            if (predicate(latest)) return latest
+            Thread.sleep(50L)
+            latest = queryDeviceGateRow(context, uri)
+        }
+        check(predicate(latest)) {
+            "DEVICE Gate MediaStore row did not settle: $latest"
+        }
+        return latest
+    }
+
+    private fun setDeviceGatePending(
+        context: Context,
+        uri: Uri,
+        pending: Boolean,
+    ) {
+        val updated = context.contentResolver.update(
+            uri,
+            ContentValues().apply {
+                put(MediaStore.Audio.Media.IS_PENDING, if (pending) 1 else 0)
+            },
+            null,
+            null,
+        )
+        check(updated == 1) {
+            "Failed to set DEVICE Gate pending=$pending for $uri; updated=$updated"
+        }
+    }
+
+    private fun writeDeviceGatePayload(
+        context: Context,
+        target: Uri,
+        source: Uri,
+    ) {
+        setDeviceGatePending(context, target, true)
+        copyUriToUri(context, source, target)
+        setDeviceGatePending(context, target, false)
+    }
+
+    private fun deviceGateFixtureAudioUri(context: Context): Uri {
+        val authority = TestDocumentsProvider.authorityForPackage(context.packageName)
+        val treeUri = DocumentsContract.buildTreeDocumentUri(
+            authority,
+            TestDocumentsProvider.ROOT_ID,
+        )
+        context.grantUriPermission(
+            context.packageName,
+            treeUri,
+            Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PREFIX_URI_PERMISSION,
+        )
+        return DocumentsContract.buildDocumentUriUsingTree(
+            treeUri,
+            "root/music/contract.wav",
+        )
+    }
+
+    private fun recycleQaBackup(
+        context: Context,
+        backup: File,
+        tag: String,
+    ) {
+        val recycleDir = File(context.cacheDir, ".MicaRecycle").apply { mkdirs() }
+        val recycledBackup = File(
+            recycleDir,
+            "${SystemClock.elapsedRealtime()}-${backup.name}",
+        )
+        if (backup.renameTo(recycledBackup)) {
+            Log.i(tag, "qa-backup-recycled path=${recycledBackup.absolutePath}")
+        } else {
+            Log.w(tag, "qa-backup-recycle-failed; retained=${backup.absolutePath}")
         }
     }
 
@@ -895,9 +1289,12 @@ class LibraryAutoSyncQaReceiver : BroadcastReceiver() {
 
     private companion object {
         val externalPayloadGateRunning = AtomicBoolean(false)
+        const val DEVICE_TAG = "MICA_S3_DEVICE_GATE"
         const val TAG = "MICA_S4_QA"
         const val VENDOR_TAG = "MICA_S4_VENDOR"
         const val COPY_BUFFER_BYTES = 64 * 1024
+        const val DEVICE_MEDIASTORE_SETTLE_TIMEOUT_MS = 15_000L
+        const val DEVICE_SCHEDULER_GATE_TIMEOUT_MS = 60_000L
         const val SCHEDULER_GATE_TIMEOUT_MS = 15_000L
     }
 }

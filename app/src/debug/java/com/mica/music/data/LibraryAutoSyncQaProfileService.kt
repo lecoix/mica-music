@@ -50,7 +50,7 @@ import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Debug-only long-running S4 metadata profiler.
+ * Debug-only long-running S3/S4 automatic-library-sync profiler/gate host.
  *
  * This exists because the current MIUI build silently short-circuits `am instrument`, while
  * BroadcastReceiver/goAsync is still bounded by broadcast lifecycle timeouts. Production builds do
@@ -66,7 +66,7 @@ class LibraryAutoSyncQaProfileService : Service() {
         manager.createNotificationChannel(
             NotificationChannel(
                 CHANNEL_ID,
-                "Mica S4 QA profiler",
+                "Mica library auto-sync QA",
                 NotificationManager.IMPORTANCE_LOW,
             ),
         )
@@ -74,8 +74,8 @@ class LibraryAutoSyncQaProfileService : Service() {
             NOTIFICATION_ID,
             Notification.Builder(this, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.stat_notify_sync)
-                .setContentTitle("Mica S4 SAF profile")
-                .setContentText("Profiling debug DocumentsProvider metadata walk")
+                .setContentTitle("Mica auto-sync QA")
+                .setContentText("Running debug library synchronization gate")
                 .setOngoing(true)
                 .build(),
         )
@@ -100,6 +100,8 @@ class LibraryAutoSyncQaProfileService : Service() {
         Thread {
             try {
                 when (mode) {
+                    MODE_DEVICE_AUTHORITY ->
+                        LibraryAutoSyncQaReceiver().runDeviceAuthorityGate(applicationContext)
                     MODE_PROVIDER_BACKOFF -> runProviderBackoffGate()
                     MODE_TEN_K_HEAVY -> runTenKHeavyProbeGate()
                     MODE_TEN_K_UNKNOWN -> runTenKUnknownVerifyGate(unknownTarget)
@@ -118,6 +120,7 @@ class LibraryAutoSyncQaProfileService : Service() {
                 appendEvidence("run-complete startId=$startId mode=$mode")
             } catch (error: Throwable) {
                 val failureTag = when (mode) {
+                    MODE_DEVICE_AUTHORITY -> DEVICE_AUTHORITY_TAG
                     MODE_PROVIDER_BACKOFF -> PROVIDER_TAG
                     MODE_TEN_K_HEAVY -> HEAVY_TAG
                     MODE_TEN_K_UNKNOWN -> UNKNOWN_TAG
@@ -129,6 +132,7 @@ class LibraryAutoSyncQaProfileService : Service() {
                     else -> TAG
                 }
                 val failureMessage = when (mode) {
+                    MODE_DEVICE_AUTHORITY -> "device-authority-gate-failed"
                     MODE_PROVIDER_BACKOFF -> "provider-gate-failed"
                     MODE_TEN_K_HEAVY -> "heavy-gate-failed"
                     MODE_TEN_K_UNKNOWN -> "unknown-gate-failed"
@@ -1349,6 +1353,7 @@ class LibraryAutoSyncQaProfileService : Service() {
         }.getOrDefault(-1L)
 
     private companion object {
+        const val DEVICE_AUTHORITY_TAG = "MICA_S3_DEVICE_GATE"
         const val TAG = "MICA_S4_10K"
         const val HEAVY_TAG = "MICA_S4_HEAVY"
         const val UNKNOWN_TAG = "MICA_S4_UNKNOWN"
@@ -1358,6 +1363,7 @@ class LibraryAutoSyncQaProfileService : Service() {
         const val QUERY_LANE_TAG = "MICA_S4_QUERY_LANE"
         const val ROOM_ATOMICITY_TAG = "MICA_S4_ROOM_ATOMICITY"
         const val ROOM_PUBLICATION_TAG = "MICA_S4_ROOM_PUBLICATION"
+        const val MODE_DEVICE_AUTHORITY = "DEVICE_AUTHORITY"
         const val MODE_PROVIDER_BACKOFF = "PROVIDER_BACKOFF"
         const val MODE_AUTO_QUERY_LANE = "AUTO_QUERY_LANE"
         const val MODE_ROOM_ATOMICITY = "ROOM_ATOMICITY"
