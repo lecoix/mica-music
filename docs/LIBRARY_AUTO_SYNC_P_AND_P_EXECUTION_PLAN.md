@@ -1,8 +1,8 @@
 
 # Mica 曲库自动同步（PixelPlayer + Poweramp）完整执行计划
 
-> 日期：2026-09-06  
-> 状态：**设计冻结前执行计划；尚未实施自动触发**  
+> 日期：2026-09-06；实施状态更新至 2026-09-09
+> 状态：**S0–S5 已实施；DEVICE 与 SAF/FOLDER ordinary scheduler real-auto 已启用并通过对应真机 Gate，进入最终验收/兼容性收尾**
 > 目标基线：Mica 当前主工作树；Room schema 审阅时为 v26  
 > 架构权威：`docs/adr/0002-library-snapshot-publication.md`  
 > 现有扫描事实：`docs/LIBRARY_SCAN.md`  
@@ -3505,7 +3505,7 @@ DOC/ADR
 
 # 39. 当前下一步
 
-实施进度（2026-09-06）：
+实施进度（更新至 2026-09-09；以下早期阶段条目保留过程证据，后续条目为当前 superseding 状态）：
 
 1. 文档/ADR：已完成并作为当前执行契约；
 2. **S0：已实施，publication/scheduler/lifecycle 交错测试通过；**
@@ -3516,8 +3516,8 @@ DOC/ADR
    - reason-aware queue / durable playlist followup；
    - AUTO publication / checkpoint / retry / outbox 原子边界；
    - playback orphan / video revision 等契约；
-4. **S2：自动化 Shadow Gate 已通过，真实设备事件观察待执行；**
-5. 当前处于 **S3 DEVICE shadow delta / Gate 收口**：
+4. **S2：自动化 Shadow Gate 已通过；真实设备事件观察已由后续 S3 DEVICE / S4 SAF 真机 Gate 补齐；**
+5. **S3 DEVICE 已完成并启用 real-auto；以下保留 shadow→readiness→production Gate 的过程证据：**
    - S3 1～16 的基础 seam 已落：per-volume generation/version、Audio/Files/sidecar delta、Presence/Eligibility、pending/trashed capability、跨通道 dedupe、removal/MassDeletionGuard、object pre/post observation、AUTO probe decision、RetryLedger、PlaybackIoGuard、folder physical identity/casing、no-op short circuit、source/version/capability contradiction；
    - generation 完全未变化时已在 delta/sidecar/Presence 查询前短路；Presence destructive absence 只有在列可读、hidden-row inclusion 语义已知、permission/volume scope 完整且 partition coverage complete 时才成立，能力不足时 shadow cursor 不前进；
    - canonical coverage tracker 之外，side-effect-free canonical projector + 跨多轮 projection tracker 已接入真实 DEVICE Shadow 路径；生产 composition 注入 Android exact-draft/revision reader 与 read-only object probe runtime，probe 前后都做 object revision validation，且 probe 前再次采样 playback lease；
@@ -3574,6 +3574,7 @@ DOC/ADR
    - **ordinary scheduler 真机 Gate 进一步 PASS**：最新 QA 包重新通过真实 DocumentsUI 取得 persisted read/write tree grant 后，只发一次 payload mutation；`library.onForegroundChanged(true)` 产生真实 `FOREGROUND_CATCH_UP` dirty signal，scheduler 经 `TRAILING_DEBOUNCE` 在 request=1 执行 FOLDER AUTO，得到 `changed=1 / probeResolved=1 / publicationCommitted=true`，从 dirty signal 到可见 authority 更新约 `1,904 ms`。同轮 provider/content signal 仅触发 scheduler 已有的一次 `IN_PASS_FOLLOW_UP`，request=2 为 `changed=0 / metadataNoOp=true / probeNoOp=true` checkpoint pass，没有热链；cold cache reload 与 Full oracle 均为 70 s，fixture 再次恢复原 SHA。证据在 `.scratch/library-auto-sync-s4/20260908-r5-enable-gate/`；最终 focused suite 为 **193 tests / 0 failures / 0 errors / 0 skipped，BUILD SUCCESSFUL**，`git diff --check` 干净；
    - **保留一个第三方 provider availability 兼容项，不构成 destructive-safety blocker**：在当前 MIUI/Termux 组合上，QA APK `pm install -r` 后 persisted tree 的 `checkUriPermission` 仍为 GRANTED，但 `ContentResolver.query(childrenUri)` 可持续返回 null cursor，AUTO 因此严格标 `PARTIAL` 并拒绝 publication/checkpoint；重新经 DocumentsUI 选择同一 tree 后恢复 `entries=2 / COMPLETE`，force-stop 后仍可只靠 persisted grant 正常 query。该现象不会被 fallback 伪装成 deletion-authoritative，也没有观察到误删；对这类 provider 的结果是“更新后可能需要用户重选目录才能恢复 AUTO”，后续兼容性阶段再评估是否能在不降低 fail-closed 语义的前提下改善。
    - **S5 第一轮 tuning 已完成（2026-09-08）**：debounce=1.5 s、max debounce=5 s、cooldown=60 s、最多一次 immediate follow-up、DEVICE/SAF heavy probe parallelism=1、provider/object retry backoff、foreground SAF verify=5 min、slow-provider cadence=15 min、UNKNOWN=24 h 等冻结值均保持不动；唯一代码调整是补齐 scheduler-owned delayed retry wake。真实 QA APK replace 复现 Termux provider `cannot-read-tree` 后，request=1 记录 `backoffMs=30000`，无外部 signal 时 30 s 后 request=2 自动以 `wake=RETRY_DUE / SAF_RETRY_DUE` 运行，仍失败则进入 `backoffMs=60000`，证明 retry 到期不再依赖 5 分钟 periodic/外部事件；后台 deadline 不启动 IO、`cancelAll()` 清 timer、source/activation fencing 均有 unit regression。重新 DocumentsUI 授权后 ordinary scheduler 65→70 s Gate 再次 `publicationCommitted=true`，authority update 约 1.839 s，cold cache / Full oracle 均 70 s，fixture SHA 恢复。通用 directory-mtime subtree skip 因目录 mtime 不传播 child content overwrite 而明确拒绝。focused suite 现为 **197 tests / 0 failures / 0 errors / 0 skipped，BUILD SUCCESSFUL**；证据在 `.scratch/library-auto-sync-s5/20260908-delayed-retry/` 与 `.scratch/library-auto-sync-s5/20260908-directory-mtime/`；
+   - **§37 recovery kill-switch 验收缺口已闭合（2026-09-09）**：final closeout audit 发现 ordinary scheduler 在 enablement 后把 DEVICE / FOLDER authority 固定开启，却还没有满足“AUTO 可通过 feature gate/source gate 单独关闭而不破坏手动扫描”的显式运行时控制。现新增内部持久 `LibraryAutoSyncPreferences`，提供 global + DEVICE + FOLDER 三层 gate，三者默认均为 ON，不新增设置 UI。production `AutoSync` 在 `publicationMutex` 内按最终 active token source 检查 gate，禁用时在 discovery 前直接返回且不推进 `scanGeneration`；production AUTO token 同时记录 `autoSyncGateEnforced=true`，因此长 probe 运行中若 gate 被关闭，后续所有既有 `isCurrentOperationToken` / final publication / checkpoint fencing 会把旧 token stale-drop，不能在关闭后迟到提交。Manual `Rescan / ScanDeviceWide / ScanLibraryFolder / TargetedRefresh` 完全不经过该 gate；debug shadow/readiness authority seam 显式 `enforceAutoSyncGate=false`，仍可做受控 QA。focused regression 已证明 DEVICE/FOLDER gate 关闭时 scheduled AUTO 为零 discovery/零 generation bump，而对应 Manual Full 仍能发布；另覆盖 global gate、两个 source gate 独立性、默认开启、mid-pass close stale-drop 与 diagnostics bypass。最终把该 Gate 纳入 DEVICE/scanner/orchestrator/scheduler/MusicLibrary/membership/followup 相关回归后，XML 机械计数为 **265 tests / 0 failures / 0 errors / 0 skipped**，并通过 `:app:compileDebugKotlin`、`:app:compileDebugUnitTestKotlin`、side-by-side `:app:assembleDebug` 与 `git diff --check`。该机制是 operational/recovery kill switch，不放宽任何 capability/completeness/destructive-safety 判据；
 7. **DEVICE 与 SAF/FOLDER ordinary scheduler real-auto 均已开启；S5 第一轮调优已完成。** 两条 source path 继续分别保持自己的 discovery/capability Gate；任何 PARTIAL/UNAVAILABLE/transient provider state、quarantine、playback-deferred 或 stale token 都必须 fail-closed，Manual Full Scan 仍保留为明确 recovery authority。
 
 ---

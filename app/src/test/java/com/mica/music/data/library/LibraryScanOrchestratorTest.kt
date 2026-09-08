@@ -1034,6 +1034,64 @@ class LibraryScanOrchestratorTest {
     }
 
     @Test
+    fun productionAutoSyncTokenBecomesStaleWhenGateClosesMidPass() = runTest {
+        var enabled = true
+        val store = FakeLibraryStore()
+        val harness = scanHarness(
+            scanner = ControlledScanner(),
+            store = store,
+            autoSyncEnabled = { enabled },
+        )
+        activateDeviceSource(harness.backing)
+        val token = requireNotNull(
+            harness.backing.beginActiveAutoSyncOperationToken(
+                requestSequence = 410L,
+                dirtySequenceAtStart = 7L,
+                cause = LibraryOperationCause.MEDIASTORE_AUDIO_DIRTY,
+            ),
+        )
+        assertTrue(token.autoSyncGateEnforced)
+        assertTrue(harness.backing.isCurrentOperationToken(token))
+
+        enabled = false
+
+        assertFalse(harness.backing.isCurrentOperationToken(token))
+        assertFalse(
+            harness.backing.commitAutoSyncCheckpointOnlyIfCurrent(
+                token = token,
+                visibleDelta = AutoSyncVisibleDelta(),
+                mutation = LibraryAutoSyncStateMutation(token.sourceIdentity),
+            ),
+        )
+        assertTrue(store.autoSyncStateMutations.isEmpty())
+        harness.backing.release()
+    }
+
+    @Test
+    fun diagnosticsAutoSyncTokenCanBypassProductionGate() = runTest {
+        var enabled = true
+        val harness = scanHarness(
+            scanner = ControlledScanner(),
+            autoSyncEnabled = { enabled },
+        )
+        activateDeviceSource(harness.backing)
+        val token = requireNotNull(
+            harness.backing.beginActiveAutoSyncOperationToken(
+                requestSequence = 409L,
+                dirtySequenceAtStart = 6L,
+                cause = LibraryOperationCause.MEDIASTORE_AUDIO_DIRTY,
+                enforceAutoSyncGate = false,
+            ),
+        )
+        assertFalse(token.autoSyncGateEnforced)
+
+        enabled = false
+
+        assertTrue(harness.backing.isCurrentOperationToken(token))
+        harness.backing.release()
+    }
+
+    @Test
     fun cancellationAfterCheckpointFinalValidationCompletesDurableMutation() = runTest {
         val store = FakeLibraryStore()
         val gate = CompletableDeferred<Unit>()
@@ -1266,6 +1324,89 @@ class LibraryScanOrchestratorTest {
         assertFalse(harness.backing.isScanning)
         assertFalse(harness.backing.isUserVisibleScanning)
         harness.backing.release()
+    }
+
+    @Test
+    fun productionAutoSyncGateBlocksDeviceButManualDeviceScanStillPublishes() = runTest {
+        val scanner = ControlledScanner()
+        val shadow = ControlledDeviceAutoSyncShadow(
+            observation = DeviceAutoSyncShadowObservation.Disabled,
+        )
+        val harness = scanHarness(
+            scanner = scanner,
+            deviceAutoSyncShadow = shadow,
+            autoSyncEnabled = { false },
+        )
+        activateDeviceSource(harness.backing)
+        val generationBefore = harness.backing.scanGeneration
+
+        harness.orchestrator.executeScheduled(
+            ScheduledLibraryOperation(
+                request = LibraryOperationRequest.AutoSync(
+                    LibraryOperationCause.MEDIASTORE_AUDIO_DIRTY,
+                ),
+                requestSequence = 188L,
+                dirtySequenceAtStart = 53L,
+            ),
+        )
+
+        assertEquals(0, shadow.observeCalls)
+        assertEquals(generationBefore, harness.backing.scanGeneration)
+        assertTrue(scanner.deviceRequests.isEmpty())
+
+        val manual = async { harness.orchestrator.scanDeviceWide() }
+        runCurrent()
+        assertEquals(1, scanner.deviceRequests.size)
+        scanner.deviceRequests.single().result.complete(
+            ScanResult(listOf(SongFixtures.song("manual-device")), 1),
+        )
+        manual.await()
+
+        assertEquals(listOf("manual-device"), harness.backing.songs.map(Song::id))
+        assertEquals(ScanSource.DEVICE, harness.backing.lastScanSource)
+        harness.backing.release()
+    }
+
+    @Test
+    fun productionAutoSyncGateBlocksFolderButManualFolderScanStillPublishes() = runTest {
+        val tree = Uri.parse("content://library-auto-sync-gate/tree")
+        val scanner = ControlledScanner()
+        val harness = scanHarness(
+            scanner = scanner,
+            autoSyncEnabled = { source -> source != ScanSource.FOLDER },
+        )
+        try {
+            activateFolderSource(harness.backing, tree, "Gate")
+            val generationBefore = harness.backing.scanGeneration
+
+            harness.orchestrator.executeScheduled(
+                ScheduledLibraryOperation(
+                    request = LibraryOperationRequest.AutoSync(
+                        LibraryOperationCause.SAF_PERIODIC_VERIFY,
+                    ),
+                    requestSequence = 189L,
+                    dirtySequenceAtStart = 54L,
+                ),
+            )
+
+            assertEquals(generationBefore, harness.backing.scanGeneration)
+            assertTrue(scanner.folderMetadataRequests.isEmpty())
+            assertTrue(scanner.folderRequests.isEmpty())
+
+            val manual = async { harness.orchestrator.scanLibraryFolder() }
+            runCurrent()
+            assertEquals(1, scanner.folderRequests.size)
+            scanner.folderRequests.single().result.complete(
+                ScanResult(listOf(SongFixtures.song("manual-folder")), 1),
+            )
+            manual.await()
+
+            assertEquals(listOf("manual-folder"), harness.backing.songs.map(Song::id))
+            assertEquals(ScanSource.FOLDER, harness.backing.lastScanSource)
+        } finally {
+            clearFolderPrefs(harness.backing)
+            harness.backing.release()
+        }
     }
 
     @Test
@@ -4631,6 +4772,7 @@ class LibraryScanOrchestratorTest {
         deviceRetryObservationRuntime: DeviceRetryObservationRuntime =
             NoopDeviceRetryObservationRuntime,
         safShadowProbeRuntime: SafShadowProbeRuntime = NoopSafShadowProbeRuntime,
+        autoSyncEnabled: (ScanSource) -> Boolean = { true },
         syncSchedulerTiming: LibrarySyncSchedulerTiming = LibrarySyncSchedulerTiming(),
     ): OrchestratorHarness {
         val dispatcher = StandardTestDispatcher(testScheduler)
@@ -4645,6 +4787,7 @@ class LibraryScanOrchestratorTest {
             deviceShadowProbeRuntime = deviceShadowProbeRuntime,
             deviceRetryObservationRuntime = deviceRetryObservationRuntime,
             safShadowProbeRuntime = safShadowProbeRuntime,
+            autoSyncEnabled = autoSyncEnabled,
             syncSchedulerTiming = syncSchedulerTiming,
             syncSchedulerNowMs = { testScheduler.currentTime },
         )

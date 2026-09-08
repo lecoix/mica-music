@@ -14,12 +14,14 @@ import com.mica.music.data.ScanSource
 import com.mica.music.data.Song
 import com.mica.music.data.SongSortField
 import com.mica.music.data.SortDirection
+import com.mica.music.data.preferences.LibraryAutoSyncPreferences
 import com.mica.music.data.preferences.LibraryScanSettings
 import com.mica.music.data.scanner.AutoSyncPublicationDecision
 import com.mica.music.data.scanner.DeviceAutoSyncShadow
 import com.mica.music.data.scanner.NoopDeviceAutoSyncShadow
 import com.mica.music.data.scanner.AutoSyncVisibleDelta
 import com.mica.music.data.scanner.publicationDecision
+import com.mica.music.util.DiagnosticLog
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -45,6 +47,9 @@ internal class MusicLibraryBacking(
     val deviceRetryObservationRuntime: DeviceRetryObservationRuntime =
         NoopDeviceRetryObservationRuntime,
     val safShadowProbeRuntime: SafShadowProbeRuntime = NoopSafShadowProbeRuntime,
+    val autoSyncEnabled: (ScanSource) -> Boolean = { source ->
+        LibraryAutoSyncPreferences.enabled(context, source)
+    },
     syncSchedulerTiming: LibrarySyncSchedulerTiming = LibrarySyncSchedulerTiming(),
     syncSchedulerNowMs: () -> Long = SystemClock::elapsedRealtime,
 ) {
@@ -202,11 +207,20 @@ internal class MusicLibraryBacking(
         requestSequence: Long,
         dirtySequenceAtStart: Long,
         cause: LibraryOperationCause,
+        enforceAutoSyncGate: Boolean = true,
     ): LibraryOperationToken? = publicationMutex.withLock {
         if (released || releaseRequested) return@withLock null
         if (intentState != LibraryIntentState.ACTIVE) return@withLock null
         if (accessState != LibraryAccessState.AVAILABLE) return@withLock null
         val active = sourceState.active ?: return@withLock null
+        if (enforceAutoSyncGate && !autoSyncEnabled(active.sourceIdentity.source)) {
+            DiagnosticLog.event(
+                "LibraryAutoSync",
+                "feature-gate disabled source=${active.sourceIdentity.source} " +
+                    "request=$requestSequence cause=$cause",
+            )
+            return@withLock null
+        }
         val currentFingerprint = LibraryScanSettings.configFingerprint(context)
         val generation = ++scanGeneration
         configFingerprint = currentFingerprint
@@ -221,6 +235,7 @@ internal class MusicLibraryBacking(
             configFingerprint = currentFingerprint,
             catalogRevisionAtStart = catalogRevision,
             presentationRevisionAtStart = presentationRevision,
+            autoSyncGateEnforced = enforceAutoSyncGate,
         )
     }
 
@@ -266,6 +281,12 @@ internal class MusicLibraryBacking(
 
     fun isCurrentOperationToken(token: LibraryOperationToken): Boolean {
         if (!isActiveGeneration(token.libraryGeneration)) return false
+        if (
+            token.autoSyncGateEnforced &&
+            !autoSyncEnabled(token.sourceIdentity.source)
+        ) {
+            return false
+        }
         if (LibraryScanSettings.configFingerprint(context) != token.configFingerprint) return false
         val matchingActivation = sequenceOf(
             sourceState.active,

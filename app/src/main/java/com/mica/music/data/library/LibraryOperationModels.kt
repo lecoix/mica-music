@@ -146,6 +146,7 @@ internal data class LibraryOperationToken(
     val configFingerprint: String,
     val catalogRevisionAtStart: Long,
     val presentationRevisionAtStart: Long,
+    val autoSyncGateEnforced: Boolean = false,
 )
 
 internal data class ScheduledLibraryOperation(

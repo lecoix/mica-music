@@ -121,6 +121,7 @@ internal class LibraryScanOrchestrator(
                     scheduleSafBudgetContinuation = true,
                     publishSafAuthority = true,
                     publishDeviceAuthority = true,
+                    enforceAutoSyncGate = true,
                 )
         }
     }
@@ -133,6 +134,7 @@ internal class LibraryScanOrchestrator(
             scheduleSafBudgetContinuation = false,
             publishSafAuthority = false,
             publishDeviceAuthority = false,
+            enforceAutoSyncGate = false,
         )
     }
 
@@ -150,6 +152,7 @@ internal class LibraryScanOrchestrator(
             scheduleSafBudgetContinuation = false,
             publishSafAuthority = true,
             publishDeviceAuthority = true,
+            enforceAutoSyncGate = false,
         )
     }
 
@@ -158,11 +161,13 @@ internal class LibraryScanOrchestrator(
         scheduleSafBudgetContinuation: Boolean,
         publishSafAuthority: Boolean,
         publishDeviceAuthority: Boolean,
+        enforceAutoSyncGate: Boolean,
     ) = backing.operationExecutionMutex.withLock {
         val token = backing.beginActiveAutoSyncOperationToken(
             requestSequence = operation.requestSequence,
             dirtySequenceAtStart = operation.dirtySequenceAtStart,
             cause = operation.request.cause,
+            enforceAutoSyncGate = enforceAutoSyncGate,
         ) ?: return@withLock
         executeAutoSyncLocked(
             operation = operation,
