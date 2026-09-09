@@ -132,6 +132,7 @@ internal fun NowPlayingCoverSection(
     coverSwipeEnabled: Boolean = true,
     coverShadowEnabled: Boolean = false,
     coverShadowStrength: Float = 1f,
+    suppressArtworkScrim: Boolean = false,
     onCoverBoundsChanged: (Rect?) -> Unit,
     onCoverAspectRatioChanged: (Float) -> Unit,
     onCloseLyrics: () -> Unit,
@@ -299,7 +300,8 @@ internal fun NowPlayingCoverSection(
         }
     }
 
-    val coverArtworkScrim = lowerBackground == PlayerLowerBackgroundMode.ARTWORK_GRADIENT &&
+    val coverArtworkScrim = !suppressArtworkScrim &&
+        lowerBackground == PlayerLowerBackgroundMode.ARTWORK_GRADIENT &&
         playerHeaderFocus(frame.lyricsProgress, frame.queueProgress) < 0.5f &&
         !particleFrame.enabled &&
         !coverFlowMode.usesPhotoStack

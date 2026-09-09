@@ -22,7 +22,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -35,8 +37,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -53,6 +59,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import com.mica.music.data.AlbumBrowseKey
 import com.mica.music.data.AppUiSettings
+import com.mica.music.data.CoverDisplayMode
 import com.mica.music.data.DsdSupport
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.LyricsPageTheme
@@ -169,6 +176,46 @@ internal suspend fun pollNowPlayingProgress(
 
 internal fun nowPlayingProgressPollIntervalMs(hasWordSyncedLyrics: Boolean): Long =
     if (hasWordSyncedLyrics) 50L else 500L
+
+private val LandscapeCoverFadeOpaque = Color.White
+private val LandscapeCoverFadeClear = Color.White.copy(alpha = 0f)
+private val LocalLandscapeStandardCoverFullBleed = compositionLocalOf { false }
+
+/**
+ * STANDARD 横屏封面右缘 alpha 渐隐。
+ *
+ * 节奏沿用封面渐变已有的 38/58/76/90% 多段过渡，但把颜色叠加反转成 alpha mask：
+ * 前段保持完整封面，接近左右交界时再逐级淡出，最终直接露出 NowPlayingBackground。
+ */
+internal fun Modifier.landscapeStandardCoverRightFade(
+    fadeStartFraction: Float = 0.60f,
+): Modifier =
+    graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+        .drawWithCache {
+            val start = fadeStartFraction.coerceIn(0f, 0.95f)
+            val span = 1f - start
+            fun atFade(t: Float): Float = start + span * t.coerceIn(0f, 1f)
+            val mask = Brush.horizontalGradient(
+                colorStops = arrayOf(
+                    0f to LandscapeCoverFadeOpaque,
+                    atFade(0.38f) to LandscapeCoverFadeOpaque,
+                    atFade(0.58f) to LandscapeCoverFadeOpaque.copy(alpha = 0.58f),
+                    atFade(0.76f) to LandscapeCoverFadeOpaque.copy(alpha = 0.28f),
+                    atFade(0.90f) to LandscapeCoverFadeOpaque.copy(alpha = 0.10f),
+                    atFade(0.98f) to LandscapeCoverFadeClear,
+                    1f to LandscapeCoverFadeClear,
+                ),
+                startX = 0f,
+                endX = size.width,
+            )
+            onDrawWithContent {
+                drawContent()
+                drawRect(
+                    brush = mask,
+                    blendMode = BlendMode.DstIn,
+                )
+            }
+        }
 
 @Composable
 fun NowPlayingScreen(
@@ -1000,33 +1047,53 @@ fun NowPlayingContent(
             } else {
                 null
             }
+            val landscapeStandardArtworkWidth = fullWidth * 0.50f
+            val landscapeStandardArtworkHeight = fullHeight
             val coverSection: @Composable (Modifier, Dp?, Float?) -> Unit =
                 { coverModifier, coverStartPaddingOverride, coverFlowProgressOverride ->
+                val fullBleedLandscapeStandard = LocalLandscapeStandardCoverFullBleed.current
+                val baseFrame = if (coverFlowProgressOverride == null) {
+                    previewFrame.copy(
+                        cover = when {
+                            pinCustomCover -> customCoverFrame
+                            customCoverAtRest != null -> customQueueCoverFrameInSlot(customCoverAtRest)
+                            else -> previewFrame.cover
+                        },
+                        gesturesEnabled = previewFrame.gesturesEnabled &&
+                            photoStackLyricsFrame.playbackInputEnabled,
+                    )
+                } else {
+                    previewFrame.copy(
+                        coverFlowProgress = coverFlowProgressOverride,
+                        // Keep the carousel mounted through the fold. At zero progress its
+                        // own rail math leaves only the center cover visible.
+                        coverFlowStageActive = true,
+                        gesturesEnabled = previewFrame.gesturesEnabled &&
+                            photoStackLyricsFrame.playbackInputEnabled &&
+                            coverFlowProgressOverride > 0.99f,
+                    )
+                }
+                val sectionFrame = if (fullBleedLandscapeStandard) {
+                    baseFrame.copy(
+                        cover = baseFrame.cover.copy(
+                            width = landscapeStandardArtworkWidth,
+                            height = landscapeStandardArtworkHeight,
+                            startPadding = 0.dp,
+                            topPadding = 0.dp,
+                            blockHeight = landscapeStandardArtworkHeight,
+                            particleInfoTopPadding = 0.dp,
+                            letterboxAlpha = 0f,
+                            zoneStop = 0.50f,
+                        ),
+                    )
+                } else {
+                    baseFrame
+                }
                 NowPlayingCoverSection(
                     song = pageModel.song,
                     queue = pageModel.queue,
                     currentIndex = pageModel.currentIndex,
-                    frame = if (coverFlowProgressOverride == null) {
-                        previewFrame.copy(
-                            cover = when {
-                                pinCustomCover -> customCoverFrame
-                                customCoverAtRest != null -> customQueueCoverFrameInSlot(customCoverAtRest)
-                                else -> previewFrame.cover
-                            },
-                            gesturesEnabled = previewFrame.gesturesEnabled &&
-                                photoStackLyricsFrame.playbackInputEnabled,
-                        )
-                    } else {
-                        previewFrame.copy(
-                            coverFlowProgress = coverFlowProgressOverride,
-                            // Keep the carousel mounted through the fold. At zero progress its
-                            // own rail math leaves only the center cover visible.
-                            coverFlowStageActive = true,
-                            gesturesEnabled = previewFrame.gesturesEnabled &&
-                                photoStackLyricsFrame.playbackInputEnabled &&
-                                coverFlowProgressOverride > 0.99f,
-                        )
-                    },
+                    frame = sectionFrame,
                     coverColor = appearance.coverColor,
                     contentColors = playerUiColors,
                     lowerBackground = lowerBackground,
@@ -1057,6 +1124,7 @@ fun NowPlayingContent(
                     } else {
                         1f
                     },
+                    suppressArtworkScrim = fullBleedLandscapeStandard,
                     onCoverBoundsChanged = onCoverBoundsChanged,
                     onCoverAspectRatioChanged = { coverAspectRatio = it },
                     onCloseLyrics = { lyricsExpanded = false },
@@ -1085,9 +1153,21 @@ fun NowPlayingContent(
                     onCoverMotionActiveChanged = { coverMotionActive = it },
                     coverFlowNavigation = coverFlowNavigation,
                     photoStackNavigation = photoStackNavigation,
-                    screenWidth = screenWidth,
-                    standardCoverRequestWidth = stablePlaybackFrame.cover.width,
-                    standardCoverRequestHeight = stablePlaybackFrame.cover.height,
+                    screenWidth = if (fullBleedLandscapeStandard) {
+                        landscapeStandardArtworkWidth
+                    } else {
+                        screenWidth
+                    },
+                    standardCoverRequestWidth = if (fullBleedLandscapeStandard) {
+                        landscapeStandardArtworkWidth
+                    } else {
+                        stablePlaybackFrame.cover.width
+                    },
+                    standardCoverRequestHeight = if (fullBleedLandscapeStandard) {
+                        landscapeStandardArtworkHeight
+                    } else {
+                        stablePlaybackFrame.cover.height
+                    },
                     stripSongTitleParentheses = uiSettings.stripSongTitleParentheses,
                     coverDecodeTargetOverride = landscapeCoverFlowDecodeTarget,
                     coverFlowGesturesEnabledOverride = if (
@@ -1870,6 +1950,57 @@ fun NowPlayingContent(
                                             modifier = Modifier.fillMaxSize(),
                                         )
                                     }
+                                }
+                            }
+                        } else if (
+                            uiSettings.playerCoverFlowMode == PlayerCoverFlowMode.STANDARD
+                        ) {
+                            Box(modifier = Modifier.fillMaxSize()) {
+                                Box(
+                                    modifier = Modifier
+                                        .width(landscapeStandardArtworkWidth)
+                                        .fillMaxHeight()
+                                        .graphicsLayer {
+                                            if (landscapeCloudExitProgress > 0f) {
+                                                translationX = -landscapeCloudScatterPx
+                                                alpha = 1f - landscapeCloudExitProgress
+                                            }
+                                        }
+                                        .landscapeStandardCoverRightFade(),
+                                    contentAlignment = Alignment.TopStart,
+                                ) {
+                                    CompositionLocalProvider(
+                                        LocalLandscapeStandardCoverFullBleed provides true,
+                                        LocalCoverDisplayMode provides CoverDisplayMode.CROP_FILL,
+                                    ) {
+                                        coverSection(
+                                            Modifier
+                                                .fillMaxSize()
+                                                .then(coverSharedModifier)
+                                                .then(externalCoverIncomingWipe),
+                                            0.dp,
+                                            null,
+                                        )
+                                    }
+                                }
+                                BoxWithConstraints(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(contentPadding)
+                                        .padding(
+                                            start = landscapeStandardArtworkWidth +
+                                                landscapePlan.columnGapDp.dp * 0.5f,
+                                            top = landscapeEdgePadding,
+                                            end = landscapeEdgePadding,
+                                            bottom = landscapeEdgePadding,
+                                        ),
+                                ) {
+                                    landscapeLowerSection(
+                                        Modifier.fillMaxSize(),
+                                        maxHeight,
+                                        titleSharedModifier,
+                                        chromeSharedModifier,
+                                    )
                                 }
                             }
                         } else {
