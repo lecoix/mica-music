@@ -73,6 +73,7 @@ internal object LrcParser {
         val text: String,
         val cues: List<LyricCue>,
         val explicitTime: Boolean,
+        val wordTimed: Boolean = cues.isNotEmpty(),
         val trailingTexts: MutableList<String> = mutableListOf(),
     )
 
@@ -162,6 +163,9 @@ internal object LrcParser {
                 continue
             }
             val matches = timestamp.findAll(trimmed).toList()
+            val hasTrailingLineEnd = matches.size >= 2 &&
+                matches.last().range.last == trimmed.lastIndex &&
+                timestampMs(matches.last()) >= timestampMs(matches.first())
             parseInlineBracketLine(trimmed, matches, offsetMs)?.let { parsed ->
                 if (shouldKeepParsedLine(parsed)) {
                     addEntry(
@@ -170,6 +174,8 @@ internal object LrcParser {
                             text = parsed.text,
                             cues = parsed.cues,
                             explicitTime = true,
+                            wordTimed = parsed.cues.isNotEmpty() &&
+                                !(hasTrailingLineEnd && parsed.cues.size == 1),
                         ),
                     )
                 }
@@ -256,18 +262,20 @@ internal object LrcParser {
     private fun collapseSameTimestampGroup(group: List<RawEntry>): List<GroupedLine> {
         if (group.size == 1) return listOf(group.single().toGroupedLine())
 
-        val withCues = group.filter { it.cues.isNotEmpty() }
-        val withoutCues = group.filter { it.cues.isEmpty() }
+        val wordTimed = group.filter { it.wordTimed }
+        val lineTimed = group.filterNot { it.wordTimed }
 
-        // Preserve prior behavior: two (or more) word-timed lines do not merge.
-        if (withCues.size >= 2 && withoutCues.isEmpty()) {
+        // Preserve prior behavior: two (or more) true word-timed lines do not merge.
+        // A single visible fragment followed by a trailing [end] stamp is line-by-line
+        // in LDDC even though it still carries one timed word.
+        if (wordTimed.size >= 2 && lineTimed.isEmpty()) {
             return group.map { it.toGroupedLine() }
         }
 
         val main: RawEntry
         val others: List<RawEntry>
-        if (withCues.size == 1) {
-            main = withCues.single()
+        if (wordTimed.size == 1) {
+            main = wordTimed.single()
             others = group.filter { it !== main }
         } else {
             main = group.first()
@@ -296,7 +304,13 @@ internal object LrcParser {
         return !LyricsSanitizer.isIgnorableLyricText(line.text)
     }
 
-    /** [00:00.000]字[00:00.022]词 — common in NetEase/QQ embedded word lyrics. */
+    /**
+     * Bracket-inline LRC used by NetEase/QQ/LDDC.
+     *
+     * LDDC also emits line-by-line rows as [start]whole line[end]. Classification
+     * of that trailing timestamp is handled by [parseEntries]; this parser keeps
+     * the existing Mica line/token timing shape unchanged.
+     */
     private fun parseInlineBracketLine(
         trimmed: String,
         matches: List<MatchResult>,

@@ -14,6 +14,7 @@ import javax.xml.parsers.DocumentBuilderFactory
 import javax.xml.parsers.ParserConfigurationException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -167,6 +168,67 @@ class LyricsParsingTest {
         assertEquals("You can go\ntranslation line", parsed[0].text)
         assertEquals(listOf("You ", "can ", "go"), parsed[0].cues.map { it.text })
         assertEquals(0, LyricsSync.indexForPosition(parsed, 25_560))
+    }
+
+    @Test
+    fun lddcLineByLineTranslationWithExplicitEndMergesWithWordTimedOriginal() {
+        val document = LrcParser.parseDocument(
+            """
+            [00:00.910]私[00:01.663]じゃ[00:03.800]
+            [00:00.910]如果你爱的不是我[00:04.250]
+            """.trimIndent(),
+        )
+
+        val line = document.lines.single()
+        assertEquals(
+            listOf(
+                com.mica.music.data.LyricTextRole.ORIGINAL,
+                com.mica.music.data.LyricTextRole.TRANSLATION,
+            ),
+            line.parts.map { it.role },
+        )
+        assertEquals(listOf("私じゃ", "如果你爱的不是我"), line.parts.map { it.text })
+        assertEquals(listOf("私", "じゃ"), line.tokens.map { it.text })
+        assertNull(line.endMs)
+        assertNull(line.tokens.last().endMs)
+    }
+
+    @Test
+    fun lddcTranslationEndDoesNotShortenTheMergedLine() {
+        val document = LrcParser.parseDocument(
+            """
+            [00:21.329]も[00:21.720]う[00:22.840]隣[00:25.649]
+            [00:21.329]然而你身边已没有我[00:40.340]
+            [00:40.389]君[00:40.901]が[00:43.768]
+            [00:40.389]你是最明白的吧[00:46.880]
+            """.trimIndent(),
+        )
+
+        assertEquals(2, document.lines.size)
+        val first = document.lines.first()
+        assertEquals(
+            listOf(
+                com.mica.music.data.LyricTextRole.ORIGINAL,
+                com.mica.music.data.LyricTextRole.TRANSLATION,
+            ),
+            first.parts.map { it.role },
+        )
+        assertNull(first.endMs)
+        assertNull(first.tokens.last().endMs)
+    }
+
+    @Test
+    fun sameTimestampTwoBracketWordTimedLinesStillDoNotMerge() {
+        val document = LrcParser.parseDocument(
+            """
+            [00:01.000]A[00:01.300]B[00:01.700]
+            [00:01.000]C[00:01.250]D[00:01.650]
+            """.trimIndent(),
+        )
+
+        assertEquals(2, document.lines.size)
+        assertTrue(document.lines.all { it.tokens.size == 2 })
+        assertEquals(listOf("AB", "CD"), document.lines.map { it.parts.single().text })
     }
 
     @Test
