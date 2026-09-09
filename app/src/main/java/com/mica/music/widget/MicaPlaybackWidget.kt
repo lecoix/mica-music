@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -22,6 +23,7 @@ import androidx.glance.appwidget.SizeMode
 import androidx.glance.appwidget.action.actionStartService
 import androidx.glance.appwidget.provideContent
 import androidx.glance.background
+import androidx.glance.color.ColorProvider as DayNightColorProvider
 import androidx.glance.currentState
 import androidx.glance.layout.Alignment
 import androidx.glance.layout.Box
@@ -245,7 +247,7 @@ open class MicaPlaybackWidget protected constructor(
             Box(
                 modifier = GlanceModifier
                     .size(tileSize)
-                    .background(ColorProvider(R.color.widget_minimal_square_tile)),
+                    .background(widgetMinimalSquareTileColor),
                 contentAlignment = Alignment.Center,
             ) {
                 Image(
@@ -255,7 +257,7 @@ open class MicaPlaybackWidget protected constructor(
                         (tileSize.value * 0.34f).dp.coerceIn(24.dp, 48.dp),
                     ),
                     colorFilter = ColorFilter.tint(
-                        ColorProvider(R.color.widget_minimal_square_icon),
+                        widgetMinimalSquareIconColor,
                     ),
                     contentScale = ContentScale.Fit,
                 )
@@ -280,7 +282,7 @@ open class MicaPlaybackWidget protected constructor(
         Box(
             modifier = GlanceModifier
                 .size(tileSize)
-                .background(ColorProvider(R.color.widget_minimal_square_tile))
+                .background(widgetMinimalSquareTileColor)
                 .clickable(clickAction),
             contentAlignment = Alignment.Center,
         ) {
@@ -289,8 +291,8 @@ open class MicaPlaybackWidget protected constructor(
                 contentDescription = contentDescription,
                 modifier = GlanceModifier.size(iconSize),
                 colorFilter = ColorFilter.tint(
-                    if (accent) ColorProvider(R.color.widget_accent)
-                    else ColorProvider(R.color.widget_minimal_square_icon),
+                    if (accent) widgetAccentColor
+                    else widgetMinimalSquareIconColor,
                 ),
                 contentScale = ContentScale.Fit,
             )
@@ -416,8 +418,8 @@ open class MicaPlaybackWidget protected constructor(
         controlAreaHeight: Dp,
         height: Dp,
     ) {
-        val overlayTitle = ColorProvider(R.color.widget_artwork_overlay_title)
-        val overlaySecondary = ColorProvider(R.color.widget_artwork_overlay_secondary)
+        val overlayTitle = widgetArtworkOverlayTitleColor
+        val overlaySecondary = widgetArtworkOverlaySecondaryColor
         val horizontalPadding = (12f * textScale).dp
         val topPadding = (8f * textScale).dp
         val bottomPadding = (4f * textScale).dp
@@ -1151,6 +1153,20 @@ class MicaMinimalSquarePlaybackWidgetReceiver : GlanceAppWidgetReceiver() {
 private enum class WidgetWidthClass { NARROW, MEDIUM, WIDE }
 private enum class WidgetHeightClass { COMPACT, MEDIUM, EXPANDED }
 
+// Glance 1.2 restricts the resource-id ColorProvider overload to its library group.
+// Keep these public day/night providers aligned with values/widget_colors.xml and values-night/widget_colors.xml.
+private val widgetBackgroundColor = DayNightColorProvider(Color(0xE8F7F5F2), Color(0xD9181716))
+private val widgetTitleColor = DayNightColorProvider(Color(0xFF1A1A1A), Color(0xFFFFFFFF))
+private val widgetSecondaryColor = DayNightColorProvider(Color(0xFF6B6B6B), Color(0xB3FFFFFF))
+private val widgetTertiaryColor = DayNightColorProvider(Color(0xFF9B9B9B), Color(0x66FFFFFF))
+private val widgetAccentColor = ColorProvider(Color(0xFF8B7AFF))
+private val widgetDividerColor = DayNightColorProvider(Color(0x14000000), Color(0x1FFFFFFF))
+private val widgetArtworkPlaceholderColor = DayNightColorProvider(Color(0xFFE2DED8), Color(0xFF272421))
+private val widgetArtworkOverlayTitleColor = ColorProvider(Color(0xFFFFFFFF))
+private val widgetArtworkOverlaySecondaryColor = ColorProvider(Color(0xD9FFFFFF))
+private val widgetMinimalSquareTileColor = ColorProvider(Color(0x9914161D))
+private val widgetMinimalSquareIconColor = ColorProvider(Color(0xFFFFFFFF))
+
 private data class MicaWidgetColors(
     val background: ColorProvider,
     val title: ColorProvider,
@@ -1163,11 +1179,11 @@ private data class MicaWidgetColors(
 
 @Composable
 private fun micaWidgetColors(): MicaWidgetColors = MicaWidgetColors(
-    background = ColorProvider(R.color.widget_background),
-    title = ColorProvider(R.color.widget_title),
-    secondary = ColorProvider(R.color.widget_secondary),
-    tertiary = ColorProvider(R.color.widget_tertiary),
-    accent = ColorProvider(R.color.widget_accent),
-    divider = ColorProvider(R.color.widget_divider),
-    artworkPlaceholder = ColorProvider(R.color.widget_artwork_placeholder),
+    background = widgetBackgroundColor,
+    title = widgetTitleColor,
+    secondary = widgetSecondaryColor,
+    tertiary = widgetTertiaryColor,
+    accent = widgetAccentColor,
+    divider = widgetDividerColor,
+    artworkPlaceholder = widgetArtworkPlaceholderColor,
 )
