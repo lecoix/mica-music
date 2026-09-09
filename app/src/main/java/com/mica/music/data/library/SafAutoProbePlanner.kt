@@ -116,6 +116,8 @@ internal object SafAutoProbePlanner {
         heavyProbeBudget: Int = DEFAULT_HEAVY_PROBE_BUDGET,
         unknownVerifyBudget: Int = UNKNOWN_VERIFY_OBJECT_BUDGET,
         alreadyResolvedStableObjectKeys: Set<String> = emptySet(),
+        preselectedUnknownFingerprintVerify: List<SafTreeMetadataEntry>? = null,
+        unknownFingerprintDueCountOverride: Int? = null,
     ): SafAutoProbePlan {
         require(heavyProbeBudget >= 0)
         require(unknownVerifyBudget >= 0)
@@ -137,15 +139,24 @@ internal object SafAutoProbePlanner {
         val unknownCandidates = verifyPlan.unknownFingerprint
             .distinctBy(SafTreeMetadataEntry::stableObjectKey)
             .filterNot { it.stableObjectKey in alreadyResolvedStableObjectKeys }
-        val unknownDue = selectUnknownFingerprintVerifyDue(
-            candidates = unknownCandidates,
-            retryItems = retryItems,
-            sourceIdentity = sourceIdentity,
-            activationEpoch = activationEpoch,
-            nowMs = nowMs,
-        )
+        val unknownDue = if (unknownFingerprintDueCountOverride == null) {
+            selectUnknownFingerprintVerifyDue(
+                candidates = unknownCandidates,
+                retryItems = retryItems,
+                sourceIdentity = sourceIdentity,
+                activationEpoch = activationEpoch,
+                nowMs = nowMs,
+            )
+        } else {
+            emptyList()
+        }
+        val unknownDueCount = unknownFingerprintDueCountOverride ?: unknownDue.size
         val selectedUnknown = if (allowUnknownFingerprintVerify) {
-            unknownDue.take(unknownVerifyBudget)
+            (preselectedUnknownFingerprintVerify ?: unknownDue)
+                .asSequence()
+                .filter { it.stableObjectKey !in alreadyResolvedStableObjectKeys }
+                .take(unknownVerifyBudget)
+                .toList()
         } else {
             emptyList()
         }
@@ -201,10 +212,10 @@ internal object SafAutoProbePlanner {
             objects = objects,
             heavyProbeParallelism = CONSERVATIVE_HEAVY_PROBE_PARALLELISM,
             unknownFingerprintCandidateCount = unknownCandidates.size,
-            unknownFingerprintDueCount = unknownDue.size,
+            unknownFingerprintDueCount = unknownDueCount,
             unknownFingerprintSelectedCount = selectedUnknown.size,
             unknownFingerprintSuppressedByCauseCount =
-                if (allowUnknownFingerprintVerify) 0 else unknownDue.size,
+                if (allowUnknownFingerprintVerify) 0 else unknownDueCount,
             dueRetryCount = dueRetries.size,
             retryMissingObservationCount = retryMissingObservationCount,
         )

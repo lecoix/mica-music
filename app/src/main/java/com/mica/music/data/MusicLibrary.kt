@@ -304,9 +304,13 @@ class MusicLibrary internal constructor(
         const val USER_EXCLUSION_REBASE_ATTEMPTS = 3
     }
 
-    internal suspend fun loadFollowupOutbox():
-        List<com.mica.music.data.library.LibraryFollowupOutboxItem> =
-        withContext(Dispatchers.IO) { backing.libraryStore.loadFollowupOutbox() }
+    internal suspend fun loadFollowupOutboxPage(
+        cursor: com.mica.music.data.library.LibraryFollowupOutboxCursor,
+        limit: Int,
+    ): com.mica.music.data.library.LibraryFollowupOutboxPage =
+        withContext(Dispatchers.IO) {
+            backing.libraryStore.loadFollowupOutboxPage(cursor, limit)
+        }
 
     internal suspend fun acknowledgeFollowupOutbox(eventId: String): Boolean =
         withContext(Dispatchers.IO) {

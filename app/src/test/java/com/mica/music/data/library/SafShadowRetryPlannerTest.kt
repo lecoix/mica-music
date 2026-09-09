@@ -131,7 +131,10 @@ class SafShadowRetryPlannerTest {
         )
 
         assertTrue(plan.retryUpserts.isEmpty())
-        assertEquals(setOf("old-retry"), plan.retryDeleteKeys)
+        assertEquals(
+            setOf("old-retry", SafShadowRetryPlanner.retryKey(observed.stableObjectKey)),
+            plan.retryDeleteKeys,
+        )
     }
 
     @Test
@@ -177,7 +180,10 @@ class SafShadowRetryPlannerTest {
         )
 
         assertTrue(plan.retryUpserts.isEmpty())
-        assertEquals(setOf("legacy-a", "legacy-b"), plan.retryDeleteKeys)
+        assertEquals(
+            setOf("legacy-a", "legacy-b", SafShadowRetryPlanner.retryKey(stableKey)),
+            plan.retryDeleteKeys,
+        )
     }
 
     @Test

@@ -113,11 +113,58 @@ class LibraryAutoSyncQaReceiver : BroadcastReceiver() {
                         android.os.Process.myUid(),
                         Intent.FLAG_GRANT_READ_URI_PERMISSION,
                     )
+                    val persisted = appContext.contentResolver.persistedUriPermissions
+                        .filter { held ->
+                            held.uri == treeUri ||
+                                treeUri.toString().startsWith(held.uri.toString() + "/")
+                        }
+                        .joinToString(";") { held ->
+                            held.uri.toString() +
+                                ":read=" + held.isReadPermission +
+                                ":write=" + held.isWritePermission
+                        }
                     Log.i(
                         VENDOR_TAG,
                         "grant-check uri=" + treeUri +
-                            " permission=" + permission,
+                            " permission=" + permission +
+                            " persisted=" + persisted.ifBlank { "none" },
                     )
+                    val childUri = DocumentsContract.buildChildDocumentsUriUsingTree(
+                        treeUri,
+                        DocumentsContract.getTreeDocumentId(treeUri),
+                    )
+                    repeat(2) { attempt ->
+                        val client = appContext.contentResolver
+                            .acquireUnstableContentProviderClient(treeUri)
+                        try {
+                            val rows = client?.query(
+                                childUri,
+                                arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID),
+                                null,
+                                null,
+                                null,
+                            )?.use { cursor ->
+                                var count = 0
+                                while (cursor.moveToNext()) count += 1
+                                count
+                            }
+                            Log.i(
+                                VENDOR_TAG,
+                                "client-probe attempt=" + (attempt + 1) +
+                                    " acquired=" + (client != null) +
+                                    " rows=" + (rows ?: -1),
+                            )
+                        } catch (error: Throwable) {
+                            Log.e(
+                                VENDOR_TAG,
+                                "client-probe attempt=" + (attempt + 1) + " failed",
+                                error,
+                            )
+                        } finally {
+                            client?.close()
+                        }
+                        if (attempt == 0) Thread.sleep(150L)
+                    }
                     val startedMs = SystemClock.elapsedRealtime()
                     val snapshot = runBlocking {
                         AndroidLibraryScanner(appContext).observeFolderMetadata(treeUri)

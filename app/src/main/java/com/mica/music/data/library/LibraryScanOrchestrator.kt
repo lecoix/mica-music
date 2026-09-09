@@ -90,6 +90,10 @@ internal class LibraryScanOrchestrator(
 
     suspend fun scan() = rescan()
 
+    internal fun resetSafProviderDiscoveryBackoff() {
+        safProviderDiscoveryBackoff.reset()
+    }
+
     fun launchRescan() {
         backing.syncScheduler.submit(LibraryOperationRequest.Rescan)
     }
@@ -238,15 +242,19 @@ internal class LibraryScanOrchestrator(
         }
 
         val deltaAnalysis = if (observation is DeviceAutoSyncShadowObservation.DeltaCandidate) {
-            if (observation.batch.transientRows.isNotEmpty()) {
-                val transientByAuthority = observation.batch.transientRows
-                    .groupingBy { it.eligibilityAuthority }
-                    .eachCount()
+            val transientByAuthority = observation.batch.rows.asSequence()
+                .filter {
+                    it.eligibilityAuthority !=
+                        com.mica.music.data.scanner.DeviceEligibilityAuthority.AUTHORITATIVE
+                }
+                .groupingBy { it.eligibilityAuthority }
+                .eachCount()
+            if (transientByAuthority.isNotEmpty()) {
                 DiagnosticLog.event(
                     "LibraryAutoSync",
                     "device shadow cursor-held request=${operation.requestSequence} " +
                         "reason=provider-state-transient objects=" +
-                        "${observation.batch.transientRows.size} authorities=$transientByAuthority",
+                        "${transientByAuthority.values.sum()} authorities=$transientByAuthority",
                 )
                 return
             }
@@ -330,7 +338,13 @@ internal class LibraryScanOrchestrator(
             val nowMs = backing.scanEnvironment.currentTimeMillis()
             val scanOptions = LibraryScanSettings.scanOptions(backing.context)
             val retryItems = withContext(backing.ioDispatcher) {
-                backing.libraryStore.loadRetryItems(before.sourceActivation.sourceIdentity)
+                backing.libraryStore.loadDueRetryItems(
+                    sourceIdentity = before.sourceActivation.sourceIdentity,
+                    retryKind = LibraryRetryKind.OBJECT_PROBE,
+                    activationEpoch = before.sourceActivation.activationEpoch,
+                    nowMs = nowMs,
+                    limit = LibraryRetryPaging.DUE_WORK_BUDGET,
+                )
             }
             val excludedStableObjectKeys = withContext(backing.ioDispatcher) {
                 backing.libraryStore.loadUserExclusions(before.sourceActivation.sourceIdentity)
@@ -395,12 +409,32 @@ internal class LibraryScanOrchestrator(
                     ),
                 )
             }
+            val retryableIssueStableObjectKeys = probeExecution.issues.asSequence()
+                .filter { it.kind != DeviceShadowProbeIssueKind.PLAYBACK_DEFERRED }
+                .map(DeviceShadowProbeIssue::stableObjectKey)
+                .distinct()
+                .take(LibraryRetryPaging.DUE_WORK_BUDGET)
+                .toList()
+            val retryOutcomeItems = if (retryableIssueStableObjectKeys.isEmpty()) {
+                emptyList()
+            } else {
+                withContext(backing.ioDispatcher) {
+                    backing.libraryStore.loadRetryItemsForStableObjectKeys(
+                        before.sourceActivation.sourceIdentity,
+                        retryableIssueStableObjectKeys,
+                    )
+                }
+            }
+            val retryItemsForMutation = linkedMapOf<String, LibraryRetryItem>().apply {
+                retryItems.forEach { put(it.retryKey, it) }
+                retryOutcomeItems.forEach { put(it.retryKey, it) }
+            }.values.toList()
             val retryPlan = DeviceShadowRetryPlanner.plan(
                 sourceIdentity = before.sourceActivation.sourceIdentity,
                 activationEpoch = before.sourceActivation.activationEpoch,
                 nowMs = nowMs,
                 probePlan = probePlan,
-                existingRetryItems = retryItems,
+                existingRetryItems = retryItemsForMutation,
                 execution = probeExecution,
                 authoritativeRemovedStableObjectKeys =
                     appliedRemovedKeys + excludedStableObjectKeys,
@@ -448,7 +482,7 @@ internal class LibraryScanOrchestrator(
                 folderCasingPlan = folderCasingPlan,
                 probePlan = probePlan,
                 probeExecution = probeExecution,
-                retryItems = retryItems,
+                retryItems = retryItemsForMutation,
                 retryPlan = retryPlan,
                 retryObservation = retryObservation,
                 excludedStableObjectKeys = excludedStableObjectKeys,
@@ -514,10 +548,8 @@ internal class LibraryScanOrchestrator(
                 addAll(analysis.probeExecution.playbackDeferredKeys)
             }
             val retryNowMs = backing.scanEnvironment.currentTimeMillis()
-            val nextRetryDelayMs = nextDeviceRetryDelayAfterMutation(
+            val nextRetryDelayMs = nextDeviceRetryDelayFromStore(
                 token = token,
-                existingRetryItems = analysis.retryItems,
-                mutation = publicationPlan.autoSyncStateMutation,
                 nowMs = retryNowMs,
                 playbackDeferredStableObjectKeys = playbackDeferredKeys,
             )
@@ -629,9 +661,9 @@ internal class LibraryScanOrchestrator(
                 DiagnosticLog.event(
                     "LibraryAutoSync",
                     "device shadow delta request=${operation.requestSequence} " +
-                        "audioRows=${batch.rows(DeviceDeltaChannel.AUDIO).size} " +
-                        "fileRows=${batch.rows(DeviceDeltaChannel.FILES_FALLBACK).size} " +
-                        "sidecarRows=${batch.rows(DeviceDeltaChannel.LYRICS_SIDECAR).size} " +
+                        "audioRows=${batch.rows.count { it.channel == DeviceDeltaChannel.AUDIO }} " +
+                        "fileRows=${batch.rows.count { it.channel == DeviceDeltaChannel.FILES_FALLBACK }} " +
+                        "sidecarRows=${batch.rows.count { it.channel == DeviceDeltaChannel.LYRICS_SIDECAR }} " +
                         "audioCandidates=${candidates.audioCandidates.size} " +
                         "sidecarCandidates=${candidates.sidecarCandidates.size} " +
                         "lyricsSignatureChanges=${lyricsDiff.changes.size} " +
@@ -679,24 +711,25 @@ internal class LibraryScanOrchestrator(
     ): Boolean {
         val nowMs = backing.scanEnvironment.currentTimeMillis()
         val currentSongs = backing.songs
-        val retryItems = withContext(backing.ioDispatcher) {
-            backing.libraryStore.loadRetryItems(before.sourceActivation.sourceIdentity)
-        }
-        val matchingRetryItems = retryItems.filter {
-            it.sourceIdentity == token.sourceIdentity &&
-                (it.activationEpoch == null || it.activationEpoch == token.activationEpoch)
-        }
-        val dueRetryItems = matchingRetryItems.filter {
-            it.retryKind == LibraryRetryKind.OBJECT_PROBE &&
-                it.nextRetryAtMs <= nowMs
+        val dueRetryItems = withContext(backing.ioDispatcher) {
+            backing.libraryStore.loadDueRetryItems(
+                sourceIdentity = before.sourceActivation.sourceIdentity,
+                retryKind = LibraryRetryKind.OBJECT_PROBE,
+                activationEpoch = token.activationEpoch,
+                nowMs = nowMs,
+                limit = LibraryRetryPaging.DUE_WORK_BUDGET,
+            )
         }
         if (dueRetryItems.isEmpty()) {
-            val nextDelayMs = nextDeviceRetryDelayAfterMutation(
-                token = token,
-                existingRetryItems = retryItems,
-                mutation = LibraryAutoSyncStateMutation(token.sourceIdentity),
-                nowMs = nowMs,
-            )
+            val nextDelayMs = withContext(backing.ioDispatcher) {
+                backing.libraryStore.loadNextRetryAtMsAfter(
+                    sourceIdentity = token.sourceIdentity,
+                    activationEpoch = token.activationEpoch,
+                    afterMs = nowMs,
+                )
+            }?.let { nextRetryAtMs ->
+                (nextRetryAtMs - nowMs).coerceAtLeast(0L)
+            }
             scheduleDeviceRetryWake(
                 token = token,
                 publishAuthority = true,
@@ -709,7 +742,7 @@ internal class LibraryScanOrchestrator(
             backing.libraryStore.loadUserExclusions(before.sourceActivation.sourceIdentity)
                 .mapTo(linkedSetOf(), LibraryUserExclusion::stableObjectKey)
         }
-        val retryItemsForProbe = matchingRetryItems.filterNot {
+        val retryItemsForProbe = dueRetryItems.filterNot {
             it.stableObjectKey in excludedStableObjectKeys
         }
         val scanOptions = LibraryScanSettings.scanOptions(backing.context)
@@ -782,7 +815,7 @@ internal class LibraryScanOrchestrator(
             activationEpoch = token.activationEpoch,
             nowMs = nowMs,
             probePlan = probePlan,
-            existingRetryItems = retryItems,
+            existingRetryItems = dueRetryItems,
             execution = execution,
             authoritativeRemovedStableObjectKeys = excludedStableObjectKeys,
             retryObservationMissingStableObjectKeys =
@@ -821,10 +854,8 @@ internal class LibraryScanOrchestrator(
             addAll(execution.playbackDeferredKeys)
         }
         val retryNowMs = backing.scanEnvironment.currentTimeMillis()
-        var nextDelayMs = nextDeviceRetryDelayAfterMutation(
+        var nextDelayMs = nextDeviceRetryDelayFromStore(
             token = token,
-            existingRetryItems = retryItems,
-            mutation = publicationPlan.autoSyncStateMutation,
             nowMs = retryNowMs,
             playbackDeferredStableObjectKeys = playbackDeferredKeys,
         )
@@ -889,58 +920,31 @@ internal class LibraryScanOrchestrator(
         )
     }
 
-    private fun nextDeviceRetryDelayAfterMutation(
+    private suspend fun nextDeviceRetryDelayFromStore(
         token: LibraryOperationToken,
-        existingRetryItems: List<LibraryRetryItem>,
-        mutation: LibraryAutoSyncStateMutation,
         nowMs: Long,
         playbackDeferredStableObjectKeys: Set<String> = emptySet(),
     ): Long? {
-        val byKey = existingRetryItems.asSequence()
-            .filter { it.sourceIdentity == token.sourceIdentity }
-            .filter { it.activationEpoch == null || it.activationEpoch == token.activationEpoch }
-            .associateByTo(linkedMapOf(), LibraryRetryItem::retryKey)
-        mutation.retryDeleteKeys.forEach(byKey::remove)
-        mutation.retryUpserts.forEach { retry -> byKey[retry.retryKey] = retry }
-        if (byKey.isEmpty()) return null
-
-        val due = byKey.values.filter { it.nextRetryAtMs <= nowMs }
-        val actionableDue = due.filterNot {
-            it.stableObjectKey in playbackDeferredStableObjectKeys
+        val due = withContext(backing.ioDispatcher) {
+            backing.libraryStore.loadDueRetryItems(
+                sourceIdentity = token.sourceIdentity,
+                retryKind = LibraryRetryKind.OBJECT_PROBE,
+                activationEpoch = token.activationEpoch,
+                nowMs = nowMs,
+                limit = LibraryRetryPaging.DUE_WORK_BUDGET,
+            )
         }
-        if (actionableDue.isNotEmpty()) {
+        if (due.any { it.stableObjectKey !in playbackDeferredStableObjectKeys }) {
             return DEVICE_REQUERY_RETRY_DELAY_MS
         }
 
-        val nextRetryAtMs = byKey.values.asSequence()
-            .filterNot {
-                it.nextRetryAtMs <= nowMs &&
-                    it.stableObjectKey in playbackDeferredStableObjectKeys
-            }
-            .map(LibraryRetryItem::nextRetryAtMs)
-            .filter { it > nowMs }
-            .minOrNull()
-            ?: return null
-        return (nextRetryAtMs - nowMs).coerceAtLeast(0L)
-    }
-
-    private fun nextSafRetryDelayAfterMutation(
-        token: LibraryOperationToken,
-        existingRetryItems: List<LibraryRetryItem>,
-        mutation: LibraryAutoSyncStateMutation,
-        nowMs: Long,
-    ): Long? {
-        val byKey = existingRetryItems.asSequence()
-            .filter { it.sourceIdentity == token.sourceIdentity }
-            .filter { it.activationEpoch == null || it.activationEpoch == token.activationEpoch }
-            .associateByTo(linkedMapOf(), LibraryRetryItem::retryKey)
-        mutation.retryDeleteKeys.forEach(byKey::remove)
-        mutation.retryUpserts.forEach { retry -> byKey[retry.retryKey] = retry }
-        val nextRetryAtMs = byKey.values.asSequence()
-            .map(LibraryRetryItem::nextRetryAtMs)
-            .filter { it > nowMs }
-            .minOrNull()
-            ?: return null
+        val nextRetryAtMs = withContext(backing.ioDispatcher) {
+            backing.libraryStore.loadNextRetryAtMsAfter(
+                sourceIdentity = token.sourceIdentity,
+                activationEpoch = token.activationEpoch,
+                afterMs = nowMs,
+            )
+        } ?: return null
         return (nextRetryAtMs - nowMs).coerceAtLeast(0L)
     }
 
@@ -1452,19 +1456,55 @@ internal class LibraryScanOrchestrator(
             }
         }
         if (!backing.scanEnvironment.canReadTree(treeUri)) {
-            val failure = safProviderDiscoveryBackoff.recordFailure(
-                scopeKey = providerScopeKey,
-                nowMs = nowMs,
-                detail = "cannot-read-tree",
-            )
-            scheduleSafRetryWake(token, publishAuthority, failure.delayMs)
-            DiagnosticLog.event(
-                "LibraryAutoSync",
-                "saf shadow unavailable request=${operation.requestSequence} " +
-                    "reason=cannot-read-tree failures=${failure.failureCount} " +
-                    "backoffMs=${failure.delayMs}",
-            )
-            return
+            val persistedGrant =
+                backing.scanEnvironment.hasPersistedTreeReadAccess(treeUri)
+            val providerAcquired = persistedGrant &&
+                backing.scanEnvironment.canAcquireTreeProvider(treeUri)
+            val recoveredAfterReacquire = providerAcquired &&
+                backing.scanEnvironment.canReadTree(treeUri)
+            if (recoveredAfterReacquire) {
+                DiagnosticLog.event(
+                    "LibraryAutoSync",
+                    "saf provider reacquired request=${operation.requestSequence} " +
+                        "persistedGrant=true uri=$treeUri",
+                )
+            } else {
+                val providerClientUnavailable = persistedGrant && !providerAcquired
+                val failureDetail = if (providerClientUnavailable) {
+                    "provider-client-unavailable"
+                } else {
+                    "cannot-read-tree"
+                }
+                val failure = safProviderDiscoveryBackoff.recordFailure(
+                    scopeKey = providerScopeKey,
+                    nowMs = nowMs,
+                    detail = failureDetail,
+                )
+                if (
+                    publishAuthority &&
+                    providerClientUnavailable &&
+                    failure.failureCount >= SAF_PROVIDER_RESELECT_FAILURE_THRESHOLD
+                ) {
+                    backing.lastScanError = SAF_PROVIDER_RESELECT_REQUIRED_ERROR
+                    backing.launchAccessStateUpdate(LibraryAccessState.TEMP_UNAVAILABLE)
+                    DiagnosticLog.event(
+                        "LibraryAutoSync",
+                        "saf shadow unavailable request=${operation.requestSequence} " +
+                            "reason=$failureDetail failures=${failure.failureCount} " +
+                            "recovery=user-reselect-or-resume retryWake=false",
+                    )
+                    return
+                }
+                scheduleSafRetryWake(token, publishAuthority, failure.delayMs)
+                DiagnosticLog.event(
+                    "LibraryAutoSync",
+                    "saf shadow unavailable request=${operation.requestSequence} " +
+                        "reason=$failureDetail failures=${failure.failureCount} " +
+                        "persistedGrant=$persistedGrant providerAcquired=$providerAcquired " +
+                        "backoffMs=${failure.delayMs}",
+                )
+                return
+            }
         }
 
         val snapshot = try {
@@ -1501,6 +1541,9 @@ internal class LibraryScanOrchestrator(
             return
         }
         if (snapshot.discoveryReport.isComplete(DiscoveryPartitions.SAF_TREE)) {
+            if (backing.lastScanError == SAF_PROVIDER_RESELECT_REQUIRED_ERROR) {
+                backing.lastScanError = null
+            }
             val completeState = safProviderDiscoveryBackoff.recordComplete(
                 scopeKey = providerScopeKey,
                 nowMs = backing.scanEnvironment.currentTimeMillis(),
@@ -1531,9 +1574,6 @@ internal class LibraryScanOrchestrator(
             )
         }
 
-        val retryItems = withContext(backing.ioDispatcher) {
-            backing.libraryStore.loadRetryItems(token.sourceIdentity)
-        }
         val excludedStableObjectKeys = withContext(backing.ioDispatcher) {
             backing.libraryStore.loadUserExclusions(token.sourceIdentity)
                 .mapTo(linkedSetOf(), LibraryUserExclusion::stableObjectKey)
@@ -1542,6 +1582,7 @@ internal class LibraryScanOrchestrator(
             snapshot = snapshot,
             cachedSongs = backing.songs,
             excludedStableObjectKeys = excludedStableObjectKeys,
+            cachedSongById = backing::songById,
         )
         val allowUnknownFingerprintVerify = when (operation.request.cause) {
             LibraryOperationCause.SAF_PERIODIC_VERIFY,
@@ -1550,12 +1591,50 @@ internal class LibraryScanOrchestrator(
             -> true
             else -> false
         }
-        val safPlaybackSnapshotProvider = {
-            backing.playbackIoSnapshot().withSafProviderSerialization(treeUri.authority)
-        }
         val alreadyResolvedAudioKeys = safShadowCanonicalProjection.resolvedAudioStableObjectKeys(
             entries = plan.added + plan.changed + plan.unknownFingerprint,
         )
+        val unknownCandidatesForRetry = plan.unknownFingerprint.filterNot {
+            it.stableObjectKey in alreadyResolvedAudioKeys
+        }
+        val retryCleanupCandidateKeys = buildSet {
+            snapshot.entries.asSequence()
+                .filter {
+                    it.fingerprintReliability !=
+                        com.mica.music.data.scanner.SafFingerprintReliability.UNKNOWN
+                }
+                .mapTo(this, com.mica.music.data.scanner.SafTreeMetadataEntry::stableObjectKey)
+            addAll(plan.removedStableObjectKeys)
+        }
+        val retryWorkingSet = withContext(backing.ioDispatcher) {
+            SafRetryPlanningLoader.load(
+                sourceIdentity = token.sourceIdentity,
+                activationEpoch = token.activationEpoch,
+                nowMs = nowMs,
+                unknownCandidates = unknownCandidatesForRetry,
+                cleanupCandidateStableObjectKeys = retryCleanupCandidateKeys,
+                allowUnknownFingerprintVerify = allowUnknownFingerprintVerify,
+                loadDueObjectRetries = { limit ->
+                    backing.libraryStore.loadDueRetryItems(
+                        sourceIdentity = token.sourceIdentity,
+                        retryKind = LibraryRetryKind.OBJECT_PROBE,
+                        activationEpoch = token.activationEpoch,
+                        nowMs = nowMs,
+                        limit = limit,
+                    )
+                },
+                loadByStableObjectKeys = { stableObjectKeys ->
+                    backing.libraryStore.loadRetryItemsForStableObjectKeys(
+                        token.sourceIdentity,
+                        stableObjectKeys,
+                    )
+                },
+            )
+        }
+        val retryItems = retryWorkingSet.retryItems
+        val safPlaybackSnapshotProvider = {
+            backing.playbackIoSnapshot().withSafProviderSerialization(treeUri.authority)
+        }
         val probePlan = SafAutoProbePlanner.plan(
             verifyPlan = plan,
             playback = safPlaybackSnapshotProvider(),
@@ -1566,6 +1645,9 @@ internal class LibraryScanOrchestrator(
             nowMs = nowMs,
             allowUnknownFingerprintVerify = allowUnknownFingerprintVerify,
             alreadyResolvedStableObjectKeys = alreadyResolvedAudioKeys,
+            preselectedUnknownFingerprintVerify =
+                retryWorkingSet.preselectedUnknownFingerprintVerify,
+            unknownFingerprintDueCountOverride = retryWorkingSet.unknownFingerprintDueCount,
         )
         val metadataWorkKeys =
             (plan.added + plan.changed + plan.unknownFingerprint)
@@ -1696,12 +1778,43 @@ internal class LibraryScanOrchestrator(
             )
         }
         val retryPlanNowMs = backing.scanEnvironment.currentTimeMillis()
+        val retryableIssueStableObjectKeys = validation.issues.asSequence()
+            .filter { issue ->
+                when (issue.kind) {
+                    SafShadowProbeIssueKind.DRAFT_UNAVAILABLE,
+                    SafShadowProbeIssueKind.PROBE_FAILED,
+                    SafShadowProbeIssueKind.POST_OBSERVATION_CHANGED,
+                    -> true
+                    SafShadowProbeIssueKind.PLAYBACK_DEFERRED,
+                    SafShadowProbeIssueKind.UNKNOWN_VERIFY_BUDGET_DEFERRED,
+                    SafShadowProbeIssueKind.UNVERIFIABLE_FINGERPRINT,
+                    -> false
+                }
+            }
+            .map(SafShadowProbeIssue::stableObjectKey)
+            .distinct()
+            .take(LibraryRetryPaging.DUE_WORK_BUDGET)
+            .toList()
+        val retryOutcomeItems = if (retryableIssueStableObjectKeys.isEmpty()) {
+            emptyList()
+        } else {
+            withContext(backing.ioDispatcher) {
+                backing.libraryStore.loadRetryItemsForStableObjectKeys(
+                    token.sourceIdentity,
+                    retryableIssueStableObjectKeys,
+                )
+            }
+        }
+        val retryItemsForMutation = linkedMapOf<String, LibraryRetryItem>().apply {
+            retryItems.forEach { put(it.retryKey, it) }
+            retryOutcomeItems.forEach { put(it.retryKey, it) }
+        }.values.toList()
         val shadowRetryPlan = SafShadowRetryPlanner.plan(
             sourceIdentity = token.sourceIdentity,
             activationEpoch = token.activationEpoch,
             nowMs = retryPlanNowMs,
             observedEntries = snapshot.entries,
-            existingRetryItems = retryItems,
+            existingRetryItems = retryItemsForMutation,
             validation = validation,
             authoritativeRemovedStableObjectKeys = plan.removedStableObjectKeys,
         )
@@ -1710,7 +1823,7 @@ internal class LibraryScanOrchestrator(
             activationEpoch = token.activationEpoch,
             nowMs = retryPlanNowMs,
             allObservedEntries = snapshot.entries,
-            existingRetryItems = retryItems,
+            existingRetryItems = retryItemsForMutation,
             probePlan = probePlan,
             execution = execution,
             validation = validation,
@@ -1811,12 +1924,15 @@ internal class LibraryScanOrchestrator(
         }
 
         val ledgerRetryDelayMs = if (publishAuthority) {
-            nextSafRetryDelayAfterMutation(
-                token = token,
-                existingRetryItems = retryItems,
-                mutation = publicationPlan.autoSyncStateMutation,
-                nowMs = retryPlanNowMs,
-            )
+            withContext(backing.ioDispatcher) {
+                backing.libraryStore.loadNextRetryAtMsAfter(
+                    sourceIdentity = token.sourceIdentity,
+                    activationEpoch = token.activationEpoch,
+                    afterMs = retryPlanNowMs,
+                )
+            }?.let { nextRetryAtMs ->
+                (nextRetryAtMs - retryPlanNowMs).coerceAtLeast(0L)
+            }
         } else {
             null
         }
@@ -2673,5 +2789,6 @@ internal class LibraryScanOrchestrator(
     private companion object {
         const val MAX_PUBLICATION_REBASE_ATTEMPTS = 2
         const val DEVICE_REQUERY_RETRY_DELAY_MS = 30_000L
+        const val SAF_PROVIDER_RESELECT_FAILURE_THRESHOLD = 3
     }
 }

@@ -9,8 +9,14 @@ import com.mica.music.data.local.CachedLibrary
 import com.mica.music.data.local.LibraryRepository
 import com.mica.music.data.local.LibrarySyncResult
 import com.mica.music.data.library.LibraryAutoSyncStateMutation
+import com.mica.music.data.library.LibraryFollowupOutboxCursor
 import com.mica.music.data.library.LibraryFollowupOutboxItem
+import com.mica.music.data.library.LibraryFollowupOutboxPage
+import com.mica.music.data.library.LibraryRetryCursor
 import com.mica.music.data.library.LibraryRetryItem
+import com.mica.music.data.library.LibraryRetryKind
+import com.mica.music.data.library.LibraryRetryPage
+import com.mica.music.data.library.LibraryRetryPaging
 import com.mica.music.data.library.LibrarySyncCheckpoint
 import com.mica.music.data.library.LyricsStagingMode
 import com.mica.music.data.library.LibraryUserExclusion
@@ -130,8 +136,40 @@ internal interface LibraryStore {
     suspend fun loadSyncCheckpoints(sourceIdentity: SourceIdentityKey): List<LibrarySyncCheckpoint> =
         emptyList()
 
-    suspend fun loadRetryItems(sourceIdentity: SourceIdentityKey): List<LibraryRetryItem> =
-        emptyList()
+    suspend fun loadRetryItemsPage(
+        sourceIdentity: SourceIdentityKey,
+        cursor: LibraryRetryCursor,
+        limit: Int,
+    ): LibraryRetryPage {
+        require(limit in 1..LibraryRetryPaging.PAGE_SIZE)
+        return LibraryRetryPage(emptyList(), null)
+    }
+
+    suspend fun loadDueRetryItems(
+        sourceIdentity: SourceIdentityKey,
+        retryKind: LibraryRetryKind,
+        activationEpoch: Long,
+        nowMs: Long,
+        limit: Int,
+    ): List<LibraryRetryItem> {
+        require(limit in 1..LibraryRetryPaging.DUE_WORK_BUDGET)
+        return emptyList()
+    }
+
+    suspend fun loadRetryItemsForStableObjectKeys(
+        sourceIdentity: SourceIdentityKey,
+        stableObjectKeys: Collection<String>,
+    ): List<LibraryRetryItem> {
+        if (stableObjectKeys.isEmpty()) return emptyList()
+        require(stableObjectKeys.size <= LibraryRetryPaging.STABLE_KEY_LOOKUP_BATCH_SIZE)
+        return emptyList()
+    }
+
+    suspend fun loadNextRetryAtMsAfter(
+        sourceIdentity: SourceIdentityKey,
+        activationEpoch: Long,
+        afterMs: Long,
+    ): Long? = null
 
     suspend fun applyAutoSyncState(mutation: LibraryAutoSyncStateMutation) = Unit
 
@@ -168,7 +206,13 @@ internal interface LibraryStore {
         )
     }
 
-    suspend fun loadFollowupOutbox(): List<LibraryFollowupOutboxItem> = emptyList()
+    suspend fun loadFollowupOutboxPage(
+        cursor: LibraryFollowupOutboxCursor,
+        limit: Int,
+    ): LibraryFollowupOutboxPage {
+        require(limit > 0)
+        return LibraryFollowupOutboxPage(emptyList(), null)
+    }
 
     suspend fun enqueueFollowupOutbox(item: LibraryFollowupOutboxItem) = Unit
 
@@ -383,6 +427,15 @@ internal const val CURRENT_LYRICS_PARSER_VERSION = 11
 internal interface ScanEnvironment {
     fun hasAudioReadPermission(): Boolean
     fun canReadTree(treeUri: Uri): Boolean
+    /**
+     * Persisted grant presence is only a recovery diagnostic. It never makes discovery COMPLETE.
+     */
+    fun hasPersistedTreeReadAccess(treeUri: Uri): Boolean = false
+    /**
+     * Best-effort provider reacquire used only after [canReadTree] already failed.
+     * A false result remains fail-closed and must never trigger direct-file fallback.
+     */
+    fun canAcquireTreeProvider(treeUri: Uri): Boolean = true
     fun currentTimeMillis(): Long
     fun playStats(songId: String): PlayStats
     fun playStatsSnapshot(songIds: Collection<String>): PlayStatsSnapshot =
@@ -502,9 +555,37 @@ internal class RoomLibraryStore internal constructor(
         sourceIdentity: SourceIdentityKey,
     ): List<LibrarySyncCheckpoint> = repository.loadSyncCheckpoints(sourceIdentity)
 
-    override suspend fun loadRetryItems(
+    override suspend fun loadRetryItemsPage(
         sourceIdentity: SourceIdentityKey,
-    ): List<LibraryRetryItem> = repository.loadRetryItems(sourceIdentity)
+        cursor: LibraryRetryCursor,
+        limit: Int,
+    ): LibraryRetryPage = repository.loadRetryItemsPage(sourceIdentity, cursor, limit)
+
+    override suspend fun loadDueRetryItems(
+        sourceIdentity: SourceIdentityKey,
+        retryKind: LibraryRetryKind,
+        activationEpoch: Long,
+        nowMs: Long,
+        limit: Int,
+    ): List<LibraryRetryItem> = repository.loadDueRetryItems(
+        sourceIdentity = sourceIdentity,
+        retryKind = retryKind,
+        activationEpoch = activationEpoch,
+        nowMs = nowMs,
+        limit = limit,
+    )
+
+    override suspend fun loadRetryItemsForStableObjectKeys(
+        sourceIdentity: SourceIdentityKey,
+        stableObjectKeys: Collection<String>,
+    ): List<LibraryRetryItem> =
+        repository.loadRetryItemsForStableObjectKeys(sourceIdentity, stableObjectKeys)
+
+    override suspend fun loadNextRetryAtMsAfter(
+        sourceIdentity: SourceIdentityKey,
+        activationEpoch: Long,
+        afterMs: Long,
+    ): Long? = repository.loadNextRetryAtMsAfter(sourceIdentity, activationEpoch, afterMs)
 
     override suspend fun applyAutoSyncState(mutation: LibraryAutoSyncStateMutation) =
         repository.applyAutoSyncState(mutation)
@@ -541,8 +622,10 @@ internal class RoomLibraryStore internal constructor(
         fastScrollSectionTargets = fastScrollSectionTargets,
     )
 
-    override suspend fun loadFollowupOutbox(): List<LibraryFollowupOutboxItem> =
-        repository.loadFollowupOutbox()
+    override suspend fun loadFollowupOutboxPage(
+        cursor: LibraryFollowupOutboxCursor,
+        limit: Int,
+    ): LibraryFollowupOutboxPage = repository.loadFollowupOutboxPage(cursor, limit)
 
     override suspend fun enqueueFollowupOutbox(item: LibraryFollowupOutboxItem) =
         repository.enqueueFollowupOutbox(item)
@@ -783,6 +866,12 @@ internal class AndroidScanEnvironment(
 
     override fun canReadTree(treeUri: Uri): Boolean =
         LibraryFolderStore.canReadTree(context, treeUri)
+
+    override fun hasPersistedTreeReadAccess(treeUri: Uri): Boolean =
+        LibraryFolderStore.hasPersistedTreeReadAccess(context, treeUri)
+
+    override fun canAcquireTreeProvider(treeUri: Uri): Boolean =
+        LibraryFolderStore.canAcquireTreeProvider(context, treeUri)
 
     override fun currentTimeMillis(): Long = System.currentTimeMillis()
 

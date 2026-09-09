@@ -2195,6 +2195,163 @@ class LibraryScanOrchestratorTest {
     }
 
     @Test
+    fun safPersistedGrantReacquireRetriesOrdinaryReadabilityBeforeDiscovery() = runTest {
+        val scanner = ControlledScanner().apply {
+            folderMetadataSnapshot = SafTreeMetadataSnapshot(
+                entries = emptyList(),
+                discoveryReport = DiscoveryReport.of(
+                    DiscoveryPartitionStatus(
+                        partitionKey = DiscoveryPartitions.SAF_TREE,
+                        completeness = DiscoveryCompleteness.COMPLETE,
+                    ),
+                ),
+            )
+        }
+        val environment = FakeScanEnvironment(
+            persistedTreeReadAccess = true,
+            treeProviderAcquirable = true,
+        ).apply {
+            scriptedTreeReadability += listOf(false, true)
+        }
+        val tree = Uri.parse("content://provider/tree/reacquire")
+        val harness = scanHarness(scanner = scanner, environment = environment)
+        activateFolderSource(harness.backing, tree, "Reacquire")
+        harness.backing.lastScanError = SAF_PROVIDER_RESELECT_REQUIRED_ERROR
+
+        harness.orchestrator.executeAutoSyncShadowForDiagnostics(
+            ScheduledLibraryOperation(
+                request = LibraryOperationRequest.AutoSync(
+                    LibraryOperationCause.SAF_PERIODIC_VERIFY,
+                ),
+                requestSequence = 1971L,
+                dirtySequenceAtStart = 621L,
+            ),
+        )
+
+        assertEquals(2, environment.canReadTreeCalls)
+        assertEquals(1, environment.providerAcquireCalls)
+        assertEquals(listOf(tree), scanner.folderMetadataRequests)
+        assertEquals(LibraryAccessState.AVAILABLE, harness.backing.accessState)
+        assertNull(harness.backing.lastScanError)
+
+        clearFolderPrefs(harness.backing)
+        harness.backing.release()
+        runCurrent()
+    }
+
+    @Test
+    fun scheduledSafPersistedGrantWithUnavailableProviderPausesAfterThreeFailures() = runTest {
+        var nowMs = 1_234L
+        val scanner = ControlledScanner()
+        val store = FakeLibraryStore()
+        val environment = FakeScanEnvironment(
+            nowMsProvider = { nowMs },
+            treeReadable = false,
+            persistedTreeReadAccess = true,
+            treeProviderAcquirable = false,
+        )
+        val tree = Uri.parse("content://provider/tree/provider-unavailable")
+        val harness = scanHarness(scanner = scanner, store = store, environment = environment)
+        activateFolderSource(harness.backing, tree, "Unavailable")
+
+        suspend fun runAttempt(sequence: Long) {
+            harness.orchestrator.executeScheduled(
+                ScheduledLibraryOperation(
+                    request = LibraryOperationRequest.AutoSync(
+                        LibraryOperationCause.SAF_PERIODIC_VERIFY,
+                    ),
+                    requestSequence = sequence,
+                    dirtySequenceAtStart = sequence,
+                ),
+            )
+        }
+
+        runAttempt(1972L)
+        assertEquals(LibraryAccessState.AVAILABLE, harness.backing.accessState)
+        assertNull(harness.backing.lastScanError)
+
+        nowMs += SafProviderDiscoveryBackoff.DEFAULT_BASE_DELAY_MS
+        runAttempt(1973L)
+        assertEquals(LibraryAccessState.AVAILABLE, harness.backing.accessState)
+
+        nowMs += SafProviderDiscoveryBackoff.DEFAULT_BASE_DELAY_MS * 2L
+        runAttempt(1974L)
+        runCurrent()
+
+        assertEquals(3, environment.canReadTreeCalls)
+        assertEquals(3, environment.providerAcquireCalls)
+        assertTrue(scanner.folderMetadataRequests.isEmpty())
+        assertTrue(store.autoSyncStateMutations.isEmpty())
+        assertEquals(LibraryAccessState.TEMP_UNAVAILABLE, harness.backing.accessState)
+        assertEquals(SAF_PROVIDER_RESELECT_REQUIRED_ERROR, harness.backing.lastScanError)
+
+        // Foreground/user access refresh re-arms the source and clears the in-memory breaker.
+        environment.treeReadable = true
+        environment.treeProviderAcquirable = true
+        scanner.folderMetadataSnapshot = SafTreeMetadataSnapshot(
+            entries = emptyList(),
+            discoveryReport = DiscoveryReport.of(
+                DiscoveryPartitionStatus(
+                    partitionKey = DiscoveryPartitions.SAF_TREE,
+                    completeness = DiscoveryCompleteness.COMPLETE,
+                ),
+            ),
+        )
+        harness.backing.folder.updatePermission(false)
+        runCurrent()
+        assertEquals(LibraryAccessState.AVAILABLE, harness.backing.accessState)
+
+        runAttempt(1975L)
+        assertEquals(listOf(tree), scanner.folderMetadataRequests)
+        assertNull(harness.backing.lastScanError)
+
+        clearFolderPrefs(harness.backing)
+        harness.backing.release()
+        runCurrent()
+    }
+
+    @Test
+    fun scheduledSafUnreadableTreeWithoutPersistedGrantKeepsTransientBackoff() = runTest {
+        var nowMs = 1_234L
+        val scanner = ControlledScanner()
+        val environment = FakeScanEnvironment(
+            nowMsProvider = { nowMs },
+            treeReadable = false,
+            persistedTreeReadAccess = false,
+        )
+        val tree = Uri.parse("content://provider/tree/no-persisted-grant")
+        val harness = scanHarness(scanner = scanner, environment = environment)
+        activateFolderSource(harness.backing, tree, "No grant")
+
+        repeat(3) { index ->
+            harness.orchestrator.executeScheduled(
+                ScheduledLibraryOperation(
+                    request = LibraryOperationRequest.AutoSync(
+                        LibraryOperationCause.SAF_PERIODIC_VERIFY,
+                    ),
+                    requestSequence = 1980L + index,
+                    dirtySequenceAtStart = 640L + index,
+                ),
+            )
+            nowMs += when (index) {
+                0 -> SafProviderDiscoveryBackoff.DEFAULT_BASE_DELAY_MS
+                1 -> SafProviderDiscoveryBackoff.DEFAULT_BASE_DELAY_MS * 2L
+                else -> 0L
+            }
+        }
+
+        assertEquals(3, environment.canReadTreeCalls)
+        assertEquals(0, environment.providerAcquireCalls)
+        assertEquals(LibraryAccessState.AVAILABLE, harness.backing.accessState)
+        assertNull(harness.backing.lastScanError)
+        assertTrue(scanner.folderMetadataRequests.isEmpty())
+
+        clearFolderPrefs(harness.backing)
+        harness.backing.release()
+        runCurrent()
+    }
+
+    @Test
     fun s5ScheduledSafProviderFailureRetriesAtBackoffDeadlineWithoutExternalDirty() = runTest {
         val scanner = ControlledScanner()
         val tree = Uri.parse("content://provider/tree/active")
@@ -5046,9 +5203,58 @@ class LibraryScanOrchestratorTest {
         ): List<LibrarySyncCheckpoint> =
             syncCheckpoints.filter { it.sourceIdentity == sourceIdentity }
 
-        override suspend fun loadRetryItems(
+        override suspend fun loadRetryItemsPage(
             sourceIdentity: SourceIdentityKey,
-        ): List<LibraryRetryItem> = retryItems.filter { it.sourceIdentity == sourceIdentity }
+            cursor: LibraryRetryCursor,
+            limit: Int,
+        ): LibraryRetryPage {
+            val items = retryItems.asSequence()
+                .filter { it.sourceIdentity == sourceIdentity }
+                .filter { it.retryKey > cursor.retryKey }
+                .sortedBy(LibraryRetryItem::retryKey)
+                .take(limit)
+                .toList()
+            return LibraryRetryPage(
+                items = items,
+                nextCursor = items.lastOrNull()?.let { LibraryRetryCursor(it.retryKey) },
+            )
+        }
+
+        override suspend fun loadDueRetryItems(
+            sourceIdentity: SourceIdentityKey,
+            retryKind: LibraryRetryKind,
+            activationEpoch: Long,
+            nowMs: Long,
+            limit: Int,
+        ): List<LibraryRetryItem> = retryItems.asSequence()
+            .filter { it.sourceIdentity == sourceIdentity }
+            .filter { it.retryKind == retryKind }
+            .filter { it.activationEpoch == null || it.activationEpoch == activationEpoch }
+            .filter { it.nextRetryAtMs <= nowMs }
+            .sortedWith(compareBy(LibraryRetryItem::nextRetryAtMs, LibraryRetryItem::retryKey))
+            .take(limit)
+            .toList()
+
+        override suspend fun loadRetryItemsForStableObjectKeys(
+            sourceIdentity: SourceIdentityKey,
+            stableObjectKeys: Collection<String>,
+        ): List<LibraryRetryItem> {
+            val keys = stableObjectKeys.toHashSet()
+            return retryItems.filter {
+                it.sourceIdentity == sourceIdentity && it.stableObjectKey in keys
+            }
+        }
+
+        override suspend fun loadNextRetryAtMsAfter(
+            sourceIdentity: SourceIdentityKey,
+            activationEpoch: Long,
+            afterMs: Long,
+        ): Long? = retryItems.asSequence()
+            .filter { it.sourceIdentity == sourceIdentity }
+            .filter { it.activationEpoch == null || it.activationEpoch == activationEpoch }
+            .map(LibraryRetryItem::nextRetryAtMs)
+            .filter { it > afterMs }
+            .minOrNull()
 
         override suspend fun save(
             songs: List<Song>,
@@ -5264,13 +5470,32 @@ class LibraryScanOrchestratorTest {
         var parserVersion: Int = CURRENT_LYRICS_PARSER_VERSION,
         var retryRequired: Boolean = false,
         private val nowMsProvider: () -> Long = { 1_234L },
+        var treeReadable: Boolean = true,
+        var persistedTreeReadAccess: Boolean = false,
+        var treeProviderAcquirable: Boolean = true,
     ) : ScanEnvironment {
         var prunedSongIds: List<String> = emptyList()
         var duringPrune: (() -> Unit)? = null
         var prefetchedVideoCoverRefs: List<com.mica.music.data.scanner.VideoCoverPosterRef> = emptyList()
         val playStatsBySongId = mutableMapOf<String, PlayStats>()
+        val scriptedTreeReadability = mutableListOf<Boolean>()
+        var canReadTreeCalls: Int = 0
+        var providerAcquireCalls: Int = 0
         override fun hasAudioReadPermission(): Boolean = true
-        override fun canReadTree(treeUri: Uri): Boolean = true
+        override fun canReadTree(treeUri: Uri): Boolean {
+            canReadTreeCalls += 1
+            return if (scriptedTreeReadability.isNotEmpty()) {
+                scriptedTreeReadability.removeAt(0)
+            } else {
+                treeReadable
+            }
+        }
+        override fun hasPersistedTreeReadAccess(treeUri: Uri): Boolean =
+            persistedTreeReadAccess
+        override fun canAcquireTreeProvider(treeUri: Uri): Boolean {
+            providerAcquireCalls += 1
+            return treeProviderAcquirable
+        }
         override fun currentTimeMillis(): Long = nowMsProvider()
         override fun playStats(songId: String): PlayStats = playStatsBySongId[songId] ?: PlayStats(0, 0)
         override fun clearTransientCache() = Unit

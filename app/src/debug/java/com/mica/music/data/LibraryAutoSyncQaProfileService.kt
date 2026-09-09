@@ -15,7 +15,10 @@ import androidx.room.Room
 import com.mica.music.data.library.AndroidSafShadowProbeRuntime
 import com.mica.music.data.library.LibraryAccessState
 import com.mica.music.data.library.LibraryAutoSyncStateMutation
+import com.mica.music.data.library.LibraryFollowupOutboxCursor
 import com.mica.music.data.library.LibraryFollowupOutboxItem
+import com.mica.music.data.library.LibraryRetryCursor
+import com.mica.music.data.library.LibraryRetryPaging
 import com.mica.music.data.library.LibraryIntentState
 import com.mica.music.data.library.LibraryOperationCause
 import com.mica.music.data.library.LibraryPlaybackIoSnapshot
@@ -33,6 +36,7 @@ import com.mica.music.data.library.SafAutoProbePlanner
 import com.mica.music.data.library.SafShadowPostProbeValidator
 import com.mica.music.data.library.SafShadowProbeRequest
 import com.mica.music.data.library.SafProviderDiscoveryBackoff
+import com.mica.music.data.library.SAF_PROVIDER_RESELECT_REQUIRED_ERROR
 import com.mica.music.data.local.LibraryRepository
 import com.mica.music.data.local.MicaDatabase
 import com.mica.music.data.preferences.LibraryScanSettings
@@ -103,6 +107,24 @@ class LibraryAutoSyncQaProfileService : Service() {
                     MODE_DEVICE_AUTHORITY ->
                         LibraryAutoSyncQaReceiver().runDeviceAuthorityGate(applicationContext)
                     MODE_PROVIDER_BACKOFF -> runProviderBackoffGate()
+                    MODE_EXTERNAL_PROVIDER_BASELINE -> {
+                        val treeUri = requireNotNull(requestedTreeUri) {
+                            "external provider baseline mode requires intent data tree URI"
+                        }
+                        runExternalProviderBaselineGate(treeUri)
+                    }
+                    MODE_EXTERNAL_PROVIDER_UNAVAILABLE -> {
+                        val treeUri = requireNotNull(requestedTreeUri) {
+                            "external provider unavailable mode requires intent data tree URI"
+                        }
+                        runExternalProviderUnavailableGate(treeUri)
+                    }
+                    MODE_EXTERNAL_PROVIDER_REARM -> {
+                        val treeUri = requireNotNull(requestedTreeUri) {
+                            "external provider rearm mode requires intent data tree URI"
+                        }
+                        runExternalProviderRearmGate(treeUri)
+                    }
                     MODE_TEN_K_HEAVY -> runTenKHeavyProbeGate()
                     MODE_TEN_K_UNKNOWN -> runTenKUnknownVerifyGate(unknownTarget)
                     MODE_AUTO_QUERY_LANE -> runAutoQueryLaneGate()
@@ -121,7 +143,11 @@ class LibraryAutoSyncQaProfileService : Service() {
             } catch (error: Throwable) {
                 val failureTag = when (mode) {
                     MODE_DEVICE_AUTHORITY -> DEVICE_AUTHORITY_TAG
-                    MODE_PROVIDER_BACKOFF -> PROVIDER_TAG
+                    MODE_PROVIDER_BACKOFF,
+                    MODE_EXTERNAL_PROVIDER_BASELINE,
+                    MODE_EXTERNAL_PROVIDER_UNAVAILABLE,
+                    MODE_EXTERNAL_PROVIDER_REARM,
+                    -> PROVIDER_TAG
                     MODE_TEN_K_HEAVY -> HEAVY_TAG
                     MODE_TEN_K_UNKNOWN -> UNKNOWN_TAG
                     MODE_AUTO_QUERY_LANE -> QUERY_LANE_TAG
@@ -134,6 +160,12 @@ class LibraryAutoSyncQaProfileService : Service() {
                 val failureMessage = when (mode) {
                     MODE_DEVICE_AUTHORITY -> "device-authority-gate-failed"
                     MODE_PROVIDER_BACKOFF -> "provider-gate-failed"
+                    MODE_EXTERNAL_PROVIDER_BASELINE ->
+                        "external-provider-baseline-gate-failed"
+                    MODE_EXTERNAL_PROVIDER_UNAVAILABLE ->
+                        "external-provider-unavailable-gate-failed"
+                    MODE_EXTERNAL_PROVIDER_REARM ->
+                        "external-provider-rearm-gate-failed"
                     MODE_TEN_K_HEAVY -> "heavy-gate-failed"
                     MODE_TEN_K_UNKNOWN -> "unknown-gate-failed"
                     MODE_AUTO_QUERY_LANE -> "query-lane-gate-failed"
@@ -648,7 +680,7 @@ class LibraryAutoSyncQaProfileService : Service() {
                 }
                 require(repository.lyricsById(newSong.id) == newLyrics)
                 require(repository.loadSyncCheckpoints(source) == listOf(successCheckpoint))
-                require(repository.loadRetryItems(source) == listOf(successRetry))
+                require(loadAllRetryItems(repository, source) == listOf(successRetry))
                 require(roomPendingLyricsCount(database, successScanId) == 0)
 
                 val rollbackOldLyrics = roomQaLyrics("rollback-old", LyricsFormat.LRC)
@@ -687,7 +719,7 @@ class LibraryAutoSyncQaProfileService : Service() {
                 )
                 require(roomPendingLyricsCount(database, rollbackScanId) == 1)
                 val beforeCheckpoints = repository.loadSyncCheckpoints(source)
-                val beforeRetries = repository.loadRetryItems(source)
+                val beforeRetries = loadAllRetryItems(repository, source)
                 val rollbackCheckpoint = successCheckpoint.copy(
                     lastSuccessfulAutoSyncAtMs = 3_000L,
                 )
@@ -717,7 +749,7 @@ class LibraryAutoSyncQaProfileService : Service() {
                     payload = "songId=" + rollbackNewSong.id,
                     createdAtMs = 3_000L,
                 )
-                val beforeOutbox = repository.loadFollowupOutbox()
+                val beforeOutbox = loadAllFollowupOutbox(repository)
                 val failure = runCatching {
                     repository.commitAutoSyncDeltaAuthority(
                         delta = LibraryAutoSyncStoreDelta(
@@ -751,8 +783,8 @@ class LibraryAutoSyncQaProfileService : Service() {
                 require(rollbackStored.title == "Rollback Before")
                 require(repository.lyricsById(rollbackOldSong.id) == rollbackOldLyrics)
                 require(repository.loadSyncCheckpoints(source) == beforeCheckpoints)
-                require(repository.loadRetryItems(source) == beforeRetries)
-                require(repository.loadFollowupOutbox() == beforeOutbox)
+                require(loadAllRetryItems(repository, source) == beforeRetries)
+                require(loadAllFollowupOutbox(repository) == beforeOutbox)
                 require(roomPendingLyricsCount(database, rollbackScanId) == 1)
                 require(repository.loadLibraryState() == state)
 
@@ -1047,6 +1079,41 @@ class LibraryAutoSyncQaProfileService : Service() {
         ),
     )
 
+    private suspend fun loadAllRetryItems(
+        repository: LibraryRepository,
+        sourceIdentity: SourceIdentityKey,
+    ): List<LibraryRetryItem> {
+        val items = mutableListOf<LibraryRetryItem>()
+        var cursor = LibraryRetryCursor.Start
+        while (true) {
+            val page = repository.loadRetryItemsPage(
+                sourceIdentity = sourceIdentity,
+                cursor = cursor,
+                limit = LibraryRetryPaging.PAGE_SIZE,
+            )
+            items += page.items
+            val next = page.nextCursor ?: break
+            if (next == cursor || page.items.size < LibraryRetryPaging.PAGE_SIZE) break
+            cursor = next
+        }
+        return items
+    }
+
+    private suspend fun loadAllFollowupOutbox(
+        repository: LibraryRepository,
+    ): List<LibraryFollowupOutboxItem> {
+        val items = mutableListOf<LibraryFollowupOutboxItem>()
+        var cursor = LibraryFollowupOutboxCursor.Start
+        while (true) {
+            val page = repository.loadFollowupOutboxPage(cursor = cursor, limit = 64)
+            items += page.items
+            val next = page.nextCursor ?: break
+            if (next == cursor || page.items.size < 64) break
+            cursor = next
+        }
+        return items
+    }
+
     private fun roomPendingLyricsCount(
         database: MicaDatabase,
         scanId: String,
@@ -1327,6 +1394,247 @@ class LibraryAutoSyncQaProfileService : Service() {
         }
     }
 
+
+    private fun runExternalProviderBaselineGate(treeUri: Uri) {
+        val scanner = AndroidLibraryScanner(applicationContext)
+        val preflight = runBlocking { scanner.observeFolderMetadata(treeUri) }
+        require(preflight.discoveryReport.aggregate.name == "COMPLETE") {
+            "External provider baseline requires COMPLETE preflight"
+        }
+        require(preflight.entries.isNotEmpty()) {
+            "External provider baseline tree contains no entries"
+        }
+
+        val store = RoomLibraryStore(applicationContext)
+        val source = SourceIdentityKey.folder(treeUri.toString())
+        val library = MusicLibrary(applicationContext)
+        try {
+            library.setLibraryFolder(treeUri)
+            runBlocking { library.scanLibraryFolder() }
+            require(library.lastScanError == null) {
+                "External provider baseline Full failed: ${library.lastScanError}"
+            }
+            require(library.songs.isNotEmpty()) {
+                "External provider baseline Full produced an empty library"
+            }
+
+            val persisted = requireNotNull(runBlocking { store.loadLibraryState() }) {
+                "External provider baseline did not persist library authority"
+            }
+            require(persisted.intent == LibraryIntentState.ACTIVE) {
+                "Expected ACTIVE baseline intent, got ${persisted.intent}"
+            }
+            require(persisted.access == LibraryAccessState.AVAILABLE) {
+                "Expected AVAILABLE baseline access, got ${persisted.access}"
+            }
+            require(persisted.sourceState.active?.sourceIdentity == source) {
+                "External provider baseline persisted the wrong active source"
+            }
+
+            val checkpoint = runBlocking { store.loadSyncCheckpoints(source) }
+                .firstOrNull { it.partitionKey == DiscoveryPartitions.SAF_TREE }
+            Log.i(
+                PROVIDER_TAG,
+                "external-baseline-complete tree=$treeUri entries=${preflight.entries.size} " +
+                    "songs=${library.songs.size} intent=${persisted.intent} " +
+                    "access=${persisted.access} checkpointMs=" +
+                    (checkpoint?.lastSuccessfulAutoSyncAtMs ?: -1L),
+            )
+            appendEvidence(
+                "external-baseline-complete tree=$treeUri songs=${library.songs.size} " +
+                    "intent=${persisted.intent} access=${persisted.access}",
+            )
+        } finally {
+            library.release()
+        }
+    }
+    private fun runExternalProviderUnavailableGate(treeUri: Uri) {
+        val store = RoomLibraryStore(applicationContext)
+        val source = SourceIdentityKey.folder(treeUri.toString())
+        val beforeState = requireNotNull(runBlocking { store.loadLibraryState() }) {
+            "Missing persisted library state before external provider unavailable Gate"
+        }
+        // Older QA snapshots can still carry legacy UNINITIALIZED/PERMISSION_REQUIRED durable
+        // state; loadCached() migrates the valid cached FOLDER snapshot to active in-memory
+        // authority before scheduler use, so the Gate validates authority after load instead.
+        val beforeCheckpoint = runBlocking { store.loadSyncCheckpoints(source) }
+            .firstOrNull { it.partitionKey == DiscoveryPartitions.SAF_TREE }
+        val beforeRows = runBlocking { store.loadCached() }
+            ?.songs
+            .orEmpty()
+            .map { song -> Triple(song.id, song.durationSec, song.sizeBytes) }
+
+        val library = MusicLibrary(applicationContext)
+        try {
+            runBlocking { library.loadCachedLibrary() }
+            require(library.lastScanSource == ScanSource.FOLDER)
+            require(library.libraryFolderUri == treeUri.toString()) {
+                "Loaded FOLDER binding does not match requested tree"
+            }
+            require(library.songs.isNotEmpty()) {
+                "Provider-unavailable Gate requires a previously committed FOLDER snapshot"
+            }
+
+            Log.i(
+                PROVIDER_TAG,
+                "external-unavailable-start tree=$treeUri songs=${library.songs.size} " +
+                    "checkpointMs=${beforeCheckpoint?.lastSuccessfulAutoSyncAtMs ?: -1L}",
+            )
+            val startedMs = SystemClock.elapsedRealtime()
+            library.onForegroundChanged(true)
+            require(
+                waitForQa(EXTERNAL_PROVIDER_UNAVAILABLE_TIMEOUT_MS) {
+                    library.lastScanError == SAF_PROVIDER_RESELECT_REQUIRED_ERROR
+                },
+            ) {
+                "Ordinary FOLDER scheduler did not surface provider reselect recovery state"
+            }
+            require(
+                waitForQa(PERSISTED_STATE_SETTLE_TIMEOUT_MS) {
+                    runBlocking { store.loadLibraryState() }
+                        ?.access == LibraryAccessState.TEMP_UNAVAILABLE
+                },
+            ) {
+                "TEMP_UNAVAILABLE was not persisted after provider acquisition failures"
+            }
+
+            val afterState = requireNotNull(runBlocking { store.loadLibraryState() })
+            val afterCheckpoint = runBlocking { store.loadSyncCheckpoints(source) }
+                .firstOrNull { it.partitionKey == DiscoveryPartitions.SAF_TREE }
+            val afterRows = runBlocking { store.loadCached() }
+                ?.songs
+                .orEmpty()
+                .map { song -> Triple(song.id, song.durationSec, song.sizeBytes) }
+
+            require(afterState.access == LibraryAccessState.TEMP_UNAVAILABLE)
+            require(
+                beforeCheckpoint?.lastSuccessfulAutoSyncAtMs ==
+                    afterCheckpoint?.lastSuccessfulAutoSyncAtMs,
+            ) {
+                "Provider-unavailable pass advanced the SAF checkpoint"
+            }
+            require(beforeRows == afterRows) {
+                "Provider-unavailable pass changed the committed library snapshot"
+            }
+
+            Log.i(
+                PROVIDER_TAG,
+                "external-unavailable-complete elapsedMs=" +
+                    (SystemClock.elapsedRealtime() - startedMs) +
+                    " access=${afterState.access} songs=${afterRows.size} " +
+                    "checkpointBefore=${beforeCheckpoint?.lastSuccessfulAutoSyncAtMs ?: -1L} " +
+                    "checkpointAfter=${afterCheckpoint?.lastSuccessfulAutoSyncAtMs ?: -1L} " +
+                    "error=${library.lastScanError}",
+            )
+            appendEvidence(
+                "external-unavailable-complete tree=$treeUri access=${afterState.access} " +
+                    "songs=${afterRows.size} checkpointUnchanged=true",
+            )
+        } finally {
+            library.onForegroundChanged(false)
+            library.release()
+        }
+    }
+
+    private fun runExternalProviderRearmGate(treeUri: Uri) {
+        val store = RoomLibraryStore(applicationContext)
+        val source = SourceIdentityKey.folder(treeUri.toString())
+        val beforeState = requireNotNull(runBlocking { store.loadLibraryState() }) {
+            "Missing persisted library state before external provider rearm Gate"
+        }
+        require(beforeState.intent == LibraryIntentState.ACTIVE)
+        require(beforeState.access == LibraryAccessState.TEMP_UNAVAILABLE) {
+            "Expected TEMP_UNAVAILABLE before rearm Gate, got ${beforeState.access}"
+        }
+        require(beforeState.sourceState.active?.sourceIdentity == source) {
+            "Persisted active source does not match requested third-party tree"
+        }
+
+        val preflight = runBlocking {
+            AndroidLibraryScanner(applicationContext).observeFolderMetadata(treeUri)
+        }
+        require(preflight.discoveryReport.aggregate.name == "COMPLETE") {
+            "Provider must be queryable after user re-selection before rearm Gate"
+        }
+
+        val beforeCheckpoint = runBlocking { store.loadSyncCheckpoints(source) }
+            .firstOrNull { it.partitionKey == DiscoveryPartitions.SAF_TREE }
+        val beforeCheckpointMs = beforeCheckpoint?.lastSuccessfulAutoSyncAtMs ?: -1L
+        val library = MusicLibrary(applicationContext)
+        try {
+            runBlocking { library.loadCachedLibrary() }
+            require(library.lastScanSource == ScanSource.FOLDER)
+            require(library.libraryFolderUri == treeUri.toString())
+
+            library.updatePermission(false)
+            require(
+                waitForQa(PERSISTED_STATE_SETTLE_TIMEOUT_MS) {
+                    runBlocking { store.loadLibraryState() }
+                        ?.access == LibraryAccessState.AVAILABLE
+                },
+            ) {
+                "FOLDER access refresh did not re-arm AVAILABLE"
+            }
+
+            Log.i(
+                PROVIDER_TAG,
+                "external-rearm-start tree=$treeUri entries=${preflight.entries.size} " +
+                    "checkpointBefore=$beforeCheckpointMs",
+            )
+            val startedMs = SystemClock.elapsedRealtime()
+            library.onForegroundChanged(true)
+            require(
+                waitForQa(EXTERNAL_PROVIDER_REARM_TIMEOUT_MS) {
+                    runBlocking {
+                        store.loadSyncCheckpoints(source)
+                            .firstOrNull { it.partitionKey == DiscoveryPartitions.SAF_TREE }
+                            ?.lastSuccessfulAutoSyncAtMs
+                    }?.let { checkpointMs -> checkpointMs > beforeCheckpointMs } == true
+                },
+            ) {
+                "Ordinary FOLDER scheduler did not advance checkpoint after provider rearm"
+            }
+
+            val afterState = requireNotNull(runBlocking { store.loadLibraryState() })
+            val afterCheckpoint = requireNotNull(
+                runBlocking { store.loadSyncCheckpoints(source) }
+                    .firstOrNull { it.partitionKey == DiscoveryPartitions.SAF_TREE },
+            )
+            require(afterState.access == LibraryAccessState.AVAILABLE)
+            require(library.lastScanError == null) {
+                "Provider rearm left a scan error: ${library.lastScanError}"
+            }
+            require(afterCheckpoint.lastSuccessfulAutoSyncAtMs > beforeCheckpointMs)
+
+            Log.i(
+                PROVIDER_TAG,
+                "external-rearm-complete elapsedMs=" +
+                    (SystemClock.elapsedRealtime() - startedMs) +
+                    " access=${afterState.access} songs=${library.songs.size} " +
+                    "checkpointBefore=$beforeCheckpointMs " +
+                    "checkpointAfter=${afterCheckpoint.lastSuccessfulAutoSyncAtMs}",
+            )
+            appendEvidence(
+                "external-rearm-complete tree=$treeUri access=${afterState.access} " +
+                    "checkpointAdvanced=true",
+            )
+        } finally {
+            library.onForegroundChanged(false)
+            library.release()
+        }
+    }
+
+    private fun waitForQa(
+        timeoutMs: Long,
+        predicate: () -> Boolean,
+    ): Boolean {
+        val deadline = SystemClock.elapsedRealtime() + timeoutMs
+        while (SystemClock.elapsedRealtime() < deadline) {
+            if (predicate()) return true
+            Thread.sleep(QA_POLL_MS)
+        }
+        return predicate()
+    }
     override fun onBind(intent: Intent?): IBinder? = null
 
     @Synchronized
@@ -1365,6 +1673,9 @@ class LibraryAutoSyncQaProfileService : Service() {
         const val ROOM_PUBLICATION_TAG = "MICA_S4_ROOM_PUBLICATION"
         const val MODE_DEVICE_AUTHORITY = "DEVICE_AUTHORITY"
         const val MODE_PROVIDER_BACKOFF = "PROVIDER_BACKOFF"
+        const val MODE_EXTERNAL_PROVIDER_BASELINE = "EXTERNAL_PROVIDER_BASELINE"
+        const val MODE_EXTERNAL_PROVIDER_UNAVAILABLE = "EXTERNAL_PROVIDER_UNAVAILABLE"
+        const val MODE_EXTERNAL_PROVIDER_REARM = "EXTERNAL_PROVIDER_REARM"
         const val MODE_AUTO_QUERY_LANE = "AUTO_QUERY_LANE"
         const val MODE_ROOM_ATOMICITY = "ROOM_ATOMICITY"
         const val MODE_ROOM_PUBLICATION_10K = "ROOM_PUBLICATION_10K"
@@ -1396,6 +1707,10 @@ class LibraryAutoSyncQaProfileService : Service() {
         const val LANE_GATE_RECOVERY_SETTLE_MS = 250L
         const val INJECTED_FAILURE_QUERY_BUDGET = 32
         const val BACKOFF_SETTLE_MS = 1_000L
+        const val EXTERNAL_PROVIDER_UNAVAILABLE_TIMEOUT_MS = 130_000L
+        const val EXTERNAL_PROVIDER_REARM_TIMEOUT_MS = 20_000L
+        const val PERSISTED_STATE_SETTLE_TIMEOUT_MS = 5_000L
+        const val QA_POLL_MS = 100L
         const val CHANNEL_ID = "mica_s4_qa_profile"
         const val NOTIFICATION_ID = 0x5344
     }

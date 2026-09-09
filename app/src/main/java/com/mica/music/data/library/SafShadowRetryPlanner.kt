@@ -25,7 +25,6 @@ internal object SafShadowRetryPlanner {
         validation: SafShadowPostValidationResult,
         authoritativeRemovedStableObjectKeys: Set<String> = emptySet(),
     ): SafShadowRetryPlan {
-        val observedByKey = observedEntries.associateBy(SafTreeMetadataEntry::stableObjectKey)
         val existingByStableKey = existingRetryItems.asSequence()
             .filter { it.sourceIdentity == sourceIdentity }
             .filter { it.retryKind == LibraryRetryKind.OBJECT_PROBE }
@@ -36,6 +35,8 @@ internal object SafShadowRetryPlanner {
             validation.resolvedSongsByStableObjectKey.keys + authoritativeRemovedStableObjectKeys
         val retryDeleteKeys = linkedSetOf<String>()
         resolvedOrRemovedKeys.forEach { stableKey ->
+            // Canonical key deletion does not require loading the old Room row first.
+            retryDeleteKeys += retryKey(stableKey)
             existingByStableKey[stableKey].orEmpty()
                 .mapTo(retryDeleteKeys, LibraryRetryItem::retryKey)
         }
@@ -49,6 +50,10 @@ internal object SafShadowRetryPlanner {
                 ignoredIssueCount += 1
             }
         }
+        val retryableKeys = retryableIssuesByKey.keys
+        val observedByKey = observedEntries.asSequence()
+            .filter { it.stableObjectKey in retryableKeys }
+            .associateBy(SafTreeMetadataEntry::stableObjectKey)
 
         val upserts = mutableListOf<LibraryRetryItem>()
         retryableIssuesByKey.forEach { (stableKey, issue) ->

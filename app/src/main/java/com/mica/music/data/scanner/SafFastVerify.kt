@@ -76,8 +76,17 @@ internal object SafFastVerifyPlanner {
         snapshot: SafTreeMetadataSnapshot,
         cachedSongs: List<Song>,
         excludedStableObjectKeys: Set<String> = emptySet(),
+        cachedSongById: ((String) -> Song?)? = null,
     ): SafFastVerifyPlan {
-        val cachedById = cachedSongs.associateBy(Song::id)
+        // Production already owns a catalog id index in MusicLibraryBacking. Reuse it when supplied
+        // instead of retaining a second O(N) Song map for the duration of every SAF metadata walk.
+        val fallbackCachedById = if (cachedSongById == null) {
+            cachedSongs.associateBy(Song::id)
+        } else {
+            emptyMap()
+        }
+        fun cached(id: String): Song? = cachedSongById?.invoke(id) ?: fallbackCachedById[id]
+
         val seen = LinkedHashSet<String>(snapshot.entries.size)
         val added = mutableListOf<SafTreeMetadataEntry>()
         val changed = mutableListOf<SafTreeMetadataEntry>()
@@ -87,17 +96,17 @@ internal object SafFastVerifyPlanner {
         snapshot.entries.forEach { entry ->
             seen += entry.stableObjectKey
             if (entry.stableObjectKey in excludedStableObjectKeys) return@forEach
-            val cached = cachedById[entry.stableObjectKey]
-            if (cached == null) {
+            val current = cached(entry.stableObjectKey)
+            if (current == null) {
                 added += entry
                 return@forEach
             }
             val observableNonFingerprintChange =
-                entry.hasObservableNonFingerprintDifference(cached)
+                entry.hasObservableNonFingerprintDifference(current)
             if (
                 entry.fingerprintReliability == SafFingerprintReliability.UNKNOWN ||
-                cached.sizeBytes <= 0L ||
-                cached.dateModifiedMs <= 0L
+                current.sizeBytes <= 0L ||
+                current.dateModifiedMs <= 0L
             ) {
                 if (observableNonFingerprintChange) {
                     changed += entry
@@ -106,14 +115,17 @@ internal object SafFastVerifyPlanner {
                 }
                 return@forEach
             }
-            if (observableNonFingerprintChange || entry.hasFingerprintDifference(cached)) {
+            if (observableNonFingerprintChange || entry.hasFingerprintDifference(current)) {
                 changed += entry
             } else {
                 unchangedCount += 1
             }
         }
 
-        val missing = cachedById.keys - seen
+        val missing = cachedSongs.asSequence()
+            .map(Song::id)
+            .filterNot(seen::contains)
+            .toSet()
         val discoveryComplete = snapshot.discoveryReport.isComplete(DiscoveryPartitions.SAF_TREE)
         val removed = if (discoveryComplete) missing else emptySet()
         val suppressed = if (discoveryComplete) 0 else missing.size

@@ -47,6 +47,8 @@ internal object DeviceShadowRetryPlanner {
                 execution.resolvedSongsByStableObjectKey.keys +
                 authoritativeRemovedStableObjectKeys
         resolvedOrRemoved.forEach { stableKey ->
+            // Canonical key deletion does not require materializing the old retry row.
+            retryDeleteKeys += retryKey(stableKey)
             existingByStableKey[stableKey].orEmpty()
                 .mapTo(retryDeleteKeys, LibraryRetryItem::retryKey)
         }

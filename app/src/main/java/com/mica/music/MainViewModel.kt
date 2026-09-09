@@ -40,7 +40,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val remotePlayStats = remotePlayStatsPresentation.stats
     private val libraryPlaybackQueueSync = LibraryPlaybackQueueCoordinator()
     private val libraryFollowupConsumer = LibraryFollowupConsumer(
-        loadOutbox = library::loadFollowupOutbox,
+        loadOutboxPage = library::loadFollowupOutboxPage,
         acknowledge = library::acknowledgeFollowupOutbox,
         removeSongFromAllPlaylists = playlistStore::removeSongFromAllPlaylists,
     )
@@ -100,7 +100,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // The identity migration runs inside the library DB load. Refresh the eagerly
             // constructed preference-backed playlist store after that migration completes.
             playlistStore.reloadFromStorage()
-            libraryFollowupConsumer.drain()
+            libraryFollowupConsumer.drainToTail()
             val songs = library.songs
             DiagnosticLog.event(
                 "LibraryStartup",
@@ -124,7 +124,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun consumeLibraryFollowups() {
         viewModelScope.launch {
-            libraryFollowupConsumer.drain()
+            libraryFollowupConsumer.drainToTail()
         }
     }
 

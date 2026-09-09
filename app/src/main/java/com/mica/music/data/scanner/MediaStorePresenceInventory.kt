@@ -18,7 +18,9 @@ import java.io.IOException
 internal object MediaStorePresenceInventory {
 
     fun load(context: Context, options: ScanOptions): PresenceInventory {
-        val entries = mutableListOf<PresenceEntry>()
+        // Presence is an O(N) authority inventory by design, but keep only its final keyed form.
+        // The old List -> associateBy conversion transiently retained two complete inventories.
+        val entries = linkedMapOf<PresenceKey, PresenceEntry>()
         val statuses = mutableListOf<DiscoveryPartitionStatus>()
         val capabilities = linkedMapOf<String, DeviceMediaStoreChannelCapability>()
         statuses += loadChannel(DiscoveryPartitions.MEDIASTORE_AUDIO) {
@@ -27,7 +29,7 @@ internal object MediaStorePresenceInventory {
         statuses += loadChannel(DiscoveryPartitions.MEDIASTORE_FILES_FALLBACK) {
             loadFallbackFileRows(context, options, entries, capabilities)
         }
-        return PresenceInventory.fromEntries(
+        return PresenceInventory(
             entries = entries,
             discoveryReport = DiscoveryReport.of(*statuses.toTypedArray()),
             deviceMediaStoreCapabilityProfile = DeviceMediaStorePresenceCapabilityProfile(
@@ -55,7 +57,7 @@ internal object MediaStorePresenceInventory {
     private fun loadAudioRows(
         context: Context,
         options: ScanOptions,
-        out: MutableList<PresenceEntry>,
+        out: MutableMap<PresenceKey, PresenceEntry>,
         capabilities: MutableMap<String, DeviceMediaStoreChannelCapability>,
     ) {
         val uri = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
@@ -142,7 +144,7 @@ internal object MediaStorePresenceInventory {
                     eligibleByDuration = eligibleByDuration,
                     excluded = excluded,
                 )
-                out += PresenceEntry(
+                val entry = PresenceEntry(
                     stableObjectKey = mediaStoreStableObjectKey(id),
                     partitionKey = DiscoveryPartitions.MEDIASTORE_AUDIO,
                     eligibility = eligibility,
@@ -150,6 +152,7 @@ internal object MediaStorePresenceInventory {
                         sizeBytes, modifiedMs, pending, trashed, eligibility,
                     ),
                 )
+                out[PresenceKey(entry.stableObjectKey, entry.partitionKey)] = entry
             }
         }
     }
@@ -157,7 +160,7 @@ internal object MediaStorePresenceInventory {
     private fun loadFallbackFileRows(
         context: Context,
         options: ScanOptions,
-        out: MutableList<PresenceEntry>,
+        out: MutableMap<PresenceKey, PresenceEntry>,
         capabilities: MutableMap<String, DeviceMediaStoreChannelCapability>,
     ) {
         val uri = MediaStore.Files.getContentUri("external")
@@ -236,7 +239,7 @@ internal object MediaStorePresenceInventory {
                     eligibleByDuration = true,
                     excluded = excluded,
                 )
-                out += PresenceEntry(
+                val entry = PresenceEntry(
                     stableObjectKey = mediaStoreStableObjectKey(id),
                     partitionKey = DiscoveryPartitions.MEDIASTORE_FILES_FALLBACK,
                     eligibility = eligibility,
@@ -244,6 +247,7 @@ internal object MediaStorePresenceInventory {
                         sizeBytes, modifiedMs, pending, trashed, eligibility,
                     ),
                 )
+                out[PresenceKey(entry.stableObjectKey, entry.partitionKey)] = entry
             }
         }
     }

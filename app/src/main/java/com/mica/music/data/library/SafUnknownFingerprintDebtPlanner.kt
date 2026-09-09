@@ -50,25 +50,51 @@ internal object SafUnknownFingerprintDebtPlanner {
     ): SafUnknownFingerprintDebtPlan {
         require(verifyIntervalMs >= 0L)
 
-        val observedByKey = allObservedEntries.associateBy(SafTreeMetadataEntry::stableObjectKey)
-        val unknownByKey = allObservedEntries.asSequence()
-            .filter { it.fingerprintReliability == SafFingerprintReliability.UNKNOWN }
-            .associateBy(SafTreeMetadataEntry::stableObjectKey)
-        val existingByKey = existingRetryItems.asSequence()
-            .filter { it.sourceIdentity == sourceIdentity }
-            .filter { it.retryKind == LibraryRetryKind.UNKNOWN_FINGERPRINT_VERIFY }
-            .filter { it.activationEpoch == null || it.activationEpoch == activationEpoch }
-            .groupBy(LibraryRetryItem::stableObjectKey)
         val selectedUnknownKeys = probePlan.objects.asSequence()
             .filter { SafAutoProbeReason.UNKNOWN_FINGERPRINT_VERIFY in it.reasons }
             .mapTo(linkedSetOf(), SafAutoProbeObjectPlan::stableObjectKey)
+        val cleanupStableKeys = linkedSetOf<String>()
+        val existingByKey = linkedMapOf<String, MutableList<LibraryRetryItem>>()
+        existingRetryItems.asSequence()
+            .filter { it.sourceIdentity == sourceIdentity }
+            .filter { it.retryKind == LibraryRetryKind.UNKNOWN_FINGERPRINT_VERIFY }
+            .filter { it.activationEpoch == null || it.activationEpoch == activationEpoch }
+            .forEach { item ->
+                val selected = item.stableObjectKey in selectedUnknownKeys
+                val retainedForCleanup = item.stableObjectKey in cleanupStableKeys
+                if (!selected && !retainedForCleanup) {
+                    if (cleanupStableKeys.size >= UNKNOWN_DEBT_CLEANUP_BUDGET) {
+                        return@forEach
+                    }
+                    cleanupStableKeys += item.stableObjectKey
+                }
+                existingByKey.getOrPut(item.stableObjectKey) { mutableListOf() } += item
+            }
         val issueByKey = validation.issues
             .groupBy(SafShadowProbeIssue::stableObjectKey)
             .mapValues { (_, issues) -> issues.last() }
 
+        // UNKNOWN inventory itself is pass-scoped O(N), but debt mutation is bounded by the
+        // selected verify budget plus the bounded RetryLedger rows loaded for this pass. Do not
+        // retain another 10k-sized map just to update those target keys.
+        val targetStableKeys = buildSet {
+            addAll(selectedUnknownKeys)
+            addAll(existingByKey.keys)
+        }
+        var observedUnknownCount = 0
+        val targetEntriesByKey = linkedMapOf<String, SafTreeMetadataEntry>()
+        allObservedEntries.forEach { entry ->
+            if (entry.fingerprintReliability == SafFingerprintReliability.UNKNOWN) {
+                observedUnknownCount += 1
+            }
+            if (entry.stableObjectKey in targetStableKeys) {
+                targetEntriesByKey[entry.stableObjectKey] = entry
+            }
+        }
+
         val cleanupDeleteCandidates = sortedSetOf<String>()
         existingByKey.forEach { (stableKey, items) ->
-            val observed = observedByKey[stableKey]
+            val observed = targetEntriesByKey[stableKey]
             if (
                 stableKey in authoritativeRemovedStableObjectKeys ||
                 (observed != null &&
@@ -84,7 +110,10 @@ internal object SafUnknownFingerprintDebtPlanner {
 
         val upserts = mutableListOf<LibraryRetryItem>()
         var strongVerifiedCount = 0
-        unknownByKey.forEach { (stableKey, entry) ->
+        selectedUnknownKeys.forEach { stableKey ->
+            val entry = targetEntriesByKey[stableKey]
+                ?.takeIf { it.fingerprintReliability == SafFingerprintReliability.UNKNOWN }
+                ?: return@forEach
             val previousItems = existingByKey[stableKey].orEmpty()
             val previous = previousItems.maxByOrNull(LibraryRetryItem::nextRetryAtMs)
             val canonicalRetryKey = retryKey(stableKey)
@@ -172,7 +201,7 @@ internal object SafUnknownFingerprintDebtPlanner {
         return SafUnknownFingerprintDebtPlan(
             retryUpserts = upserts.sortedBy(LibraryRetryItem::retryKey),
             retryDeleteKeys = deleteKeys.toSortedSet(),
-            observedUnknownCount = unknownByKey.size,
+            observedUnknownCount = observedUnknownCount,
             selectedDeepVerifyCount = selectedUnknownKeys.size,
             strongVerifiedCount = strongVerifiedCount,
         )

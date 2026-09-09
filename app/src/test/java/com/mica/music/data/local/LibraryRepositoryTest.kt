@@ -21,7 +21,10 @@ import com.mica.music.data.Song
 import com.mica.music.data.LyricsSlot
 import com.mica.music.data.library.LibraryAccessState
 import com.mica.music.data.library.LibraryAutoSyncStateMutation
+import com.mica.music.data.library.LibraryFollowupOutboxCursor
 import com.mica.music.data.library.LibraryFollowupOutboxItem
+import com.mica.music.data.library.LibraryRetryCursor
+import com.mica.music.data.library.LibraryRetryPaging
 import com.mica.music.data.library.LibraryIntentState
 import com.mica.music.data.library.LibraryRetryItem
 import com.mica.music.data.library.LibraryRetryKind
@@ -872,6 +875,38 @@ class LibraryRepositoryTest {
         assertEquals(SortDirection.DESC, cached.sortDirection)
         assertEquals(mapOf("#" to 0), cached.fastScrollSectionTargets)
         assertEquals(lyricsBefore, database.songDao().getById(songs[0].id)!!.lyricsJson)
+    }
+
+    private suspend fun LibraryRepository.loadRetryItems(
+        sourceIdentity: SourceIdentityKey,
+    ): List<LibraryRetryItem> {
+        val items = mutableListOf<LibraryRetryItem>()
+        var cursor = LibraryRetryCursor.Start
+        while (true) {
+            val page = loadRetryItemsPage(
+                sourceIdentity = sourceIdentity,
+                cursor = cursor,
+                limit = LibraryRetryPaging.PAGE_SIZE,
+            )
+            items += page.items
+            val next = page.nextCursor ?: break
+            if (next == cursor || page.items.size < LibraryRetryPaging.PAGE_SIZE) break
+            cursor = next
+        }
+        return items
+    }
+
+    private suspend fun LibraryRepository.loadFollowupOutbox(): List<LibraryFollowupOutboxItem> {
+        val items = mutableListOf<LibraryFollowupOutboxItem>()
+        var cursor = LibraryFollowupOutboxCursor.Start
+        while (true) {
+            val page = loadFollowupOutboxPage(cursor = cursor, limit = 64)
+            items += page.items
+            val next = page.nextCursor ?: break
+            if (next == cursor || page.items.size < 64) break
+            cursor = next
+        }
+        return items
     }
 
     private fun pendingLyricsCount(scanId: String): Int =

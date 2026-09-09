@@ -22,9 +22,19 @@ import com.mica.music.data.Song
 import com.mica.music.data.SongSortField
 import com.mica.music.data.SortDirection
 import com.mica.music.data.cacheKey
+import com.mica.music.data.library.DeviceShadowRetryPlanner
 import com.mica.music.data.library.LibraryAutoSyncStateMutation
+import com.mica.music.data.library.LibraryFollowupOutboxCursor
 import com.mica.music.data.library.LibraryFollowupOutboxItem
+import com.mica.music.data.library.LibraryFollowupOutboxPage
+import com.mica.music.data.library.LibraryFollowupPaging
+import com.mica.music.data.library.LibraryRetryCursor
 import com.mica.music.data.library.LibraryRetryItem
+import com.mica.music.data.library.LibraryRetryKind
+import com.mica.music.data.library.LibraryRetryPage
+import com.mica.music.data.library.LibraryRetryPaging
+import com.mica.music.data.library.SafShadowRetryPlanner
+import com.mica.music.data.library.SafUnknownFingerprintDebtPlanner
 import com.mica.music.data.library.LibrarySyncCheckpoint
 import com.mica.music.data.library.LyricsStagingMode
 import com.mica.music.data.library.LibraryUserExclusion
@@ -162,13 +172,76 @@ class LibraryRepository internal constructor(
             stableIdentity = sourceIdentity.stableIdentity,
         ).map(LibrarySyncCheckpointEntity::toModel)
 
-    internal suspend fun loadRetryItems(
+    internal suspend fun loadRetryItemsPage(
         sourceIdentity: SourceIdentityKey,
-    ): List<LibraryRetryItem> =
-        retryItemDao.getBySource(
+        cursor: LibraryRetryCursor,
+        limit: Int,
+    ): LibraryRetryPage {
+        require(limit in 1..LibraryRetryPaging.PAGE_SIZE)
+        val items = retryItemDao.getPage(
             source = sourceIdentity.source.storageValue,
             stableIdentity = sourceIdentity.stableIdentity,
+            afterRetryKey = cursor.retryKey,
+            limit = limit,
         ).map(LibraryRetryItemEntity::toModel)
+        return LibraryRetryPage(
+            items = items,
+            nextCursor = items.lastOrNull()?.let { LibraryRetryCursor(it.retryKey) },
+        )
+    }
+
+    internal suspend fun loadDueRetryItems(
+        sourceIdentity: SourceIdentityKey,
+        retryKind: LibraryRetryKind,
+        activationEpoch: Long,
+        nowMs: Long,
+        limit: Int,
+    ): List<LibraryRetryItem> {
+        require(limit in 1..LibraryRetryPaging.DUE_WORK_BUDGET)
+        return retryItemDao.getDueByKind(
+            source = sourceIdentity.source.storageValue,
+            stableIdentity = sourceIdentity.stableIdentity,
+            retryKind = retryKind.name,
+            activationEpoch = activationEpoch,
+            nowMs = nowMs,
+            limit = limit,
+        ).map(LibraryRetryItemEntity::toModel)
+    }
+
+    internal suspend fun loadRetryItemsForStableObjectKeys(
+        sourceIdentity: SourceIdentityKey,
+        stableObjectKeys: Collection<String>,
+    ): List<LibraryRetryItem> {
+        if (stableObjectKeys.isEmpty()) return emptyList()
+        require(stableObjectKeys.size <= LibraryRetryPaging.STABLE_KEY_LOOKUP_BATCH_SIZE)
+        val retryKeys = stableObjectKeys
+            .asSequence()
+            .distinct()
+            .flatMap { stableObjectKey ->
+                sequenceOf(
+                    DeviceShadowRetryPlanner.retryKey(stableObjectKey),
+                    SafShadowRetryPlanner.retryKey(stableObjectKey),
+                    SafUnknownFingerprintDebtPlanner.retryKey(stableObjectKey),
+                )
+            }
+            .toList()
+        return retryItemDao.getByKeys(
+            source = sourceIdentity.source.storageValue,
+            stableIdentity = sourceIdentity.stableIdentity,
+            retryKeys = retryKeys,
+        ).map(LibraryRetryItemEntity::toModel)
+    }
+
+    internal suspend fun loadNextRetryAtMsAfter(
+        sourceIdentity: SourceIdentityKey,
+        activationEpoch: Long,
+        afterMs: Long,
+    ): Long? = retryItemDao.minNextRetryAtAfter(
+        source = sourceIdentity.source.storageValue,
+        stableIdentity = sourceIdentity.stableIdentity,
+        activationEpoch = activationEpoch,
+        afterMs = afterMs,
+    )
 
     internal suspend fun applyAutoSyncState(mutation: LibraryAutoSyncStateMutation) {
         db.withTransaction {
@@ -187,11 +260,15 @@ class LibraryRepository internal constructor(
             )
         }
         if (mutation.retryDeleteKeys.isNotEmpty()) {
-            retryItemDao.deleteByKeys(
-                source = source,
-                stableIdentity = stableIdentity,
-                retryKeys = mutation.retryDeleteKeys.toList(),
-            )
+            mutation.retryDeleteKeys
+                .chunked(LibraryRetryPaging.DELETE_BATCH_SIZE)
+                .forEach { retryKeys ->
+                    retryItemDao.deleteByKeys(
+                        source = source,
+                        stableIdentity = stableIdentity,
+                        retryKeys = retryKeys,
+                    )
+                }
         }
         if (mutation.retryUpserts.isNotEmpty()) {
             retryItemDao.upsertAll(mutation.retryUpserts.map(LibraryRetryItem::toEntity))
@@ -224,8 +301,24 @@ class LibraryRepository internal constructor(
         )
     }
 
-    internal suspend fun loadFollowupOutbox(): List<LibraryFollowupOutboxItem> =
-        followupOutboxDao.getAll().map(LibraryFollowupOutboxEntity::toModel)
+    internal suspend fun loadFollowupOutboxPage(
+        cursor: LibraryFollowupOutboxCursor,
+        limit: Int,
+    ): LibraryFollowupOutboxPage {
+        require(limit in 1..LibraryFollowupPaging.PAGE_SIZE)
+        val items = followupOutboxDao.getPage(
+            afterCreatedAtMs = cursor.createdAtMs,
+            afterEventId = cursor.eventId,
+            limit = limit,
+        ).map(LibraryFollowupOutboxEntity::toModel)
+        val nextCursor = items.lastOrNull()?.let { item ->
+            LibraryFollowupOutboxCursor(
+                createdAtMs = item.createdAtMs,
+                eventId = item.eventId,
+            )
+        }
+        return LibraryFollowupOutboxPage(items = items, nextCursor = nextCursor)
+    }
 
     internal suspend fun enqueueFollowupOutbox(item: LibraryFollowupOutboxItem) {
         followupOutboxDao.upsert(item.toEntity())

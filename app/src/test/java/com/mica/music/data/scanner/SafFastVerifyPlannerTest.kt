@@ -35,6 +35,32 @@ class SafFastVerifyPlannerTest {
     }
 
     @Test
+    fun suppliedCatalogLookupAvoidsFallbackMapWithoutChangingSemantics() {
+        val song = SongFixtures.song("doc-indexed").copy(
+            mediaUri = "content://tree/doc-indexed",
+            fileName = "song.flac",
+            folderPath = "Album",
+            filePath = "Album/song.flac",
+            sizeBytes = 1_234L,
+            dateModifiedMs = 5_678L,
+        )
+        var lookupCount = 0
+
+        val plan = SafFastVerifyPlanner.plan(
+            snapshot = snapshot(entry(song)),
+            cachedSongs = listOf(song),
+            cachedSongById = { id ->
+                lookupCount += 1
+                song.takeIf { it.id == id }
+            },
+        )
+
+        assertTrue(plan.isNoOp)
+        assertEquals(1, lookupCount)
+        assertEquals(1, plan.unchangedCount)
+    }
+
+    @Test
     fun metadataAndSidecarChangesBecomeChangedWork() {
         val song = SongFixtures.song("doc-1").copy(
             mediaUri = "content://tree/doc-1",

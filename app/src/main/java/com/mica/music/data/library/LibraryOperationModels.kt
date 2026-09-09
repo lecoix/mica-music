@@ -83,6 +83,9 @@ internal enum class LibraryAccessState {
     PERMISSION_REQUIRED,
 }
 
+internal const val SAF_PROVIDER_RESELECT_REQUIRED_ERROR =
+    "曲库提供方暂不可用，请重新选择曲库文件夹"
+
 internal data class SourceIdentityKey(
     val source: ScanSource,
     val stableIdentity: String,

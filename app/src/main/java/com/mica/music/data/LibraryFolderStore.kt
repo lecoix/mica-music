@@ -75,6 +75,32 @@ object LibraryFolderStore {
         return root.canRead() && root.isDirectory
     }
 
+    /**
+     * Reports the persisted grant for the exact user-selected tree.
+     *
+     * This is diagnostic/recovery evidence only. A retained grant does not imply that the provider
+     * is currently queryable and must never be treated as discovery completeness.
+     */
+    fun hasPersistedTreeReadAccess(context: Context, treeUri: Uri): Boolean =
+        context.contentResolver.persistedUriPermissions.any { permission ->
+            permission.uri == treeUri && permission.isReadPermission
+        }
+
+    /**
+     * Best-effort reacquire for OEM/provider cold-state recovery.
+     *
+     * The client is immediately closed. Success only means the provider can currently be acquired;
+     * callers still have to repeat their ordinary SAF readability/query checks.
+     */
+    fun canAcquireTreeProvider(context: Context, treeUri: Uri): Boolean =
+        runCatching {
+            val client = context.contentResolver
+                .acquireUnstableContentProviderClient(treeUri)
+                ?: return@runCatching false
+            client.close()
+            true
+        }.getOrDefault(false)
+
     internal fun treeAccessFlags(): Int =
         Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
 

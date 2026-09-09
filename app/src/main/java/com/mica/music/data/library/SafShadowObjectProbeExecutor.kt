@@ -270,8 +270,13 @@ internal object SafShadowPostProbeValidator {
         postSnapshot: SafTreeMetadataSnapshot,
         execution: SafShadowProbeExecutionResult,
     ): SafShadowPostValidationResult {
-        val initialByKey = initialSnapshot.entries.associateBy(SafTreeMetadataEntry::stableObjectKey)
-        val postByKey = postSnapshot.entries.associateBy(SafTreeMetadataEntry::stableObjectKey)
+        val validationKeys = execution.provisionalSongsByStableObjectKey.keys
+        val initialByKey = initialSnapshot.entries.asSequence()
+            .filter { it.stableObjectKey in validationKeys }
+            .associateBy(SafTreeMetadataEntry::stableObjectKey)
+        val postByKey = postSnapshot.entries.asSequence()
+            .filter { it.stableObjectKey in validationKeys }
+            .associateBy(SafTreeMetadataEntry::stableObjectKey)
         val resolved = linkedMapOf<String, Song>()
         val issues = execution.issues.toMutableList()
 

@@ -479,3 +479,20 @@ val MIGRATION_27_28 = object : Migration(27, 28) {
         db.execSQL("ALTER TABLE songs ADD COLUMN videoCoverRevision TEXT NOT NULL DEFAULT ''")
     }
 }
+
+val MIGRATION_28_29 = object : Migration(28, 29) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS index_library_retry_items_due_kind " +
+                "ON library_retry_items(source, stableIdentity, retryKind, nextRetryAtMs, retryKey)",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS index_library_retry_items_next_retry " +
+                "ON library_retry_items(source, stableIdentity, nextRetryAtMs)",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS index_library_followup_outbox_created_event " +
+                "ON library_followup_outbox(createdAtMs, eventId)",
+        )
+    }
+}
