@@ -9,6 +9,25 @@ import org.junit.Test
 class MediaStoreScannerCompatibilityTest {
 
     @Test
+    fun targetedScopeSelectsOnlyRequestedObjectsFromTenThousandDrafts() {
+        val all = (1L..10_000L).map { draft(it, "Music", "$it.flac") }
+        val targets = all.take(32).mapTo(mutableSetOf()) { it.scanSongId() }
+        val selected = all.withinScanScope(ScanOptions(scanOnlySongIds = targets))
+        assertEquals(all.take(32), selected)
+    }
+
+    @Test
+    fun safScopeUsesDocumentIdentityAndDoesNotFallBackToAllWhenTargetIsMissing() {
+        val first = draft(0, "Music", "a.flac").copy(mediaUri = "content://provider/document/a")
+        val second = first.copy(mediaUri = "content://provider/document/b")
+        val all = listOf(first, second)
+        assertEquals(listOf(second), all.withinScanScope(ScanOptions(scanOnlySongIds = setOf(second.scanSongId()))))
+        assertTrue(all.withinScanScope(ScanOptions(scanOnlySongIds = setOf("missing"))).isEmpty())
+        assertTrue(all.withinScanScope(ScanOptions(scanOnlySongIds = emptySet())).isEmpty())
+        assertTrue(all === all.withinScanScope(ScanOptions()))
+    }
+
+    @Test
     fun filesFallbackIncludesApeAlongsideDsdFormats() {
         assertTrue("ape" in MediaStoreScanner.FILE_EXTENSION_FALLBACKS)
         assertTrue(MediaStoreScanner.FILE_EXTENSION_FALLBACKS.containsAll(DsdSupport.extensions))

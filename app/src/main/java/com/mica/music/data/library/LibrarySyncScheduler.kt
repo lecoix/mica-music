@@ -58,6 +58,9 @@ internal class LibrarySyncScheduler(
 
     private var pendingFull: LibraryOperationRequest? = null
     private val pendingTargetedIds = linkedSetOf<String>()
+    private val pendingAutoArtworkIds = linkedSetOf<String>()
+    private var continuationsBeforeArtwork = 0
+    private var pendingTargetedCause: LibraryOperationCause? = null
     private var pendingArtworkRepair: AlbumArtRepairPlan? = null
 
     private var wakeJob: Job? = null
@@ -99,7 +102,15 @@ internal class LibrarySyncScheduler(
                 }
 
                 is LibraryOperationRequest.TargetedRefresh -> {
-                    pendingTargetedIds += request.songIds.filter(String::isNotBlank)
+                    if (request.cause == LibraryOperationCause.AUTO_ARTWORK_HYDRATE) {
+                        pendingAutoArtworkIds += request.songIds.filter {
+                            it.isNotBlank() && it !in pendingTargetedIds
+                        }
+                    } else {
+                        pendingTargetedIds += request.songIds.filter(String::isNotBlank)
+                        pendingAutoArtworkIds.removeAll(pendingTargetedIds)
+                        pendingTargetedCause = mergeTargetedCause(pendingTargetedCause, request.cause)
+                    }
                 }
 
                 is LibraryOperationRequest.ArtworkRepair -> {
@@ -130,11 +141,19 @@ internal class LibrarySyncScheduler(
         }
 
         val now = nowMs()
+        val hadCooldownBypassCause = pendingAutoCauseCounts.keys.any { !it.usesAutoSyncCooldown() }
+        val causeBypassesCooldown = !cause.usesAutoSyncCooldown()
         pendingDirty = true
         pendingAutoCause = cause
         pendingAutoEventCount += 1
         pendingAutoCauseCounts[cause] = (pendingAutoCauseCounts[cause] ?: 0) + 1
-        if (dirtyBurstStartedAtMs == null) dirtyBurstStartedAtMs = now
+        if (dirtyBurstStartedAtMs == null || (causeBypassesCooldown && !hadCooldownBypassCause)) {
+            // A real dirty signal that arrives while only a throttled catch-up/periodic request is
+            // waiting starts its own debounce window. This avoids both extremes: it must not wait
+            // for the old 60s catch-up cooldown, but it also must not inherit an already-expired
+            // max-debounce deadline and launch with effectively zero debounce.
+            dirtyBurstStartedAtMs = now
+        }
         lastDirtyAtMs = now
 
         // Dirty arriving while any operation is running is retained. AUTO specifically must not be
@@ -263,6 +282,9 @@ internal class LibrarySyncScheduler(
         synchronized(stateLock) {
             pendingFull = null
             pendingTargetedIds.clear()
+            pendingAutoArtworkIds.clear()
+            continuationsBeforeArtwork = 0
+            pendingTargetedCause = null
             pendingArtworkRepair = null
             pendingDirty = false
             pendingAutoCause = null
@@ -284,8 +306,10 @@ internal class LibrarySyncScheduler(
             pendingFull != null -> pendingFull.also { pendingFull = null }
             pendingTargetedIds.isNotEmpty() -> {
                 val ids = pendingTargetedIds.toSet()
+                val cause = pendingTargetedCause ?: LibraryOperationCause.TAG_EDITOR_RETURN
                 pendingTargetedIds.clear()
-                LibraryOperationRequest.TargetedRefresh(ids)
+                pendingTargetedCause = null
+                LibraryOperationRequest.TargetedRefresh(ids, cause)
             }
             pendingArtworkRepair != null -> {
                 val plan = pendingArtworkRepair
@@ -300,6 +324,20 @@ internal class LibrarySyncScheduler(
             launchRequestLocked(request)
             return
         }
+
+        if (pendingAutoArtworkIds.isNotEmpty()) {
+            if (hasPendingBudgetContinuation() && autoEligibleLocked() && continuationsBeforeArtwork < 2) {
+                scheduleDirtyWakeLocked(nowMs())
+                return
+            }
+            val targets = pendingAutoArtworkIds.take(32).toSet()
+            pendingAutoArtworkIds.removeAll(targets)
+            continuationsBeforeArtwork = 0
+            cancelWakeLocked()
+            launchRequestLocked(LibraryOperationRequest.TargetedRefresh(targets, LibraryOperationCause.AUTO_ARTWORK_HYDRATE))
+            return
+        }
+        continuationsBeforeArtwork = 0
 
         if (pendingDirty) {
             scheduleDirtyWakeLocked(nowMs())
@@ -352,8 +390,16 @@ internal class LibrarySyncScheduler(
         val trailingDeadline = lastDirty + timing.debounceMs
         val starvationDeadline = burstStart + timing.maxDebounceMs
         val debounceDeadline = min(trailingDeadline, starvationDeadline)
-        return max(nextAllowedAutoSyncAtMs, debounceDeadline)
+        return if (pendingAutoUsesCooldownLocked()) {
+            max(nextAllowedAutoSyncAtMs, debounceDeadline)
+        } else {
+            debounceDeadline
+        }
     }
+
+    private fun pendingAutoUsesCooldownLocked(): Boolean =
+        pendingAutoCauseCounts.isNotEmpty() &&
+            pendingAutoCauseCounts.keys.all { it.usesAutoSyncCooldown() }
 
     private fun resolveAutoWakeReasonLocked(): AutoSyncWakeReason {
         val now = nowMs()
@@ -363,7 +409,8 @@ internal class LibrarySyncScheduler(
         val starvationDeadline = burstStart + timing.maxDebounceMs
         val debounceDeadline = min(trailingDeadline, starvationDeadline)
         return when {
-            nextAllowedAutoSyncAtMs > debounceDeadline -> AutoSyncWakeReason.COOLDOWN
+            pendingAutoUsesCooldownLocked() && nextAllowedAutoSyncAtMs > debounceDeadline ->
+                AutoSyncWakeReason.COOLDOWN
             starvationDeadline <= trailingDeadline -> AutoSyncWakeReason.MAX_DEBOUNCE
             else -> AutoSyncWakeReason.TRAILING_DEBOUNCE
         }
@@ -371,6 +418,14 @@ internal class LibrarySyncScheduler(
 
     private fun startAutoLocked(wakeReason: AutoSyncWakeReason) {
         if (!pendingDirty || !autoEligibleLocked() || activeJob?.isActive == true) return
+
+        if (pendingAutoArtworkIds.isNotEmpty() && continuationsBeforeArtwork >= 2) {
+            startNextLocked()
+            return
+        }
+        if (pendingAutoArtworkIds.isNotEmpty() && hasPendingBudgetContinuation()) {
+            continuationsBeforeArtwork++
+        }
 
         val cause = pendingAutoCause ?: LibraryOperationCause.FOREGROUND_CATCH_UP
         val eventCount = pendingAutoEventCount.coerceAtLeast(1)
@@ -452,10 +507,11 @@ internal class LibrarySyncScheduler(
                 }
             }
 
-            // Explicit queued work always outranks AUTO follow-up.
+            // Explicit work wins; automatic artwork uses startNextLocked's bounded fairness rule.
             if (
                 pendingFull != null ||
                 pendingTargetedIds.isNotEmpty() ||
+                pendingAutoArtworkIds.isNotEmpty() ||
                 pendingArtworkRepair != null
             ) {
                 startNextLocked()
@@ -485,6 +541,9 @@ internal class LibrarySyncScheduler(
         wakeAtMs = null
     }
 
+    private fun hasPendingBudgetContinuation(): Boolean = pendingDirty &&
+        LibraryOperationCause.SAF_BUDGET_CONTINUATION in pendingAutoCauseCounts
+
     private fun cancelRetryWakeLocked() {
         retryWakeJob?.cancel()
         retryWakeJob = null
@@ -492,6 +551,25 @@ internal class LibrarySyncScheduler(
         retryWakeSourceActivation = null
         retryWakeCause = null
     }
+
+    private fun mergeTargetedCause(
+        current: LibraryOperationCause?,
+        incoming: LibraryOperationCause,
+    ): LibraryOperationCause =
+        when {
+            current == null -> incoming
+            current == LibraryOperationCause.TAG_EDITOR_RETURN -> current
+            incoming == LibraryOperationCause.TAG_EDITOR_RETURN -> incoming
+            else -> current
+        }
+
+    private fun LibraryOperationCause.usesAutoSyncCooldown(): Boolean =
+        when (this) {
+            LibraryOperationCause.FOREGROUND_CATCH_UP,
+            LibraryOperationCause.SAF_PERIODIC_VERIFY,
+            -> true
+            else -> false
+        }
 
     private fun safeAdd(nowMs: Long, delayMs: Long): Long =
         if (Long.MAX_VALUE - nowMs < delayMs) Long.MAX_VALUE else nowMs + delayMs

@@ -272,6 +272,13 @@ internal fun LibraryPlaybackIoSnapshot.withSafProviderSerialization(
 ): LibraryPlaybackIoSnapshot {
     if (!hasActivePlaybackInstance || sourceSerializesHeavyIo) return this
     val scopedTreeAuthority = treeAuthority?.takeIf { it.isNotBlank() } ?: return this
+
+    // Android's built-in ExternalStorageProvider safely supports opening a different document while
+    // another document from the same provider is owned by playback. Keep exact-object protection in
+    // blocksHeavyProbe(), but do not serialize the entire provider: otherwise every newly discovered
+    // song is deferred for as long as any SAF playback instance (including PAUSED) exists.
+    if (scopedTreeAuthority == SYSTEM_EXTERNAL_STORAGE_PROVIDER_AUTHORITY) return this
+
     val playbackAuthority = currentMediaUri
         ?.substringAfter("content://", missingDelimiterValue = "")
         ?.substringBefore('/')
@@ -283,6 +290,9 @@ internal fun LibraryPlaybackIoSnapshot.withSafProviderSerialization(
         this
     }
 }
+
+private const val SYSTEM_EXTERNAL_STORAGE_PROVIDER_AUTHORITY =
+    "com.android.externalstorage.documents"
 
 internal fun LibraryPlaybackIoSnapshot.blocksHeavyProbe(
     stableObjectKey: String,

@@ -147,6 +147,13 @@ internal class MusicLibraryBacking(
         scope = scanScope,
         markDirty = syncScheduler::markDirty,
         activeSource = { sourceState.active?.sourceIdentity?.source },
+        activeSafTreeUri = {
+            if (sourceState.active?.sourceIdentity?.source == ScanSource.FOLDER) {
+                libraryFolderUri?.let { android.net.Uri.parse(it) }
+            } else {
+                null
+            }
+        },
     )
 
     fun songById(id: String): Song? = songsById[id]

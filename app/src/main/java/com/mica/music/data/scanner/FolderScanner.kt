@@ -65,6 +65,10 @@ internal object FolderScanner {
         "mp3", "flac", "m4a", "aac", "ogg", "opus", "wav", "ape", "wma", "alac", "aiff", "aif",
     ) + DsdSupport.extensions
 
+    internal fun shouldIgnoreSafArtifact(name: String, isDirectory: Boolean): Boolean =
+        name.startsWith(".trashed-") ||
+            (isDirectory && name == ".MicaRecycle")
+
     internal suspend fun observeMetadata(
         context: Context,
         treeUri: Uri,
@@ -142,7 +146,7 @@ internal object FolderScanner {
         val loaded = profiler.measureSuspend("loadDrafts") {
             loadDrafts(context, treeUri, root, options, profiler)
         }
-        val drafts = loaded.drafts
+        val drafts = loaded.drafts.withinScanScope(options)
         if (drafts.isEmpty()) {
             return@withContext ScanResult(
                 songs = emptyList(),
@@ -624,8 +628,10 @@ internal object FolderScanner {
             val childDocumentId = row.documentId
             val name = row.name
             val mime = row.mimeType
+            val isDirectory = mime == DocumentsContract.Document.MIME_TYPE_DIR
+            if (shouldIgnoreSafArtifact(name, isDirectory)) continue
             val childUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, childDocumentId)
-            if (mime == DocumentsContract.Document.MIME_TYPE_DIR) {
+            if (isDirectory) {
                 val nextPath = if (parentPath.isEmpty()) name else "$parentPath/$name"
                 if (!ExcludedScanDirectories.isExcluded(nextPath, options.excludedDirectories)) {
                     collectLibraryFiles(
@@ -671,7 +677,9 @@ internal object FolderScanner {
         var complete = true
         for (child in children) {
             val name = child.name ?: continue
-            if (child.isDirectory) {
+            val isDirectory = child.isDirectory
+            if (shouldIgnoreSafArtifact(name, isDirectory)) continue
+            if (isDirectory) {
                 val nextPath = if (parentPath.isEmpty()) name else "$parentPath/$name"
                 if (!ExcludedScanDirectories.isExcluded(nextPath, options.excludedDirectories)) {
                     if (!collectLibraryFilesFallback(
@@ -715,6 +723,7 @@ internal object FolderScanner {
         lyricOut: MutableList<LyricFileEntry>,
         videoOut: MutableList<VideoCoverFile>,
     ) {
+        if (shouldIgnoreSafArtifact(name, isDirectory = false)) return
         val ext = name.substringAfterLast('.', "").lowercase()
         when {
             ext == "mp4" -> {

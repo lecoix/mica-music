@@ -21,6 +21,30 @@ class SafAutoSyncPublicationPlannerTest {
     private val source = SourceIdentityKey.folder("content://provider/tree/music")
 
     @Test
+    fun shortNewProbeDoesNotPublishButCanFinishCheckpoint() {
+        val short = song("short").copy(durationSec = 4)
+        val observed = entry(short)
+        val snapshot = snapshot(listOf(observed))
+        val plan = SafAutoSyncPublicationPlanner.plan(
+            sourceIdentity = source, activationEpoch = 1L, configFingerprint = "cfg", nowMs = 100L,
+            currentSongs = emptyList(), snapshot = snapshot,
+            verifyPlan = SafFastVerifyPlanner.plan(snapshot, emptyList()),
+            probePlan = readyProbePlan(observed),
+            validation = SafShadowPostValidationResult(
+                resolvedSongsByStableObjectKey = mapOf(short.id to short),
+                resolvedLyricsByStableObjectKey = mapOf(short.id to ScannedSongLyrics(short.id, "r", LyricsSlots())),
+                issues = emptyList(),
+            ),
+            relationValidation = emptyRelationValidation(), retryPlan = emptyRetryPlan(),
+            unknownDebtPlan = emptyUnknownDebtPlan(),
+        )
+        assertTrue(plan.nextSnapshot.isEmpty())
+        assertTrue(plan.lyricsToStage.isEmpty())
+        assertTrue(plan.membershipChanges.isEmpty())
+        assertTrue(plan.checkpointIncluded)
+    }
+
+    @Test
     fun validatedChangedObjectPublishesSongLyricsAndCheckpointTogether() {
         val current = song("doc-1")
         val observed = entry(current).copy(

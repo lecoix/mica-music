@@ -43,6 +43,37 @@ import com.mica.music.data.library.SourceIdentityKey
 import com.mica.music.util.DiagnosticLog
 import org.json.JSONObject
 
+private fun LyricsDocument.partRoleSummary(): String =
+    lines.asSequence()
+        .flatMap { it.parts.asSequence() }
+        .groupingBy { it.role }
+        .eachCount()
+        .entries
+        .sortedBy { it.key.ordinal }
+        .joinToString(",") { "${it.key.name}:${it.value}" }
+        .ifBlank { "none" }
+
+private fun LyricsDocument.lineRoleShapeSummary(): String {
+    val counts = lines.groupingBy { line ->
+        line.parts.joinToString("+") { it.role.name }.ifBlank { "EMPTY" }
+    }.eachCount()
+    return counts.entries
+        .sortedByDescending { it.value }
+        .take(6)
+        .joinToString(",") { "${it.key}:${it.value}" }
+        .ifBlank { "none" }
+}
+
+private fun LyricsDocument.tokenRoleSummary(): String =
+    lines.asSequence()
+        .flatMap { it.tokens.asSequence() }
+        .groupingBy { it.partRole }
+        .eachCount()
+        .entries
+        .sortedBy { it.key.ordinal }
+        .joinToString(",") { "${it.key.name}:${it.value}" }
+        .ifBlank { "none" }
+
 data class CachedLibrary(
     val songs: List<Song>,
     val lastScanAtMs: Long,
@@ -362,6 +393,7 @@ class LibraryRepository internal constructor(
         queryMs += SystemClock.elapsedRealtime() - queryStartedMs
         var jsonChars = 0
         var document = LyricsDocument()
+        var selectedSlot: LyricsSlot? = null
         for (slot in priority) {
             if (slot !in available) continue
             queryStartedMs = SystemClock.elapsedRealtime()
@@ -372,13 +404,20 @@ class LibraryRepository internal constructor(
             val decoded = LyricsDocumentCodec.decode(json)
             if (decoded.lines.isNotEmpty()) {
                 document = decoded
+                selectedSlot = slot
                 break
             }
         }
         DiagnosticLog.event(
             "LyricsLoad",
             "song=${id.takeLast(12)} queryMs=$queryMs totalMs=${SystemClock.elapsedRealtime() - startedMs} " +
-                "slots=${available.size} jsonChars=$jsonChars lines=${document.lines.size}",
+                "available=${available.sorted().joinToString(",")} " +
+                "selected=${selectedSlot?.name ?: "NONE"} " +
+                "priority=${priority.joinToString(">") { it.name }} " +
+                "format=${document.format.name} origin=${document.origin.name} " +
+                "lines=${document.lines.size} roles=${document.partRoleSummary()} " +
+                "shapes=${document.lineRoleShapeSummary()} tokenRoles=${document.tokenRoleSummary()} " +
+                "jsonChars=$jsonChars",
         )
         return document
     }

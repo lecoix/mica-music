@@ -28,6 +28,16 @@ All FULL, AUTO_SYNC, TARGETED_REFRESH and ARTWORK_REPAIR work is owned by
 
 Observers introduced later only mark work dirty. They do not call scanners or write Room directly.
 
+2026-09-10 clarification: automatic artwork hydration is queued separately from user-targeted
+refreshes. Pending SAF budget continuations may take two turns ahead of automatic artwork, then
+one bounded artwork batch (up to 32 targets) must run. User FULL, targeted refresh, and explicit
+artwork repair retain priority. This is a fairness bound, not a measured latency guarantee.
+
+AUTO publication applies the same minimum-duration predicate as FULL, including its unknown-duration
+behavior. Rejected existing members use FILTERED_OUT, not physical absence evidence; this must not
+enqueue playlist deletion. Source-local provider failure/slow-success cooldowns use monotonic elapsed
+time, separately from persisted RetryLedger/checkpoint wall-clock timestamps.
+
 ### 2. Long operation execution and short publication are separate
 
 Provider/file discovery and probe work is cancellable and serialized separately from final
@@ -165,6 +175,15 @@ MediaStore IDs are valid only inside a proven identity domain; database/version 
 that domain and trigger conservative identity reconciliation.
 
 Size/mtime equality is a practical fingerprint on reliable providers, not byte-level snapshot proof.
+
+For foreground FOLDER authority on Android R+, MediaStore version/generation is also sampled every
+3 seconds as a cheap missed-callback accelerator. A generation change only marks the existing
+`MEDIASTORE_FILES_DIRTY` path and therefore still goes through scheduler debounce and authoritative
+SAF verification; an unchanged generation performs no tree walk. The watcher stops outside foreground
+FOLDER authority and does not replace the periodic SAF verify. In particular, generation movement is
+not deletion evidence. The 2026-09-10 physical Gate showed an `IS_TRASHED` transition that advanced
+`external_primary` generation while provider callbacks were not reliably sufficient, which is the
+specific failure mode this accelerator covers.
 
 ### 14. First-version MV invalidation is directory-scoped
 

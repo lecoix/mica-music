@@ -629,6 +629,27 @@ class LibraryScanOrchestratorTest {
     }
 
     @Test
+    fun clearDuringTargetedProbePreventsLatePartialResultFromRepopulatingStore() = runTest {
+        val scanner = ControlledScanner()
+        val store = FakeLibraryStore()
+        val harness = scanHarness(scanner, store)
+        val target = SongFixtures.song("artwork-target")
+        harness.backing.replaceSongs(listOf(target, SongFixtures.song("unrelated")))
+        val refresh = async { harness.orchestrator.refreshSongMetadata(target.id) }
+        runCurrent()
+        assertEquals(setOf(target.id), scanner.deviceRequests.single().forceRefreshSongIds)
+        harness.backing.folder.clearLibrary()
+        runCurrent()
+        scanner.deviceRequests.single().result.complete(ScanResult(listOf(target), 1))
+        refresh.await()
+        runCurrent()
+        assertTrue(harness.backing.songs.isEmpty())
+        assertTrue(store.syncedSongs.isEmpty())
+        assertFalse(harness.backing.hasScanned)
+        harness.backing.release()
+    }
+
+    @Test
     fun catalogDerivedStoreWriteWaitsForScanExecutionLock() = runTest {
         val scanner = ControlledScanner()
         val store = FakeLibraryStore()
@@ -2495,6 +2516,40 @@ class LibraryScanOrchestratorTest {
         )
         assertEquals(listOf(tree, tree), scanner.folderMetadataRequests)
 
+        clearFolderPrefs(harness.backing)
+        harness.backing.release()
+    }
+
+    @Test
+    fun safProviderCadenceIgnoresWallClockChanges() = runTest {
+        var wall = 1_000_000L
+        var elapsed = 1_000L
+        val scanner = ControlledScanner()
+        val tree = Uri.parse("content://provider/tree/clock-test")
+        scanner.folderMetadataSnapshot = SafTreeMetadataSnapshot(
+            entries = emptyList(),
+            discoveryReport = DiscoveryReport.of(DiscoveryPartitionStatus(
+                DiscoveryPartitions.SAF_TREE, DiscoveryCompleteness.COMPLETE,
+            )),
+            observationStats = SafTreeMetadataObservationStats(
+                wallTimeMs = SafProviderDiscoveryBackoff.SLOW_SUCCESS_THRESHOLD_MS + 1,
+            ),
+        )
+        val harness = scanHarness(scanner, environment = FakeScanEnvironment(
+            nowMsProvider = { wall }, elapsedMsProvider = { elapsed },
+        ))
+        activateFolderSource(harness.backing, tree, "Clock")
+        suspend fun verify(seq: Long) = harness.orchestrator.executeScheduled(ScheduledLibraryOperation(
+            LibraryOperationRequest.AutoSync(LibraryOperationCause.SAF_PERIODIC_VERIFY), seq, seq,
+        ))
+        verify(1)
+        wall += 86_400_000L
+        verify(2)
+        assertEquals(1, scanner.folderMetadataRequests.size)
+        wall = 1L
+        elapsed += SafProviderDiscoveryBackoff.SLOW_SUCCESS_CADENCE_MS
+        verify(3)
+        assertEquals(2, scanner.folderMetadataRequests.size)
         clearFolderPrefs(harness.backing)
         harness.backing.release()
     }
@@ -5470,6 +5525,7 @@ class LibraryScanOrchestratorTest {
         var parserVersion: Int = CURRENT_LYRICS_PARSER_VERSION,
         var retryRequired: Boolean = false,
         private val nowMsProvider: () -> Long = { 1_234L },
+        private val elapsedMsProvider: () -> Long = nowMsProvider,
         var treeReadable: Boolean = true,
         var persistedTreeReadAccess: Boolean = false,
         var treeProviderAcquirable: Boolean = true,
@@ -5497,6 +5553,7 @@ class LibraryScanOrchestratorTest {
             return treeProviderAcquirable
         }
         override fun currentTimeMillis(): Long = nowMsProvider()
+        override fun elapsedRealtimeMillis(): Long = elapsedMsProvider()
         override fun playStats(songId: String): PlayStats = playStatsBySongId[songId] ?: PlayStats(0, 0)
         override fun clearTransientCache() = Unit
         override fun pruneAlbumArtCache(songs: List<Song>) {

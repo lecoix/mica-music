@@ -422,7 +422,7 @@ internal interface LibraryStore {
     suspend fun clear()
 }
 
-internal const val CURRENT_LYRICS_PARSER_VERSION = 11
+internal const val CURRENT_LYRICS_PARSER_VERSION = 12
 
 internal interface ScanEnvironment {
     fun hasAudioReadPermission(): Boolean
@@ -437,6 +437,7 @@ internal interface ScanEnvironment {
      */
     fun canAcquireTreeProvider(treeUri: Uri): Boolean = true
     fun currentTimeMillis(): Long
+    fun elapsedRealtimeMillis(): Long = android.os.SystemClock.elapsedRealtime()
     fun playStats(songId: String): PlayStats
     fun playStatsSnapshot(songIds: Collection<String>): PlayStatsSnapshot =
         PlayStatsSnapshot.from(songIds.associateWith { songId -> playStats(songId) })
@@ -485,6 +486,7 @@ internal class AndroidLibraryScanner(
             forceRefreshLyrics = forceRefreshLyrics,
             forceRefreshArtwork = forceRefreshArtwork,
             forceRefreshSongIds = songIds,
+            scanOnlySongIds = songIds,
         ),
         cachedSongs = cachedSongs,
         onProgress = onProgress,
@@ -533,6 +535,7 @@ internal class AndroidLibraryScanner(
             forceRefreshLyrics = forceRefreshLyrics,
             forceRefreshArtwork = forceRefreshArtwork,
             forceRefreshSongIds = songIds,
+            scanOnlySongIds = songIds,
         ),
         cachedSongs = cachedSongs,
         onProgress = onProgress,

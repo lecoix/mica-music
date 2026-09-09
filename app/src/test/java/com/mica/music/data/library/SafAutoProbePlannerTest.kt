@@ -84,7 +84,35 @@ class SafAutoProbePlannerTest {
     }
 
     @Test
-    fun sameSafAuthorityMarksPlaybackAsSerializedForAllHeavyProbe() {
+    fun systemExternalStorageProviderOnlyDefersCurrentPlaybackObject() {
+        val currentUri =
+            "content://com.android.externalstorage.documents/document/primary%3AMusic%2Fcurrent.flac"
+        val scoped = LibraryPlaybackIoSnapshot(
+            currentStableObjectKey = "current",
+            currentMediaUri = currentUri,
+            hasActivePlaybackInstance = true,
+        ).withSafProviderSerialization("com.android.externalstorage.documents")
+
+        assertTrue(!scoped.sourceSerializesHeavyIo)
+
+        val current = entry("current", mediaUri = currentUri)
+        val added = entry(
+            "added",
+            mediaUri =
+                "content://com.android.externalstorage.documents/document/" +
+                    "primary%3AMusic%2Fadded.flac",
+        )
+        val plan = SafAutoProbePlanner.plan(
+            verifyPlan = verifyPlan(changed = listOf(current, added)),
+            playback = scoped,
+        )
+
+        assertEquals(listOf("added"), plan.ready.map { it.stableObjectKey })
+        assertEquals(listOf("current"), plan.deferred.map { it.stableObjectKey })
+    }
+
+    @Test
+    fun sameThirdPartySafAuthorityStillSerializesAllHeavyProbe() {
         val scoped = LibraryPlaybackIoSnapshot(
             currentStableObjectKey = "current",
             currentMediaUri = "content://provider.documents/document/audio",

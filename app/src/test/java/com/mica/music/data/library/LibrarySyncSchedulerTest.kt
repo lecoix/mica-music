@@ -32,6 +32,59 @@ import org.robolectric.RobolectricTestRunner
 class LibrarySyncSchedulerTest {
 
     @Test
+    fun continuationGetsTwoTurnsThenArtworkGetsBoundedTurn() = runTest {
+        val backing = activeBacking()
+        val executed = mutableListOf<LibraryOperationRequest>()
+        val gate = CompletableDeferred<Unit>()
+        lateinit var scheduler: LibrarySyncScheduler
+        scheduler = testSchedulerOwner(backing, LibrarySyncSchedulerTiming(0, 0, 0)) { op ->
+            executed += op.request
+            if (executed.size == 1) gate.await()
+            if (op.request is LibraryOperationRequest.AutoSync && executed.size < 6) {
+                scheduler.requestAutoContinuation(LibraryOperationCause.SAF_BUDGET_CONTINUATION)
+            }
+        }
+        scheduler.markDirty()
+        runCurrent()
+        scheduler.submit(LibraryOperationRequest.TargetedRefresh(
+            (1..100).mapTo(linkedSetOf()) { "art-$it" }, LibraryOperationCause.AUTO_ARTWORK_HYDRATE,
+        ))
+        gate.complete(Unit)
+        runCurrent()
+        assertTrue(executed.take(3).all { it is LibraryOperationRequest.AutoSync })
+        val firstArtwork = executed[3] as LibraryOperationRequest.TargetedRefresh
+        assertEquals(32, firstArtwork.songIds.size)
+        val allArtwork = executed.filterIsInstance<LibraryOperationRequest.TargetedRefresh>()
+        assertTrue(allArtwork.all { it.songIds.size <= 32 })
+        assertEquals(100, allArtwork.flatMap { it.songIds }.toSet().size)
+        backing.release()
+        runCurrent()
+    }
+
+    @Test
+    fun userRefreshOutranksContinuationWithoutPromotingUnrelatedArtwork() = runTest {
+        val backing = activeBacking()
+        val gate = CompletableDeferred<Unit>()
+        val executed = mutableListOf<LibraryOperationRequest>()
+        val scheduler = testSchedulerOwner(backing, LibrarySyncSchedulerTiming(0, 0, 0)) {
+            executed += it.request
+            if (executed.size == 1) gate.await()
+        }
+        scheduler.markDirty()
+        runCurrent()
+        scheduler.submit(LibraryOperationRequest.TargetedRefresh(setOf("art"), LibraryOperationCause.AUTO_ARTWORK_HYDRATE))
+        scheduler.submit(LibraryOperationRequest.TargetedRefresh(setOf("user"), LibraryOperationCause.TAG_EDITOR_RETURN))
+        scheduler.requestAutoContinuation(LibraryOperationCause.SAF_BUDGET_CONTINUATION)
+        gate.complete(Unit)
+        runCurrent()
+        assertEquals(LibraryOperationRequest.TargetedRefresh(setOf("user"), LibraryOperationCause.TAG_EDITOR_RETURN), executed[1])
+        assertTrue(executed[2] is LibraryOperationRequest.AutoSync)
+        assertEquals(setOf("art"), (executed[3] as LibraryOperationRequest.TargetedRefresh).songIds)
+        backing.release()
+        runCurrent()
+    }
+
+    @Test
     fun dirtyUsesTrailingDebounceBeforeStartingAutoSync() = runTest {
         val backing = activeBacking()
         val executed = mutableListOf<ScheduledLibraryOperation>()
@@ -69,6 +122,49 @@ class LibrarySyncSchedulerTest {
             scheduler.lastAutoShadowDiagnostic,
         )
         assertFalse(scheduler.pendingDirty)
+
+        backing.release()
+        runCurrent()
+    }
+
+
+    @Test
+    fun autoArtworkHydrateTargetedRefreshRetainsCauseAndCoalescesIds() = runTest {
+        val backing = activeBacking()
+        val firstGate = CompletableDeferred<Unit>()
+        val executed = mutableListOf<ScheduledLibraryOperation>()
+        val scheduler = testSchedulerOwner(backing = backing) { operation ->
+            executed += operation
+            if (executed.size == 1) firstGate.await()
+        }
+
+        scheduler.submit(LibraryOperationRequest.ScanLibraryFolder)
+        runCurrent()
+        assertEquals(1, executed.size)
+
+        scheduler.submit(
+            LibraryOperationRequest.TargetedRefresh(
+                songIds = setOf("auto-art", ""),
+                cause = LibraryOperationCause.AUTO_ARTWORK_HYDRATE,
+            ),
+        )
+        scheduler.submit(
+            LibraryOperationRequest.TargetedRefresh(
+                songIds = setOf("tag-edit"),
+                cause = LibraryOperationCause.TAG_EDITOR_RETURN,
+            ),
+        )
+        runCurrent()
+        assertEquals(1, executed.size)
+
+        firstGate.complete(Unit)
+        runCurrent()
+
+        assertEquals(3, executed.size)
+        val targeted = executed[1].request as LibraryOperationRequest.TargetedRefresh
+        assertEquals(setOf("tag-edit"), targeted.songIds)
+        assertEquals(LibraryOperationCause.TAG_EDITOR_RETURN, targeted.cause)
+        assertEquals(setOf("auto-art"), (executed[2].request as LibraryOperationRequest.TargetedRefresh).songIds)
 
         backing.release()
         runCurrent()
@@ -112,7 +208,7 @@ class LibrarySyncSchedulerTest {
     }
 
     @Test
-    fun dirtyDuringCooldownWakesAtCooldownEndInsteadOfBeingDropped() = runTest {
+    fun foregroundCatchUpDuringCooldownWakesAtCooldownEndInsteadOfBeingDropped() = runTest {
         val backing = activeBacking()
         val executed = mutableListOf<ScheduledLibraryOperation>()
         val scheduler = testSchedulerOwner(
@@ -124,12 +220,12 @@ class LibrarySyncSchedulerTest {
             ),
         ) { executed += it }
 
-        scheduler.markDirty()
+        scheduler.markDirty(LibraryOperationCause.MEDIASTORE_AUDIO_DIRTY)
         advanceTimeBy(1_500L)
         runCurrent()
         assertEquals(1, executed.size)
 
-        scheduler.markDirty(LibraryOperationCause.MEDIASTORE_FILES_DIRTY)
+        scheduler.markDirty(LibraryOperationCause.FOREGROUND_CATCH_UP)
         advanceTimeBy(59_999L)
         runCurrent()
         assertEquals(1, executed.size)
@@ -142,8 +238,109 @@ class LibrarySyncSchedulerTest {
         assertTrue(executed[1].request is LibraryOperationRequest.AutoSync)
         assertEquals(AutoSyncWakeReason.COOLDOWN, scheduler.lastAutoShadowDiagnostic?.wakeReason)
         assertEquals(
+            mapOf(LibraryOperationCause.FOREGROUND_CATCH_UP to 1),
+            scheduler.lastAutoShadowDiagnostic?.causeCounts,
+        )
+        assertFalse(scheduler.pendingDirty)
+
+        backing.release()
+        runCurrent()
+    }
+
+
+    @Test
+    fun mediaStoreDirtyBypassesCooldownButStillUsesTrailingDebounce() = runTest {
+        val backing = activeBacking()
+        val executed = mutableListOf<ScheduledLibraryOperation>()
+        val scheduler = testSchedulerOwner(
+            backing = backing,
+            timing = LibrarySyncSchedulerTiming(
+                debounceMs = 1_500L,
+                cooldownMs = 60_000L,
+                maxDebounceMs = 5_000L,
+            ),
+        ) { executed += it }
+
+        scheduler.markDirty(LibraryOperationCause.MEDIASTORE_AUDIO_DIRTY)
+        advanceTimeBy(1_500L)
+        runCurrent()
+        assertEquals(1, executed.size)
+
+        scheduler.markDirty(LibraryOperationCause.MEDIASTORE_FILES_DIRTY)
+        advanceTimeBy(1_499L)
+        runCurrent()
+        assertEquals(1, executed.size)
+        assertTrue(scheduler.pendingDirty)
+
+        advanceTimeBy(1L)
+        runCurrent()
+
+        assertEquals(2, executed.size)
+        assertEquals(
+            LibraryOperationCause.MEDIASTORE_FILES_DIRTY,
+            executed[1].request.cause,
+        )
+        assertEquals(
+            AutoSyncWakeReason.TRAILING_DEBOUNCE,
+            scheduler.lastAutoShadowDiagnostic?.wakeReason,
+        )
+        assertEquals(
             mapOf(LibraryOperationCause.MEDIASTORE_FILES_DIRTY to 1),
             scheduler.lastAutoShadowDiagnostic?.causeCounts,
+        )
+        assertFalse(scheduler.pendingDirty)
+
+        backing.release()
+        runCurrent()
+    }
+
+    @Test
+    fun realDirtyPromotesThrottledCatchUpWithFreshDebounceWindow() = runTest {
+        val backing = activeBacking()
+        val executed = mutableListOf<ScheduledLibraryOperation>()
+        val scheduler = testSchedulerOwner(
+            backing = backing,
+            timing = LibrarySyncSchedulerTiming(
+                debounceMs = 1_500L,
+                cooldownMs = 60_000L,
+                maxDebounceMs = 5_000L,
+            ),
+        ) { executed += it }
+
+        scheduler.markDirty(LibraryOperationCause.MEDIASTORE_AUDIO_DIRTY)
+        advanceTimeBy(1_500L)
+        runCurrent()
+        assertEquals(1, executed.size)
+
+        scheduler.markDirty(LibraryOperationCause.FOREGROUND_CATCH_UP)
+        advanceTimeBy(30_000L)
+        runCurrent()
+        assertEquals(1, executed.size)
+        assertTrue(scheduler.pendingDirty)
+
+        scheduler.markDirty(LibraryOperationCause.MEDIASTORE_FILES_DIRTY)
+        advanceTimeBy(1_499L)
+        runCurrent()
+        assertEquals(1, executed.size)
+
+        advanceTimeBy(1L)
+        runCurrent()
+
+        assertEquals(2, executed.size)
+        assertEquals(
+            AutoSyncWakeReason.TRAILING_DEBOUNCE,
+            scheduler.lastAutoShadowDiagnostic?.wakeReason,
+        )
+        assertEquals(
+            mapOf(
+                LibraryOperationCause.FOREGROUND_CATCH_UP to 1,
+                LibraryOperationCause.MEDIASTORE_FILES_DIRTY to 1,
+            ),
+            scheduler.lastAutoShadowDiagnostic?.causeCounts,
+        )
+        assertEquals(
+            LibraryOperationCause.MEDIASTORE_FILES_DIRTY,
+            executed[1].request.cause,
         )
         assertFalse(scheduler.pendingDirty)
 

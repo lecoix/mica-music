@@ -444,6 +444,7 @@ internal class LibraryScanOrchestrator(
                     retryObservation.unavailableStableObjectKeys,
             )
             val publicationPlan = DeviceAutoSyncPublicationPlanner.plan(
+                minDurationMs = LibraryScanSettings.scanOptions(backing.context).minDurationMs,
                 sourceIdentity = before.sourceActivation.sourceIdentity,
                 configFingerprint = before.configFingerprint,
                 nowMs = nowMs,
@@ -558,6 +559,8 @@ internal class LibraryScanOrchestrator(
                 publishAuthority = true,
                 delayMs = nextRetryDelayMs,
             )
+
+            scheduleAutoArtworkHydration(publicationPlan.visibleDelta.addedIds)
 
             DiagnosticLog.event(
                 "LibraryAutoSync",
@@ -824,6 +827,7 @@ internal class LibraryScanOrchestrator(
                 retryObservation.unavailableStableObjectKeys,
         )
         val publicationPlan = DeviceAutoSyncPublicationPlanner.plan(
+            minDurationMs = LibraryScanSettings.scanOptions(backing.context).minDurationMs,
             sourceIdentity = token.sourceIdentity,
             configFingerprint = token.configFingerprint,
             nowMs = nowMs,
@@ -1424,7 +1428,7 @@ internal class LibraryScanOrchestrator(
         when (
             val permit = safProviderDiscoveryBackoff.permit(
                 scopeKey = providerScopeKey,
-                nowMs = nowMs,
+                nowMs = backing.scanEnvironment.elapsedRealtimeMillis(),
                 bypassSlowSuccessCadence =
                     operation.request.cause == LibraryOperationCause.PLAYBACK_IO_RELEASE,
             )
@@ -1477,7 +1481,7 @@ internal class LibraryScanOrchestrator(
                 }
                 val failure = safProviderDiscoveryBackoff.recordFailure(
                     scopeKey = providerScopeKey,
-                    nowMs = nowMs,
+                    nowMs = backing.scanEnvironment.elapsedRealtimeMillis(),
                     detail = failureDetail,
                 )
                 if (
@@ -1518,7 +1522,7 @@ internal class LibraryScanOrchestrator(
                 error.message.orEmpty().ifBlank { "no-message" }
             val failure = safProviderDiscoveryBackoff.recordFailure(
                 scopeKey = providerScopeKey,
-                nowMs = backing.scanEnvironment.currentTimeMillis(),
+                nowMs = backing.scanEnvironment.elapsedRealtimeMillis(),
                 detail = detail,
             )
             scheduleSafRetryWake(token, publishAuthority, failure.delayMs)
@@ -1546,7 +1550,7 @@ internal class LibraryScanOrchestrator(
             }
             val completeState = safProviderDiscoveryBackoff.recordComplete(
                 scopeKey = providerScopeKey,
-                nowMs = backing.scanEnvironment.currentTimeMillis(),
+                nowMs = backing.scanEnvironment.elapsedRealtimeMillis(),
                 wallTimeMs = snapshot.observationStats.wallTimeMs,
             )
             if (completeState.slowSuccess) {
@@ -1562,7 +1566,7 @@ internal class LibraryScanOrchestrator(
         } else {
             val failure = safProviderDiscoveryBackoff.recordFailure(
                 scopeKey = providerScopeKey,
-                nowMs = backing.scanEnvironment.currentTimeMillis(),
+                nowMs = backing.scanEnvironment.elapsedRealtimeMillis(),
                 detail = "metadata-incomplete:${snapshot.discoveryReport.aggregate}",
             )
             providerRetryDelayMs = earlierRetryDelay(providerRetryDelayMs, failure.delayMs)
@@ -1585,6 +1589,7 @@ internal class LibraryScanOrchestrator(
             cachedSongById = backing::songById,
         )
         val allowUnknownFingerprintVerify = when (operation.request.cause) {
+            LibraryOperationCause.SAF_TREE_DIRTY,
             LibraryOperationCause.SAF_PERIODIC_VERIFY,
             LibraryOperationCause.PLAYBACK_IO_RELEASE,
             LibraryOperationCause.SAF_RETRY_DUE,
@@ -1706,7 +1711,7 @@ internal class LibraryScanOrchestrator(
                     error.message.orEmpty().ifBlank { "no-message" }
                 val failure = safProviderDiscoveryBackoff.recordFailure(
                     scopeKey = providerScopeKey,
-                    nowMs = backing.scanEnvironment.currentTimeMillis(),
+                    nowMs = backing.scanEnvironment.elapsedRealtimeMillis(),
                     detail = detail,
                 )
                 scheduleSafRetryWake(token, publishAuthority, failure.delayMs)
@@ -1732,7 +1737,7 @@ internal class LibraryScanOrchestrator(
             if (observed.discoveryReport.isComplete(DiscoveryPartitions.SAF_TREE)) {
                 val completeState = safProviderDiscoveryBackoff.recordComplete(
                     scopeKey = providerScopeKey,
-                    nowMs = backing.scanEnvironment.currentTimeMillis(),
+                    nowMs = backing.scanEnvironment.elapsedRealtimeMillis(),
                     wallTimeMs = observed.observationStats.wallTimeMs,
                 )
                 if (completeState.slowSuccess) {
@@ -1748,7 +1753,7 @@ internal class LibraryScanOrchestrator(
             } else {
                 val failure = safProviderDiscoveryBackoff.recordFailure(
                     scopeKey = providerScopeKey,
-                    nowMs = backing.scanEnvironment.currentTimeMillis(),
+                    nowMs = backing.scanEnvironment.elapsedRealtimeMillis(),
                     detail = "post-metadata-incomplete:${observed.discoveryReport.aggregate}",
                 )
                 providerRetryDelayMs = earlierRetryDelay(providerRetryDelayMs, failure.delayMs)
@@ -1856,6 +1861,7 @@ internal class LibraryScanOrchestrator(
             return
         }
         val publicationPlan = SafAutoSyncPublicationPlanner.plan(
+            minDurationMs = LibraryScanSettings.scanOptions(backing.context).minDurationMs,
             sourceIdentity = token.sourceIdentity,
             activationEpoch = token.activationEpoch,
             configFingerprint = token.configFingerprint,
@@ -1921,6 +1927,10 @@ internal class LibraryScanOrchestrator(
                     "stale-drop-tracker request=${operation.requestSequence}",
             )
             return
+        }
+
+        if (publishAuthority && publicationResult != null) {
+            scheduleAutoArtworkHydration(publicationPlan.visibleDelta.addedIds)
         }
 
         val ledgerRetryDelayMs = if (publishAuthority) {
@@ -2091,6 +2101,27 @@ internal class LibraryScanOrchestrator(
                 policy = policy,
             )
         }
+    }
+
+    private fun scheduleAutoArtworkHydration(addedIds: Set<String>) {
+        if (addedIds.isEmpty()) return
+        val targets = addedIds.filterTo(linkedSetOf()) { songId ->
+            val song = backing.songById(songId) ?: return@filterTo false
+            song.albumArtUri.isNullOrBlank()
+        }
+        if (targets.isEmpty()) return
+
+        DiagnosticLog.event(
+            "LibraryAutoSync",
+            "artwork-hydrate queued targets=${targets.size} ids=" +
+                targets.take(4).joinToString(",") { it.takeLast(12) },
+        )
+        backing.syncScheduler.submit(
+            LibraryOperationRequest.TargetedRefresh(
+                songIds = targets,
+                cause = LibraryOperationCause.AUTO_ARTWORK_HYDRATE,
+            ),
+        )
     }
 
     fun launchRefreshSongMetadata(songId: String) {

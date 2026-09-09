@@ -12,7 +12,16 @@ data class ScanOptions(
     val forceRefreshArtwork: Boolean = false,
     /** One-off metadata refresh targets, normally used after an external tag editor returns. */
     val forceRefreshSongIds: Set<String> = emptySet(),
+    /** null scans all discovered songs; an empty set scans none. Results are partial when set. */
+    val scanOnlySongIds: Set<String>? = null,
 )
+
+/** Apply before cache checks/probes so unrelated objects cannot produce lyrics or artwork writes. */
+internal fun List<TrackDraft>.withinScanScope(options: ScanOptions): List<TrackDraft> {
+    val targets = options.scanOnlySongIds ?: return this
+    if (targets.isEmpty()) return emptyList()
+    return filter { it.scanSongId() in targets }
+}
 
 object ExcludedScanDirectories {
     fun normalize(path: String): String =

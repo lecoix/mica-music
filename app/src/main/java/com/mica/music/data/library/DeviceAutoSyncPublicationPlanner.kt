@@ -46,6 +46,7 @@ internal object DeviceAutoSyncPublicationPlanner {
         execution: DeviceShadowProbeExecutionResult,
         retryPlan: DeviceShadowRetryPlan,
         excludedStableObjectKeys: Set<String> = emptySet(),
+        minDurationMs: Long = 60_000L,
     ): DeviceAutoSyncPublicationPlan {
         require(sourceIdentity.source == ScanSource.DEVICE)
 
@@ -53,7 +54,7 @@ internal object DeviceAutoSyncPublicationPlanner {
         val membershipChanges = when (membershipPlan) {
             is AutoSyncMembershipPlan.Apply -> membershipPlan.membershipChanges
             is AutoSyncMembershipPlan.Quarantine -> emptyList()
-        }
+        }.toMutableList()
         val approvedRemovedKeys = membershipChanges
             .mapTo(linkedSetOf(), MembershipChange::stableObjectKey)
 
@@ -65,6 +66,9 @@ internal object DeviceAutoSyncPublicationPlanner {
             if (stableKey in excludedStableObjectKeys) return@forEach
             nextById[stableKey] = song.copy(lyricsLoaded = false)
         }
+
+        membershipChanges += applyAutoSyncDurationFilter(nextById, currentById.keys, sourceIdentity, minDurationMs)
+        membershipChanges.mapTo(approvedRemovedKeys, MembershipChange::stableObjectKey)
 
         val addedIds = nextById.keys
             .filterTo(linkedSetOf()) { it !in currentById }

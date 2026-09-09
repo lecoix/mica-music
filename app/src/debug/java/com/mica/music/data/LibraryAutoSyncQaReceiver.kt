@@ -18,6 +18,9 @@ import android.util.Log
 import com.mica.music.MicaApp
 import com.mica.music.data.library.LibraryOperationCause
 import com.mica.music.data.library.LibraryPlaybackIoSnapshot
+import com.mica.music.data.local.LibraryRepository
+import com.mica.music.data.scanner.AlbumArtCache
+import com.mica.music.data.scanner.AndroidDeviceMediaStoreGenerationApi
 import com.mica.music.playback.PlaybackExecutionState
 import kotlinx.coroutines.runBlocking
 import java.io.File
@@ -45,6 +48,8 @@ class LibraryAutoSyncQaReceiver : BroadcastReceiver() {
             appContext.packageName + ".debug.LIBRARY_S4_EXTERNAL_PROVIDER_PROBE"
         val externalProviderPayloadGateAction =
             appContext.packageName + ".debug.LIBRARY_S4_EXTERNAL_PROVIDER_PAYLOAD_GATE"
+        val artworkAutoGateAction =
+            appContext.packageName + ".debug.LIBRARY_S4_AUTO_ARTWORK_GATE"
         val preparePlaybackAction =
             appContext.packageName + ".debug.LIBRARY_S4_PREPARE_PLAYBACK_BASELINE"
         val playbackGateAction =
@@ -76,6 +81,29 @@ class LibraryAutoSyncQaReceiver : BroadcastReceiver() {
                     lines.forEach { line -> Log.i(TAG, "profile-evidence " + line) }
                 }
             }
+            return
+        }
+        if (intent.action == artworkAutoGateAction) {
+            val treeUri = intent.data
+            if (treeUri == null) {
+                Log.e(VENDOR_TAG, "auto-artwork-gate-failed missing tree URI")
+                return
+            }
+            if (!autoArtworkGateRunning.compareAndSet(false, true)) {
+                Log.i(VENDOR_TAG, "auto-artwork-gate-skip already-running tree=$treeUri")
+                return
+            }
+            val pending = goAsync()
+            Thread {
+                try {
+                    runAutoArtworkGate(appContext, treeUri)
+                } catch (error: Throwable) {
+                    Log.e(VENDOR_TAG, "auto-artwork-gate-failed tree=$treeUri", error)
+                } finally {
+                    autoArtworkGateRunning.set(false)
+                    pending.finish()
+                }
+            }.start()
             return
         }
         if (intent.action == playbackGateAction) {
@@ -766,6 +794,416 @@ class LibraryAutoSyncQaReceiver : BroadcastReceiver() {
         }
     }
 
+    private fun autoArtworkRootContainsDisplayName(
+        appContext: Context,
+        treeUri: Uri,
+        displayName: String,
+    ): Boolean {
+        val resolver = appContext.contentResolver
+        val rootId = DocumentsContract.getTreeDocumentId(treeUri)
+        val childUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, rootId)
+        return resolver.query(
+            childUri,
+            arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME),
+            null,
+            null,
+            null,
+        )?.use { cursor ->
+            val nameColumn = cursor.getColumnIndexOrThrow(
+                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            )
+            var found = false
+            while (cursor.moveToNext() && !found) {
+                found = cursor.getString(nameColumn) == displayName
+            }
+            found
+        } ?: false
+    }
+
+    private fun trashAutoArtworkMediaRows(
+        appContext: Context,
+        treeUri: Uri,
+        exactDisplayName: String? = null,
+    ): Int {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return 0
+        val documentId = DocumentsContract.getTreeDocumentId(treeUri)
+        val relativeRoot = documentId.substringAfter(':', "")
+            .trim('/')
+            .takeIf { it.isNotBlank() }
+            ?.plus("/")
+            ?: return 0
+        val resolver = appContext.contentResolver
+        val collection = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        val projection = arrayOf(
+            MediaStore.Files.FileColumns._ID,
+            MediaStore.Files.FileColumns.DISPLAY_NAME,
+            MediaStore.Files.FileColumns.RELATIVE_PATH,
+            MediaStore.Files.FileColumns.IS_TRASHED,
+        )
+        val selection: String
+        val args: Array<String>
+        if (exactDisplayName != null) {
+            selection =
+                "${MediaStore.Files.FileColumns.RELATIVE_PATH} LIKE ? AND " +
+                    "${MediaStore.Files.FileColumns.DISPLAY_NAME} = ? AND " +
+                    "${MediaStore.Files.FileColumns.IS_TRASHED} = 0"
+            args = arrayOf("$relativeRoot%", exactDisplayName)
+        } else {
+            selection =
+                "${MediaStore.Files.FileColumns.RELATIVE_PATH} LIKE ? AND " +
+                    "(${MediaStore.Files.FileColumns.DISPLAY_NAME} LIKE ? OR " +
+                    "${MediaStore.Files.FileColumns.DISPLAY_NAME} LIKE ?) AND " +
+                    "${MediaStore.Files.FileColumns.IS_TRASHED} = 0"
+            args = arrayOf(
+                "$relativeRoot%",
+                "mica-auto-artwork-gate-%",
+                "recycled-auto-artwork-%",
+            )
+        }
+
+        val targets = mutableListOf<Pair<Uri, String>>()
+        resolver.query(collection, projection, selection, args, null)?.use { cursor ->
+            val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
+            val nameColumn =
+                cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DISPLAY_NAME)
+            while (cursor.moveToNext()) {
+                val id = cursor.getLong(idColumn)
+                targets += ContentUris.withAppendedId(collection, id) to
+                    cursor.getString(nameColumn).orEmpty()
+            }
+        }
+
+        var trashed = 0
+        targets.forEach { (uri, name) ->
+            val updated = runCatching {
+                appContext.contentResolver.update(
+                    uri,
+                    ContentValues().apply {
+                        put(MediaStore.Files.FileColumns.IS_TRASHED, 1)
+                    },
+                    null,
+                    null,
+                )
+            }.onFailure { error ->
+                Log.e(
+                    VENDOR_TAG,
+                    "auto-artwork-system-trash-failed name=$name uri=$uri",
+                    error,
+                )
+            }.getOrDefault(0)
+            val leftAuthority = if (exactDisplayName != null) {
+                !autoArtworkRootContainsDisplayName(appContext, treeUri, exactDisplayName)
+            } else {
+                false
+            }
+            if (updated > 0 || leftAuthority) {
+                trashed += 1
+                Log.i(
+                    VENDOR_TAG,
+                    "auto-artwork-system-trashed name=$name uri=$uri " +
+                        "updateRows=$updated leftAuthority=$leftAuthority",
+                )
+            }
+        }
+        Log.i(
+            VENDOR_TAG,
+            "auto-artwork-system-trash-summary root=$relativeRoot " +
+                "exact=${exactDisplayName ?: "all"} rows=${targets.size} trashed=$trashed",
+        )
+        return trashed
+    }
+
+    private fun isAutoArtworkGateArtifact(song: Song): Boolean =
+        song.fileName.startsWith("mica-auto-artwork-gate-") ||
+            song.fileName.startsWith("recycled-auto-artwork-")
+
+    private fun recycleStaleAutoArtworkGateDocuments(
+        appContext: Context,
+        treeUri: Uri,
+    ) {
+        val resolver = appContext.contentResolver
+        val rootId = DocumentsContract.getTreeDocumentId(treeUri)
+        val rootDocUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, rootId)
+        val childUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, rootId)
+        var recycleUri: Uri? = null
+        val stale = mutableListOf<Pair<Uri, String>>()
+        resolver.query(
+            childUri,
+            arrayOf(
+                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                DocumentsContract.Document.COLUMN_MIME_TYPE,
+            ),
+            null,
+            null,
+            null,
+        )?.use { cursor ->
+            val idColumn = cursor.getColumnIndexOrThrow(
+                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            )
+            val nameColumn = cursor.getColumnIndexOrThrow(
+                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            )
+            val mimeColumn = cursor.getColumnIndexOrThrow(
+                DocumentsContract.Document.COLUMN_MIME_TYPE,
+            )
+            while (cursor.moveToNext()) {
+                val id = cursor.getString(idColumn)
+                val name = cursor.getString(nameColumn).orEmpty()
+                val mime = cursor.getString(mimeColumn).orEmpty()
+                val uri = DocumentsContract.buildDocumentUriUsingTree(treeUri, id)
+                if (
+                    name == ".MicaRecycle" &&
+                    mime == DocumentsContract.Document.MIME_TYPE_DIR
+                ) {
+                    recycleUri = uri
+                } else if (
+                    name.startsWith("mica-auto-artwork-gate-") ||
+                    name.startsWith("recycled-auto-artwork-")
+                ) {
+                    stale += uri to name
+                }
+            }
+        }
+        if (stale.isEmpty()) return
+
+        if (recycleUri == null) {
+            recycleUri = DocumentsContract.createDocument(
+                resolver,
+                rootDocUri,
+                DocumentsContract.Document.MIME_TYPE_DIR,
+                ".MicaRecycle",
+            )
+        }
+        val destination = requireNotNull(recycleUri) {
+            "Could not create AUTO artwork recycle directory"
+        }
+        stale.forEachIndexed { index, (uri, name) ->
+            val safeName = "recycled-auto-artwork-stale-" +
+                System.currentTimeMillis() +
+                "-" + index +
+                ".bak"
+            val renamed = DocumentsContract.renameDocument(
+                resolver,
+                uri,
+                safeName,
+            ) ?: uri
+            val moved = DocumentsContract.moveDocument(
+                resolver,
+                renamed,
+                rootDocUri,
+                destination,
+            )
+            requireNotNull(moved) {
+                "Could not recycle stale AUTO artwork Gate document: $name"
+            }
+            Log.i(
+                VENDOR_TAG,
+                "auto-artwork-stale-recycled name=$name moved=$moved",
+            )
+        }
+    }
+
+    internal fun runAutoArtworkGate(
+        appContext: Context,
+        treeUri: Uri,
+    ) {
+        val library = MusicLibrary(appContext)
+        var foreground = false
+        var createdUri: Uri? = null
+        var createdDisplayName: String? = null
+        var createdStableId: String? = null
+        try {
+            trashAutoArtworkMediaRows(appContext, treeUri)
+            runBlocking { library.loadCachedLibrary() }
+            require(library.lastScanSource == ScanSource.FOLDER) {
+                "AUTO artwork Gate requires cached FOLDER authority; source=${library.lastScanSource}"
+            }
+            require(library.libraryFolderUri != null) {
+                "AUTO artwork Gate requires a persisted library folder"
+            }
+            require(
+                Uri.decode(library.libraryFolderUri.orEmpty()) ==
+                    Uri.decode(treeUri.toString()),
+            ) {
+                "AUTO artwork Gate tree mismatch cached=${library.libraryFolderUri} requested=$treeUri"
+            }
+            require(library.songs.isNotEmpty()) {
+                "AUTO artwork Gate cached library is empty"
+            }
+
+            library.onForegroundChanged(true)
+            foreground = true
+            require(
+                waitUntil(20_000L) {
+                    library.songs.none(::isAutoArtworkGateArtifact)
+                },
+            ) {
+                "AUTO artwork stale cleanup did not leave the authoritative library; " +
+                    "stale=" + library.songs
+                        .filter(::isAutoArtworkGateArtifact)
+                        .joinToString(",") { it.fileName }
+            }
+            Thread.sleep(2_500L)
+
+            val source = library.songs.firstOrNull { song ->
+                !song.albumArtUri.isNullOrBlank() &&
+                    AlbumArtCache.hasReadableCachedArt(appContext, song)
+            } ?: error("AUTO artwork Gate needs at least one source song with readable embedded art")
+            val baselineCount = library.songs.size
+            Log.i(
+                VENDOR_TAG,
+                "auto-artwork-clean-baseline songs=$baselineCount source=${source.id}",
+            )
+
+            val resolver = appContext.contentResolver
+            val rootId = DocumentsContract.getTreeDocumentId(treeUri)
+            val rootDocUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, rootId)
+            val extension = source.fileName.substringAfterLast('.', "flac")
+            val displayName = "mica-auto-artwork-gate-" +
+                System.currentTimeMillis() +
+                "." + extension
+            createdDisplayName = displayName
+            val mime = source.metadata.playbackMimeType.ifBlank { "audio/*" }
+            val created = DocumentsContract.createDocument(
+                resolver,
+                rootDocUri,
+                mime,
+                displayName,
+            ) ?: error("Could not create AUTO artwork Gate document")
+            createdUri = created
+            val startedMs = SystemClock.elapsedRealtime()
+            copyUriToUri(appContext, Uri.parse(source.mediaUri), created)
+            Log.i(
+                VENDOR_TAG,
+                "auto-artwork-created tree=$treeUri source=${source.id} " +
+                    "target=$created baseline=$baselineCount sourceArt=${source.albumArtUri}",
+            )
+
+            var firstSeenArt: String? = null
+            var firstSeenAtMs: Long? = null
+            require(
+                waitUntil(60_000L) {
+                    val target = library.songs.firstOrNull { it.mediaUri == created.toString() }
+                    if (target != null && firstSeenAtMs == null) {
+                        firstSeenAtMs = SystemClock.elapsedRealtime() - startedMs
+                        firstSeenArt = target.albumArtUri
+                        Log.i(
+                            VENDOR_TAG,
+                            "auto-artwork-first-visible elapsedMs=$firstSeenAtMs " +
+                                "id=${target.id} art=${target.albumArtUri ?: "none"} " +
+                                "cover=0x${target.coverColorArgb.toUInt().toString(16)}",
+                        )
+                    }
+                    target != null &&
+                        !target.albumArtUri.isNullOrBlank() &&
+                        AlbumArtCache.hasReadableCachedArt(appContext, target)
+                },
+            ) {
+                val current = library.songs.firstOrNull { it.mediaUri == created.toString() }
+                "AUTO artwork was not materialized within timeout; " +
+                    "target=${current?.id} art=${current?.albumArtUri} " +
+                    "songs=${library.songs.size}"
+            }
+
+            val hydrated = requireNotNull(
+                library.songs.firstOrNull { it.mediaUri == created.toString() },
+            )
+            createdStableId = hydrated.id
+            require(library.songs.size == baselineCount + 1) {
+                "AUTO artwork Gate count mismatch: $baselineCount -> ${library.songs.size}"
+            }
+
+            val cold = requireNotNull(
+                runBlocking { LibraryRepository(appContext).loadCached() }
+                    ?.songs
+                    ?.firstOrNull { it.id == hydrated.id },
+            ) {
+                "Cold cache lost AUTO artwork Gate song"
+            }
+            require(!cold.albumArtUri.isNullOrBlank()) {
+                "Cold cache lost hydrated albumArtUri"
+            }
+            require(AlbumArtCache.hasReadableCachedArt(appContext, cold)) {
+                "Cold cache points at unreadable hydrated artwork: ${cold.albumArtUri}"
+            }
+
+            Log.i(
+                VENDOR_TAG,
+                "auto-artwork-gate-complete elapsedMs=" +
+                    (SystemClock.elapsedRealtime() - startedMs) +
+                    " firstSeenMs=${firstSeenAtMs ?: -1L} " +
+                    "firstSeenArt=${firstSeenArt ?: "none"} " +
+                    "finalId=${hydrated.id} finalArt=${hydrated.albumArtUri} " +
+                    "readable=${AlbumArtCache.hasReadableCachedArt(appContext, hydrated)} " +
+                    "cover=0x${hydrated.coverColorArgb.toUInt().toString(16)}",
+            )
+            // Drain creation/media-scan/artwork signals before exercising Trash. Otherwise a
+            // pre-existing dirty request can accidentally remove the row and mask whether the
+            // generation accelerator itself observed the missed IS_TRASHED callback.
+            Thread.sleep(8_000L)
+            Log.i(VENDOR_TAG, "auto-artwork-pre-trash-quiesced")
+        } finally {
+            try {
+                createdDisplayName?.let { displayName ->
+                    val generationApi = AndroidDeviceMediaStoreGenerationApi(appContext)
+                    Log.i(
+                        VENDOR_TAG,
+                        "auto-artwork-generation-before-trash ${generationApi.read()}",
+                    )
+                    var trashed = 0
+                    repeat(10) {
+                        if (trashed == 0) {
+                            trashed = trashAutoArtworkMediaRows(
+                                appContext = appContext,
+                                treeUri = treeUri,
+                                exactDisplayName = displayName,
+                            )
+                            if (trashed == 0) Thread.sleep(300L)
+                        }
+                    }
+                    Log.i(
+                        VENDOR_TAG,
+                        "auto-artwork-generation-after-trash-immediate ${generationApi.read()}",
+                    )
+                    if (trashed == 0) {
+                        // Safety fallback: preserve the bytes inside the selected tree recycle
+                        // directory rather than deleting them. The Gate still fails because this
+                        // fallback remains inside SAF authority and must not be treated as clean.
+                        recycleStaleAutoArtworkGateDocuments(appContext, treeUri)
+                        error(
+                            "AUTO artwork test file could not enter Android system Trash; " +
+                                "preserved in .MicaRecycle instead",
+                        )
+                    }
+                    val stableId = createdStableId
+                    if (foreground && stableId != null) {
+                        require(
+                            waitUntilCachedSongAbsent(
+                                appContext = appContext,
+                                stableId = stableId,
+                                timeoutMs = 20_000L,
+                            ),
+                        ) {
+                            "AUTO artwork system-trash cleanup was not committed to cold cache " +
+                                "before timeout"
+                        }
+                    }
+                    Log.i(
+                        VENDOR_TAG,
+                        "auto-artwork-cleanup-complete name=$displayName " +
+                            "stableId=${stableId ?: "unknown"} systemTrash=true authority=cold-cache",
+                    )
+                }
+            } finally {
+                if (foreground) {
+                    library.onForegroundChanged(false)
+                }
+                library.release()
+            }
+        }
+    }
+
     private fun runExternalProviderPayloadGate(
         appContext: Context,
         treeUri: android.net.Uri,
@@ -1322,6 +1760,24 @@ class LibraryAutoSyncQaReceiver : BroadcastReceiver() {
         )
     }
 
+    private fun waitUntilCachedSongAbsent(
+        appContext: Context,
+        stableId: String,
+        timeoutMs: Long,
+    ): Boolean {
+        val repository = LibraryRepository(appContext)
+        fun coldCacheContainsTarget(): Boolean = runBlocking {
+            repository.loadCached()?.songs?.any { it.id == stableId } == true
+        }
+
+        val deadline = SystemClock.elapsedRealtime() + timeoutMs
+        while (SystemClock.elapsedRealtime() < deadline) {
+            if (!coldCacheContainsTarget()) return true
+            Thread.sleep(250L)
+        }
+        return !coldCacheContainsTarget()
+    }
+
     private fun waitUntil(
         timeoutMs: Long,
         condition: () -> Boolean,
@@ -1336,6 +1792,7 @@ class LibraryAutoSyncQaReceiver : BroadcastReceiver() {
 
     private companion object {
         val externalPayloadGateRunning = AtomicBoolean(false)
+        val autoArtworkGateRunning = AtomicBoolean(false)
         const val DEVICE_TAG = "MICA_S3_DEVICE_GATE"
         const val TAG = "MICA_S4_QA"
         const val VENDOR_TAG = "MICA_S4_VENDOR"

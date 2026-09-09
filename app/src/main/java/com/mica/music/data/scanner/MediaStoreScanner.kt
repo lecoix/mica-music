@@ -54,7 +54,7 @@ internal object MediaStoreScanner {
         val profiler = ScanProfiler("MediaStore")
         AudioMetadataProbe.clearArtCache()
         val loaded = profiler.measure("loadDrafts") { loadDrafts(context, options) }
-        val loadedDrafts = loaded.drafts
+        val loadedDrafts = loaded.drafts.withinScanScope(options)
         val drafts = if (shouldReconcileMediaStoreFolderCasing(options.forceRefreshSongIds)) {
             profiler.measure("folderCasing") {
                 reconcileMediaStoreFolderCasing(loadedDrafts) { draft ->

@@ -58,6 +58,7 @@ internal fun LibraryOperationCause.isAutoSyncCause(): Boolean =
         LibraryOperationCause.FOREGROUND_CATCH_UP,
         LibraryOperationCause.PLAYBACK_IO_RELEASE,
         LibraryOperationCause.DEVICE_RETRY_DUE,
+        LibraryOperationCause.SAF_TREE_DIRTY,
         LibraryOperationCause.SAF_PERIODIC_VERIFY,
         LibraryOperationCause.SAF_BUDGET_CONTINUATION,
         LibraryOperationCause.SAF_RETRY_DUE,
@@ -66,6 +67,7 @@ internal fun LibraryOperationCause.isAutoSyncCause(): Boolean =
         LibraryOperationCause.USER_RESCAN,
         LibraryOperationCause.SOURCE_SWITCH,
         LibraryOperationCause.TAG_EDITOR_RETURN,
+        LibraryOperationCause.AUTO_ARTWORK_HYDRATE,
         LibraryOperationCause.LOCAL_USER_DELETE,
         LibraryOperationCause.ARTWORK_REPAIR,
         -> false

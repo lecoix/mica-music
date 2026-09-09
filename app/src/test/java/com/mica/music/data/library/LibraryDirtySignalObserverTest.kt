@@ -7,6 +7,8 @@ import android.os.Looper
 import android.provider.MediaStore
 import androidx.test.core.app.ApplicationProvider
 import com.mica.music.data.ScanSource
+import com.mica.music.data.scanner.DeviceGenerationSnapshot
+import com.mica.music.data.scanner.DeviceVolumeGeneration
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
@@ -158,6 +160,116 @@ class LibraryDirtySignalObserverTest {
 
         assertEquals(before, causes.size)
         assertFalse(causes.isEmpty())
+        observer.release()
+    }
+
+
+    @Test
+    fun folderGenerationWatchCompensatesForMissedMediaStoreCallback() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val causes = mutableListOf<LibraryOperationCause>()
+        var source = ScanSource.FOLDER
+        var generation = 10L
+        fun snapshot(): DeviceGenerationSnapshot = DeviceGenerationSnapshot.Available(
+            mapOf(
+                "external_primary" to DeviceVolumeGeneration(
+                    volumeName = "external_primary",
+                    providerVersion = "v1",
+                    generation = generation,
+                ),
+            ),
+        )
+        val observer = LibraryDirtySignalObserver(
+            context = context,
+            scope = this,
+            markDirty = { cause ->
+                causes += cause
+                causes.size.toLong()
+            },
+            activeSource = { source },
+            readMediaStoreGeneration = { snapshot() },
+            safGenerationPollIntervalMs = 1_000L,
+            safVerifyIntervalMs = 60_000L,
+        )
+
+        observer.onForegroundChanged(true)
+        runCurrent()
+        assertEquals(listOf(LibraryOperationCause.FOREGROUND_CATCH_UP), causes)
+
+        generation = 11L
+        advanceTimeBy(999L)
+        runCurrent()
+        assertEquals(1, causes.size)
+
+        advanceTimeBy(1L)
+        runCurrent()
+        assertEquals(
+            listOf(
+                LibraryOperationCause.FOREGROUND_CATCH_UP,
+                LibraryOperationCause.MEDIASTORE_FILES_DIRTY,
+            ),
+            causes,
+        )
+
+        advanceTimeBy(1_000L)
+        runCurrent()
+        assertEquals(2, causes.size)
+
+        source = ScanSource.DEVICE
+        observer.onActiveSourceChanged()
+        assertEquals(LibraryOperationCause.FOREGROUND_CATCH_UP, causes.last())
+        val beforeDevicePoll = causes.size
+        generation = 12L
+        advanceTimeBy(2_000L)
+        runCurrent()
+        assertEquals(beforeDevicePoll, causes.size)
+
+        observer.release()
+    }
+
+    @Test
+    fun folderTreeNotificationBecomesImmediateSafDirtySignal() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val causes = mutableListOf<LibraryOperationCause>()
+        var source = ScanSource.FOLDER
+        val treeUri = Uri.parse(
+            "content://com.android.externalstorage.documents/tree/primary%3AMusic",
+        )
+        val observer = LibraryDirtySignalObserver(
+            context = context,
+            scope = this,
+            markDirty = { cause ->
+                causes += cause
+                causes.size.toLong()
+            },
+            activeSource = { source },
+            activeSafTreeUri = { treeUri },
+            safVerifyIntervalMs = 60_000L,
+        )
+
+        observer.onForegroundChanged(true)
+        assertEquals(listOf(LibraryOperationCause.FOREGROUND_CATCH_UP), causes)
+
+        context.contentResolver.notifyChange(treeUri, null)
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+        assertEquals(
+            listOf(
+                LibraryOperationCause.FOREGROUND_CATCH_UP,
+                LibraryOperationCause.SAF_TREE_DIRTY,
+            ),
+            causes,
+        )
+
+        source = ScanSource.DEVICE
+        observer.onActiveSourceChanged()
+        assertEquals(LibraryOperationCause.FOREGROUND_CATCH_UP, causes.last())
+        val beforeDeviceNotification = causes.size
+
+        context.contentResolver.notifyChange(treeUri, null)
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(beforeDeviceNotification, causes.size)
+
         observer.release()
     }
 

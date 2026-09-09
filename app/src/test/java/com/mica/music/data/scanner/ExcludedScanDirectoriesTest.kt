@@ -25,4 +25,54 @@ class ExcludedScanDirectoriesTest {
         assertFalse(ExcludedScanDirectories.isExcluded("Music/Liverpool", excluded))
         assertFalse(ExcludedScanDirectories.isExcluded("", excluded))
     }
+
+    @Test
+    fun safArtifactFilterExcludesAndroidTrashFilesWithoutBlanketHiddenFiltering() {
+        assertTrue(
+            FolderScanner.shouldIgnoreSafArtifact(
+                ".trashed-1791550701-song.wav",
+                isDirectory = false,
+            ),
+        )
+        assertTrue(
+            FolderScanner.shouldIgnoreSafArtifact(
+                ".trashed-anything.flac",
+                isDirectory = false,
+            ),
+        )
+        assertFalse(
+            FolderScanner.shouldIgnoreSafArtifact(
+                "trashed-song.wav",
+                isDirectory = false,
+            ),
+        )
+        assertFalse(
+            FolderScanner.shouldIgnoreSafArtifact(
+                ".hidden-song.wav",
+                isDirectory = false,
+            ),
+        )
+    }
+
+    @Test
+    fun safArtifactFilterSkipsOnlyDedicatedMicaRecycleDirectory() {
+        assertTrue(
+            FolderScanner.shouldIgnoreSafArtifact(
+                ".MicaRecycle",
+                isDirectory = true,
+            ),
+        )
+        assertFalse(
+            FolderScanner.shouldIgnoreSafArtifact(
+                ".MicaRecycle",
+                isDirectory = false,
+            ),
+        )
+        assertFalse(
+            FolderScanner.shouldIgnoreSafArtifact(
+                ".hiddenMusic",
+                isDirectory = true,
+            ),
+        )
+    }
 }

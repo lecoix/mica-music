@@ -41,6 +41,8 @@ internal data class SafProviderDiscoveryCompleteState(
  * breaker. COMPLETE discovery clears the failure breaker, but a slow successful walk starts a
  * separate cadence guard so a provider that is correct-but-expensive is not hammered by repeated
  * automatic dirty signals.
+ * All nowMs/deadline values belong to the same monotonic elapsed-realtime clock. They are
+ * process-local and must never be persisted as RetryLedger wall-clock timestamps.
  *
  * The cadence guard is deliberately not a timeout: the successful walk is allowed to complete.
  * Provider cancellation remains cooperative through the DocumentsContract query CancellationSignal.

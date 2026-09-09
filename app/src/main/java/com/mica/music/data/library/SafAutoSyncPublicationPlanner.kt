@@ -51,6 +51,7 @@ internal object SafAutoSyncPublicationPlanner {
         retryPlan: SafShadowRetryPlan,
         unknownDebtPlan: SafUnknownFingerprintDebtPlan,
         excludedStableObjectKeys: Set<String> = emptySet(),
+        minDurationMs: Long = 60_000L,
     ): SafAutoSyncPublicationPlan {
         require(sourceIdentity.source == ScanSource.FOLDER)
 
@@ -70,7 +71,7 @@ internal object SafAutoSyncPublicationPlanner {
         val membershipChanges = when (membershipPlan) {
             is AutoSyncMembershipPlan.Apply -> membershipPlan.membershipChanges
             is AutoSyncMembershipPlan.Quarantine -> emptyList()
-        }
+        }.toMutableList()
         val quarantineMembershipChanges =
             (membershipPlan as? AutoSyncMembershipPlan.Quarantine)?.membershipChanges.orEmpty()
         val quarantineReason =
@@ -105,6 +106,9 @@ internal object SafAutoSyncPublicationPlanner {
             if (stableKey in excludedStableObjectKeys) return@forEach
             nextById[stableKey] = song
         }
+
+        membershipChanges += applyAutoSyncDurationFilter(nextById, currentById.keys, sourceIdentity, minDurationMs)
+        membershipChanges.mapTo(approvedRemovedKeys, MembershipChange::stableObjectKey)
 
         val addedIds = nextById.keys
             .filterTo(linkedSetOf()) { it !in currentById }

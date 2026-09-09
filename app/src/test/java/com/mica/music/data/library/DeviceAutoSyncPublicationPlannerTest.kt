@@ -24,6 +24,25 @@ class DeviceAutoSyncPublicationPlannerTest {
     )
 
     @Test
+    fun shortProbeResultCannotPublishSongOrLyrics() {
+        val short = SongFixtures.song("ms_66").copy(durationSec = 4)
+        val result = plan(
+            currentSongs = listOf(short.copy(durationSec = 90)),
+            execution = DeviceShadowProbeExecutionResult(
+                resolvedObjectsByStableObjectKey = emptyMap(),
+                resolvedSongsByStableObjectKey = mapOf(short.id to short),
+                resolvedLyricsByStableObjectKey = mapOf(short.id to ScannedSongLyrics(short.id, "r", LyricsSlots())),
+                fullReplaceLyricsStableObjectKeys = setOf(short.id),
+                issues = emptyList(),
+            ),
+        )
+        assertTrue(result.nextSnapshot.isEmpty())
+        assertTrue(result.fullLyricsToStage.isEmpty())
+        assertEquals(setOf(short.id), result.visibleDelta.removedStableObjectKeys)
+        assertEquals(MembershipRemovalReason.FILTERED_OUT, result.membershipChanges.single().reason)
+    }
+
+    @Test
     fun validatedHeavyAndSidecarResultsSplitLyricsAndCheckpointTogether() {
         val heavyBefore = SongFixtures.song("ms_1").copy(externalLyricsSignature = "old")
         val sidecarBefore = SongFixtures.song("ms_2").copy(externalLyricsSignature = "old")

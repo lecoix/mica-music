@@ -101,6 +101,7 @@ class LibraryAutoSyncQaProfileService : Service() {
             runCatching { File(filesDir, EVIDENCE_FILE_NAME).writeText("") }
         }
         appendEvidence("run-start startId=$startId mode=$mode flags=$flags")
+        Log.i(TAG, "run-start startId=$startId mode=$mode flags=$flags")
         Thread {
             try {
                 when (mode) {
@@ -125,6 +126,15 @@ class LibraryAutoSyncQaProfileService : Service() {
                         }
                         runExternalProviderRearmGate(treeUri)
                     }
+                    MODE_AUTO_ARTWORK_GATE -> {
+                        val treeUri = requireNotNull(requestedTreeUri) {
+                            "auto artwork mode requires intent data tree URI"
+                        }
+                        LibraryAutoSyncQaReceiver().runAutoArtworkGate(
+                            applicationContext,
+                            treeUri,
+                        )
+                    }
                     MODE_TEN_K_HEAVY -> runTenKHeavyProbeGate()
                     MODE_TEN_K_UNKNOWN -> runTenKUnknownVerifyGate(unknownTarget)
                     MODE_AUTO_QUERY_LANE -> runAutoQueryLaneGate()
@@ -147,6 +157,7 @@ class LibraryAutoSyncQaProfileService : Service() {
                     MODE_EXTERNAL_PROVIDER_BASELINE,
                     MODE_EXTERNAL_PROVIDER_UNAVAILABLE,
                     MODE_EXTERNAL_PROVIDER_REARM,
+                    MODE_AUTO_ARTWORK_GATE,
                     -> PROVIDER_TAG
                     MODE_TEN_K_HEAVY -> HEAVY_TAG
                     MODE_TEN_K_UNKNOWN -> UNKNOWN_TAG
@@ -166,6 +177,7 @@ class LibraryAutoSyncQaProfileService : Service() {
                         "external-provider-unavailable-gate-failed"
                     MODE_EXTERNAL_PROVIDER_REARM ->
                         "external-provider-rearm-gate-failed"
+                    MODE_AUTO_ARTWORK_GATE -> "auto-artwork-gate-failed"
                     MODE_TEN_K_HEAVY -> "heavy-gate-failed"
                     MODE_TEN_K_UNKNOWN -> "unknown-gate-failed"
                     MODE_AUTO_QUERY_LANE -> "query-lane-gate-failed"
@@ -1676,6 +1688,7 @@ class LibraryAutoSyncQaProfileService : Service() {
         const val MODE_EXTERNAL_PROVIDER_BASELINE = "EXTERNAL_PROVIDER_BASELINE"
         const val MODE_EXTERNAL_PROVIDER_UNAVAILABLE = "EXTERNAL_PROVIDER_UNAVAILABLE"
         const val MODE_EXTERNAL_PROVIDER_REARM = "EXTERNAL_PROVIDER_REARM"
+        const val MODE_AUTO_ARTWORK_GATE = "AUTO_ARTWORK_GATE"
         const val MODE_AUTO_QUERY_LANE = "AUTO_QUERY_LANE"
         const val MODE_ROOM_ATOMICITY = "ROOM_ATOMICITY"
         const val MODE_ROOM_PUBLICATION_10K = "ROOM_PUBLICATION_10K"

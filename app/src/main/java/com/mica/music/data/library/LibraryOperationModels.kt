@@ -63,10 +63,12 @@ internal enum class LibraryOperationCause {
     FOREGROUND_CATCH_UP,
     PLAYBACK_IO_RELEASE,
     DEVICE_RETRY_DUE,
+    SAF_TREE_DIRTY,
     SAF_PERIODIC_VERIFY,
     SAF_BUDGET_CONTINUATION,
     SAF_RETRY_DUE,
     TAG_EDITOR_RETURN,
+    AUTO_ARTWORK_HYDRATE,
     LOCAL_USER_DELETE,
     ARTWORK_REPAIR,
 }
@@ -267,9 +269,9 @@ internal sealed interface LibraryOperationRequest {
 
     data class TargetedRefresh(
         val songIds: Set<String>,
+        override val cause: LibraryOperationCause = LibraryOperationCause.TAG_EDITOR_RETURN,
     ) : LibraryOperationRequest {
         override val mode = LibraryOperationMode.TARGETED_REFRESH
-        override val cause = LibraryOperationCause.TAG_EDITOR_RETURN
     }
 
     data class ArtworkRepair(
