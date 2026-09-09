@@ -156,6 +156,15 @@ class PlaybackUiPreferencesRobolectricTest {
     }
 
     @Test
+    fun autoPlayOnLaunchDefaultsOffAndRoundTrips() {
+        assertEquals(false, PlaybackUiPreferences.autoPlayOnLaunch(context))
+
+        PlaybackUiPreferences.setAutoPlayOnLaunch(context, true)
+
+        assertEquals(true, PlaybackUiPreferences.autoPlayOnLaunch(context))
+    }
+
+    @Test
     fun miniPlayerLyricsEnabledRoundTrips() {
         assertTrue(PlaybackUiPreferences.miniPlayerLyricsEnabled(context))
 

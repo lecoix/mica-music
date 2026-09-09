@@ -98,7 +98,7 @@ Capacity boundary: scan-time text candidates are capped at 1,000,000 characters 
 - 耳机/蓝牙断开必须暂停，禁止切到扬声器继续播放。
 - 划掉 Activity 后播放应继续并可从通知控制。
 - 暂停后划掉任务并重新打开应用，MediaController 必须重新连接 Service。
-- Service 重启后必须按歌曲 ID 恢复队列中的当前曲和位置；恢复状态必须为暂停，即使持久化时 `playWhenReady=true`。
+- Service 重启后必须按歌曲 ID 恢复队列中的当前曲和位置；恢复状态必须为暂停，即使持久化时 `playWhenReady=true`。`auto_play_on_launch` 默认关闭；开启时由 App `PlaybackRuntime` 在队列就绪后额外请求一次播放，不得改写 Service 恢复契约。
 - repeat/shuffle 必须从 MediaSession 恢复并反映到 UI，Activity/ViewModel 不得用默认模式覆盖。
 - 旧 request 的 prepared、position、playing、ended 和 error 回调不得改变当前 Service request。
 - 插入、移动、删除队列项后，通知 timeline、当前索引和自然下一首顺序必须一致。

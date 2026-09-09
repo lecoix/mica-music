@@ -116,6 +116,7 @@ object PlaybackUiPreferences {
     private const val KEY_HI_RES_BADGE_STYLE = "hi_res_badge_style"
     private const val KEY_HI_RES_BADGE_CUSTOM_IMAGE_PATH = "hi_res_badge_custom_image_path"
     private const val KEY_AUDIO_FOCUS_ENABLED = "audio_focus_enabled"
+    private const val KEY_AUTO_PLAY_ON_LAUNCH = "auto_play_on_launch"
 
     fun playerLowerBackground(context: Context): PlayerLowerBackgroundMode =
         PlayerLowerBackgroundMode.fromStorage(
@@ -538,6 +539,15 @@ object PlaybackUiPreferences {
     fun setAudioFocusEnabled(context: Context, enabled: Boolean) {
         MicaSettingsStore.prefs(context).edit()
             .putBoolean(KEY_AUDIO_FOCUS_ENABLED, enabled)
+            .apply()
+    }
+
+    fun autoPlayOnLaunch(context: Context): Boolean =
+        MicaSettingsStore.prefs(context).getBoolean(KEY_AUTO_PLAY_ON_LAUNCH, false)
+
+    fun setAutoPlayOnLaunch(context: Context, enabled: Boolean) {
+        MicaSettingsStore.prefs(context).edit()
+            .putBoolean(KEY_AUTO_PLAY_ON_LAUNCH, enabled)
             .apply()
     }
 

@@ -20,6 +20,8 @@ import com.mica.music.media.PlaybackOutputStatus
 import com.mica.music.data.playback.ServiceExternalSongSnapshot
 import com.mica.music.data.playback.ServicePlaybackSnapshot
 import com.mica.music.data.playback.ServicePlaybackStateStore
+import com.mica.music.data.preferences.PlaybackUiPreferences
+import com.mica.music.data.preferences.PreferencesTestFixtures
 import com.mica.music.media.SongMediaItemCodec
 import com.mica.music.testutil.SongFixtures
 import io.mockk.clearMocks
@@ -71,6 +73,116 @@ class PlayerControllerBoundaryTest {
         verify(exactly = 1) { mediaController.play() }
         assertEquals(song.id, controller.playbackSurfaceState.currentSong?.id)
         controller.release()
+    }
+
+    @Test
+    fun autoPlayOnLaunchRequestsPlayOnceWhenRestoredQueueIsReady() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        PreferencesTestFixtures.clearMicaSettings(context)
+        PlaybackUiPreferences.setAutoPlayOnLaunch(context, true)
+        try {
+            val connector = FakeConnector()
+            val controller = controller(connector = connector)
+            val mediaController = mockk<MediaController>(relaxed = true)
+            val listener = slot<Player.Listener>()
+            val song = SongFixtures.song("launch")
+            val item = MediaItem.Builder().setMediaId(song.id).build()
+            every { mediaController.addListener(capture(listener)) } returns Unit
+            every { mediaController.currentMediaItem } returns item
+            every { mediaController.currentMediaItemIndex } returns 0
+            every { mediaController.mediaItemCount } returns 1
+            every { mediaController.playbackState } returns Player.STATE_READY
+            every { mediaController.playWhenReady } returns false
+            every { mediaController.isPlaying } returns false
+            every { mediaController.getMediaItemAt(0) } returns item
+
+            controller.setQueue(listOf(song))
+            controller.connectIfNeeded()
+            connector.requests.single().onConnected(mediaController)
+
+            verify(exactly = 1) { mediaController.play() }
+
+            listener.captured.onTimelineChanged(
+                mockk(relaxed = true),
+                Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED,
+            )
+
+            verify(exactly = 1) { mediaController.play() }
+            controller.release()
+        } finally {
+            PreferencesTestFixtures.clearMicaSettings(context)
+        }
+    }
+
+    @Test
+    fun autoPlayOnLaunchWaitsForServiceRestoreThenPlays() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        PreferencesTestFixtures.clearMicaSettings(context)
+        PlaybackUiPreferences.setAutoPlayOnLaunch(context, true)
+        try {
+            val connector = FakeConnector()
+            val controller = controller(connector = connector)
+            val mediaController = mockk<MediaController>(relaxed = true)
+            val listener = slot<Player.Listener>()
+            val song = SongFixtures.song("delayed-restore")
+            val item = MediaItem.Builder().setMediaId(song.id).build()
+            every { mediaController.addListener(capture(listener)) } returns Unit
+            every { mediaController.currentMediaItem } returns null
+            every { mediaController.mediaItemCount } returns 0
+            every { mediaController.playbackState } returns Player.STATE_IDLE
+            every { mediaController.playWhenReady } returns false
+            every { mediaController.isPlaying } returns false
+
+            controller.connectIfNeeded()
+            connector.requests.single().onConnected(mediaController)
+
+            verify(exactly = 0) { mediaController.play() }
+
+            every { mediaController.currentMediaItem } returns item
+            every { mediaController.currentMediaItemIndex } returns 0
+            every { mediaController.mediaItemCount } returns 1
+            every { mediaController.playbackState } returns Player.STATE_READY
+            every { mediaController.getMediaItemAt(0) } returns item
+            listener.captured.onTimelineChanged(
+                mockk(relaxed = true),
+                Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED,
+            )
+
+            verify(exactly = 1) { mediaController.play() }
+            controller.release()
+        } finally {
+            PreferencesTestFixtures.clearMicaSettings(context)
+        }
+    }
+
+    @Test
+    fun autoPlayOnLaunchStaysOffByDefault() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        PreferencesTestFixtures.clearMicaSettings(context)
+        try {
+            val connector = FakeConnector()
+            val controller = controller(connector = connector)
+            val mediaController = mockk<MediaController>(relaxed = true)
+            val song = SongFixtures.song("launch-off")
+            val item = MediaItem.Builder().setMediaId(song.id).build()
+            every { mediaController.addListener(any()) } returns Unit
+            every { mediaController.currentMediaItem } returns item
+            every { mediaController.currentMediaItemIndex } returns 0
+            every { mediaController.mediaItemCount } returns 1
+            every { mediaController.playbackState } returns Player.STATE_READY
+            every { mediaController.playWhenReady } returns false
+            every { mediaController.isPlaying } returns false
+            every { mediaController.getMediaItemAt(0) } returns item
+
+            controller.setQueue(listOf(song))
+            controller.connectIfNeeded()
+            connector.requests.single().onConnected(mediaController)
+
+            verify(exactly = 0) { mediaController.play() }
+            controller.release()
+        } finally {
+            PreferencesTestFixtures.clearMicaSettings(context)
+        }
     }
 
     @Test

@@ -21,6 +21,7 @@ import com.mica.music.media.PlaybackRouter
 import com.mica.music.media.PlaybackOutputStatus
 import com.mica.music.media.PlaybackShuffleSessionCommand
 import com.mica.music.data.playback.ServicePlaybackStateStore
+import com.mica.music.data.preferences.PlaybackUiPreferences
 import com.mica.music.media.SongMediaItemCodec
 import com.mica.music.media.MusicVideoPlaybackPolicyCodec
 import com.mica.music.util.DiagnosticLog
@@ -491,6 +492,8 @@ internal class PlaybackRuntime(
     private var pendingQueue: List<Song>? = null
     private var pendingSingleSongId: String? = null
     private var pendingQueuePlaySongId: String? = null
+    private var autoPlayOnLaunchConsumed = false
+    private var handlingConnection = false
     private val playbackStatistics = PlaybackStatisticsTracker(
         monotonicNowMs = monotonicNowMs,
         onListenSecondsAdded = listenSecondsSink,
@@ -532,6 +535,7 @@ internal class PlaybackRuntime(
             override fun onTimelineChanged(timeline: Timeline, reason: Int) {
                 if (!isCurrentConnection()) return
                 if (c.mediaItemCount <= 0) return
+                if (!handlingConnection) maybeAutoPlayOnLaunch()
                 val fallbackSong = c.currentMediaItem?.let(SongMediaItemCodec::decode)
                 val fallbackRevision = c.currentMediaItem
                     ?.let(MusicVideoPlaybackPolicyCodec::fallbackRevision)
@@ -772,42 +776,71 @@ internal class PlaybackRuntime(
         }
 
     private fun onConnected(c: MediaController) {
-        val queuedPlaySongId = pendingQueuePlaySongId
-        val queuedForPlay = pendingQueue.takeIf { queuedPlaySongId != null }
-        if (queuedForPlay != null && queuedPlaySongId != null) {
-            pendingQueue = null
-            pendingQueuePlaySongId = null
-            val targetIndex = queuedForPlay.indexOfFirst { it.id == queuedPlaySongId }
-            if (targetIndex >= 0) playSong(targetIndex, forceQueuePayload = true)
-        } else {
-            pendingQueue?.let {
-                applyQueue(
-                    c = c,
-                    newQueue = it,
-                    preservePlayback = true,
-                    startPositionMs = timelineCoordinator.pendingRestorePosition()?.toLong() ?: 0L,
-                )
+        handlingConnection = true
+        try {
+            val queuedPlaySongId = pendingQueuePlaySongId
+            val queuedForPlay = pendingQueue.takeIf { queuedPlaySongId != null }
+            if (queuedForPlay != null && queuedPlaySongId != null) {
                 pendingQueue = null
+                pendingQueuePlaySongId = null
+                val targetIndex = queuedForPlay.indexOfFirst { it.id == queuedPlaySongId }
+                if (targetIndex >= 0) playSong(targetIndex, forceQueuePayload = true)
+            } else {
+                pendingQueue?.let {
+                    applyQueue(
+                        c = c,
+                        newQueue = it,
+                        preservePlayback = true,
+                        startPositionMs = timelineCoordinator.pendingRestorePosition()?.toLong() ?: 0L,
+                    )
+                    pendingQueue = null
+                }
             }
+            pendingSingleSongId?.let { songId ->
+                pendingSingleSongId = null
+                playSongById(songId)
+            }
+            restorePersistedShuffleStateOnConnect(c)
+            syncPlaybackQueueModeFromPlayer(c)
+            syncIndexFromPlayer(c)
+            val playerTuning = PlaybackTuning.fromPlaybackParameters(c.playbackParameters)
+            tuningCoordinator.onConnected(
+                reported = playerTuning,
+                tuningAvailable = playbackTuningAvailableFor(currentSong),
+            )?.let { target -> c.setPlaybackParameters(target.toPlaybackParameters()) }
+            playbackStatistics.reset(c.currentMediaItem?.mediaId)
+            isPlaying = c.isPlaying
+            playbackStatistics.observePlayback(c.currentMediaItem?.mediaId, c.isPlaying)
+            timelineCoordinator.updatePlayerDuration(c.duration)
+            syncPosition()
+            publishPlaybackStates()
+            maybeAutoPlayOnLaunch()
+        } finally {
+            handlingConnection = false
         }
-        pendingSingleSongId?.let { songId ->
-            pendingSingleSongId = null
-            playSongById(songId)
+    }
+
+    private fun maybeAutoPlayOnLaunch() {
+        if (autoPlayOnLaunchConsumed) return
+        if (pendingSingleSongId != null || pendingQueuePlaySongId != null) {
+            autoPlayOnLaunchConsumed = true
+            return
         }
-        restorePersistedShuffleStateOnConnect(c)
-        syncPlaybackQueueModeFromPlayer(c)
-        syncIndexFromPlayer(c)
-        val playerTuning = PlaybackTuning.fromPlaybackParameters(c.playbackParameters)
-        tuningCoordinator.onConnected(
-            reported = playerTuning,
-            tuningAvailable = playbackTuningAvailableFor(currentSong),
-        )?.let { target -> c.setPlaybackParameters(target.toPlaybackParameters()) }
-        playbackStatistics.reset(c.currentMediaItem?.mediaId)
-        isPlaying = c.isPlaying
-        playbackStatistics.observePlayback(c.currentMediaItem?.mediaId, c.isPlaying)
-        timelineCoordinator.updatePlayerDuration(c.duration)
-        syncPosition()
-        publishPlaybackStates()
+        val c = controller ?: return
+        if (c.mediaItemCount <= 0 || c.currentMediaItem == null) return
+        autoPlayOnLaunchConsumed = true
+        if (!PlaybackUiPreferences.autoPlayOnLaunch(appCtx)) return
+        if (c.playWhenReady || c.isPlaying) return
+        playbackError = null
+        releasePendingRestorePosition(c.currentMediaItem?.mediaId)
+        DiagnosticLog.event(
+            "Player",
+            "auto-play-on-launch song=${c.currentMediaItem?.mediaId}",
+        )
+        if (c.playbackState == Player.STATE_ENDED) {
+            c.seekTo(c.currentMediaItemIndex.coerceAtLeast(0), 0L)
+        }
+        c.play()
     }
 
     private fun onControllerDisconnected(disconnectedController: MediaController?) {
@@ -1055,6 +1088,7 @@ internal class PlaybackRuntime(
             syncQueueToService(active, index, snapshot.positionMs, preserveCurrentPlayback = false)
             active.seekTo(index, snapshot.positionMs)
         }
+        maybeAutoPlayOnLaunch()
         return true
     }
 

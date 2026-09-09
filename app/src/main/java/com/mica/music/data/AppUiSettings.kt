@@ -348,6 +348,9 @@ class AppUiSettings(context: Context) {
     var audioFocusEnabled by mutableStateOf(PlaybackUiPreferences.audioFocusEnabled(appContext))
         private set
 
+    var autoPlayOnLaunch by mutableStateOf(PlaybackUiPreferences.autoPlayOnLaunch(appContext))
+        private set
+
     var songListInfoVisibility by mutableStateOf(PlaybackUiPreferences.songListInfoVisibility(appContext))
         private set
 
@@ -934,6 +937,11 @@ class AppUiSettings(context: Context) {
     fun updateAudioFocusEnabled(enabled: Boolean) {
         audioFocusEnabled = enabled
         PlaybackUiPreferences.setAudioFocusEnabled(appContext, enabled)
+    }
+
+    fun updateAutoPlayOnLaunch(enabled: Boolean) {
+        autoPlayOnLaunch = enabled
+        PlaybackUiPreferences.setAutoPlayOnLaunch(appContext, enabled)
     }
 
     fun updateSongListInfoVisibility(visibility: SongListInfoVisibility) {

@@ -16,7 +16,7 @@
 - [x] 扫描进度与错误展示；扫描前清理 `lyrics_probe` 等临时缓存
 - [x] 歌曲列表 **排序**（字段 + 升/降序；`SharedPreferences` 持久化，统计栏显示「标题 · 升序」等）
 - [x] 播放次数记录（`PlayHistoryStore`，供「最近播放」等）
-- [x] **播放会话恢复**：`ServicePlaybackStateStore` 持久化完整队列与进度；冷启动 `PlayerController.bootstrapQueue()` 恢复当前曲与位置（不自动续播）。`PlaybackSessionStore` 仍写入 shuffle 等 App 偏好
+- [x] **播放会话恢复**：`ServicePlaybackStateStore` 持久化完整队列与进度；冷启动 `PlayerController.bootstrapQueue()` 恢复当前曲与位置（默认不自动续播；`auto_play_on_launch` 可让打开应用后请求一次播放）。`PlaybackSessionStore` 仍写入 shuffle 等 App 偏好
 - [x] 文件夹浏览模式：层级浏览与**扁平浏览**均已持久化；扁平模式只列出直接包含歌曲的目录，不把仅包含子目录的父目录重复列出
 - [x] **歌单持久化迁移到 Room**：`playlists` / `playlist_songs`（当前 schema v21）；旧 `mica_playlists` JSON 首次启动一次性迁移，写库成功后才更新内存
 

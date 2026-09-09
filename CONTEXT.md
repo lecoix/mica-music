@@ -54,7 +54,7 @@ _Avoid_: 把主题、播放页、歌词页、EQ 等非扫描偏好塞进此门�
 _Avoid_: 在 Home 或 catalog 内直接读 `SharedPreferences`
 
 **Playback UI preferences（播放页 UI 偏好）**：
-`PlaybackUiPreferences`：播放页背景、迷你栏、封面行为、粒子参数、频谱资格相关开关、折叠歌词行数、列表/播放页信息可见性、常亮与沉浸等。`AppUiSettings` 的 playback 字段与媒体侧 `SpectrumAnalyzerStateOwner` 经此读取。
+`PlaybackUiPreferences`：播放页背景、迷你栏、封面行为、粒子参数、频谱资格相关开关、折叠歌词行数、列表/播放页信息可见性、常亮与沉浸等。也承载少量非 UI 播放行为：`audioFocusEnabled`、`autoPlayOnLaunch`。`AppUiSettings` 的 playback 字段与媒体侧 `SpectrumAnalyzerStateOwner` 经此读取。
 _Avoid_: 在 Service 或 Composable 内散落读取 mini player / spectrum key
 
 **Wallpaper viewport state（壁纸视口状态）**：
@@ -165,7 +165,7 @@ _Avoid_: 把统计持久化绑到 `MainViewModel` / `MusicLibrary.ioScope`；仅
 _Avoid_: 在 `PlayerController` 内维护与服务等长的并行队列并驱动出声
 
 **ServicePlaybackStateStore（服务播放状态存储）**：
-服务侧权威持久化：完整队列 `songId` 顺序、当前曲 ID、索引、进度毫秒、repeat/shuffle、`playWhenReady`、音质模式等 JSON 快照；由 `ServicePlaybackStateCoordinator` 刷盘。只持久化重启后可恢复的队列：临时外部歌曲必须具有可存续的 URI 权限（MediaStore authority 或已持久化 grant），否则整条临时队列不落盘。冷启动 `PlayerController.bootstrapQueue()` 的**主数据源**（service_wins），恢复后**不**自动开始播放。
+服务侧权威持久化：完整队列 `songId` 顺序、当前曲 ID、索引、进度毫秒、repeat/shuffle、`playWhenReady`、音质模式等 JSON 快照；由 `ServicePlaybackStateCoordinator` 刷盘。只持久化重启后可恢复的队列：临时外部歌曲必须具有可存续的 URI 权限（MediaStore authority 或已持久化 grant），否则整条临时队列不落盘。冷启动 `PlayerController.bootstrapQueue()` 的**主数据源**（service_wins），Service 恢复后默认**不**自动开始播放。若 `PlaybackUiPreferences.autoPlayOnLaunch` 开启，App 在本次进程首次出现可播当前曲后请求一次 `play()`；外部点播等显式播放意图优先，回到前台不重复触发。
 _Avoid_: 在 App 侧另存一套与服务等长的队列并当作恢复真相源
 
 **PlaybackSession（播放会话）** / **PlaybackSessionStore**：

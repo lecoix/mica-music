@@ -103,6 +103,7 @@
 | 艺术家分割 | `LibraryBrowseSettings` / `artist_split_*` | 艺术家名称归一化和曲库分组 | `ACTIVE` | 放入“曲库解析”详情 |
 | 歌词优先级 | `LyricsPreferences` / `lyrics_slot_priority` | 歌词读取链路选择 TTML/LRC/内嵌槽位 | `ACTIVE` | 从“高级”移入“歌词来源” |
 | 独占音频焦点 | `PlaybackUiPreferences` / `audio_focus_enabled` | `ExoPlaybackStack` 在开始播放前重新应用 | `ACTIVE` | 移入“音频与设备”；保留下次开始播放生效说明 |
+| 启动时自动播放 | `PlaybackUiPreferences` / `auto_play_on_launch` | `PlaybackRuntime` 在本次进程首次出现可播当前曲后请求 `play()`；Service 恢复队列仍为暂停 | `ACTIVE` | 默认关闭；外部点播优先；回到前台不重复触发 |
 | 音频硬件卸载（Offload） | `AudioOffloadPreferences` / `audio_offload_enabled`、`audio_offload_verified_failure_build` | HIFI 且 EQ/频谱不需要 PCM 时允许；实际 offload 失速后一次性切回 PCM，恢复确认后按系统 fingerprint 自动关闭 | `ACTIVE` | 放入“诊断与系统”；默认开启，明确显示内置或本机故障禁用原因，用户可手动重试 |
 | 元数据调试 | 无普通用户偏好；导航到 `MetadataDebug` | 逐首诊断页面 | `INTERNAL` | 从用户设置中分离到“诊断”或保留隐藏入口 |
 | 系统空间音频 | 无普通用户偏好；导航到 `SpatialAudio` | 读取系统 Spatializer/输出能力 | `INTERNAL` | 属于诊断工具，不应和偏好开关混排 |
