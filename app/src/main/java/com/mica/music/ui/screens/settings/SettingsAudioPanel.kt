@@ -52,7 +52,7 @@ internal fun AudioSettingsPanel(
     SettingsSectionTitle("音频标准化")
     SettingsChoiceRow(
         title = "ReplayGain",
-        subtitle = "优先使用文件标签；按曲目缺少标签时使用 Mica 响度分析数据",
+        subtitle = "优先文件标签；缺失时使用 Mica 响度分析",
         choices = ReplayGainChoices,
         selectedValue = replayGainMode.ordinal,
         onSelect = { ordinal ->
@@ -93,11 +93,17 @@ internal fun AudioSettingsPanel(
     )
     SettingsNavigationRow(
         title = "音效实验室",
-        subtitle = "立体声宽度、音色、混响与 360° 环绕；湿比和环绕强度为 0 即关",
+        subtitle = "立体声宽度、音色、混响与 360° 环绕",
         onClick = onOpenSoundFx,
     )
 
     SettingsSectionTitle("播放行为")
+    SettingsToggleRow(
+        title = "启动时自动播放",
+        subtitle = "打开应用后从上次队列继续播放；回到前台不会再触发",
+        checked = uiSettings.autoPlayOnLaunch,
+        onCheckedChange = uiSettings::updateAutoPlayOnLaunch,
+    )
     SettingsToggleRow(
         title = "独占音频焦点",
         subtitle = "开启时播放会让其他应用暂停；关闭后允许与其他应用一起播放",

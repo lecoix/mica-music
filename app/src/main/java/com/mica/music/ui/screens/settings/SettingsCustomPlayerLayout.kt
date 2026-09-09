@@ -175,7 +175,6 @@ internal fun CustomPlayerLayoutEditor(
 
     SettingsActionRow(
         title = "恢复标准布局",
-        subtitle = "恢复默认顺序、大小、间距、边界留白和显示状态",
         onClick = { onChange(PlayerLowerLayoutConfig.Default) },
     )
 }

@@ -78,7 +78,7 @@ internal fun LyricsSettingsPanel(
 
     SettingsChoiceRow(
         title = "歌词页主题",
-        subtitle = "歌词云与信笺会隐藏标题、进度条和播放按钮，让整页用于显示歌词",
+        subtitle = "歌词云与信笺会隐藏播放控件",
         choices = LyricsPageThemeChoices,
         selectedValue = uiSettings.lyricsPageTheme.ordinal,
         onSelect = { ordinal ->
@@ -88,7 +88,7 @@ internal fun LyricsSettingsPanel(
 
     SettingsDropdownRow(
         title = "歌词优先级",
-        subtitle = "按顺序选择已扫描的歌词；缺少前一项时自动使用下一项",
+        subtitle = "缺少首选时自动使用下一项",
         choices = LyricsPriorityChoices.mapIndexed { index, (_, label) -> index to label },
         selectedValue = LyricsPriorityChoices.indexOfFirst {
             it.first == uiSettings.lyricsSlotPriority
@@ -118,7 +118,7 @@ internal fun LyricsSettingsPanel(
 
         SettingsActionRow(
             title = "恢复默认印章",
-            subtitle = "恢复应用内置朱印，不改变大小、浓度和旋转",
+            subtitle = "保留大小、浓度和旋转设置",
             enabled = uiSettings.letterSealCustomImagePath != null,
             onClick = {
                 AppLetterSealImporter.clearSeal(context)
@@ -159,11 +159,24 @@ internal fun LyricsSettingsPanel(
         onClick = { showGlobalLyricsOffset = true },
     )
 
-    SettingsToggleRow(
-        title = "分割双语歌词",
-        subtitle = "将含细空格（U+2009 等）或 //、／ 的行拆成上下两行；关闭后每行 LRC 保持一行",
-        checked = uiSettings.lyricSplitEnabled,
-        onCheckedChange = { uiSettings.updateLyricSplitEnabled(it) },
+    val bilingualLyricsMode = if (uiSettings.lyricSplitEnabled) {
+        uiSettings.lyricsBilingualDisplayMode.ordinal + 1
+    } else {
+        0
+    }
+    SettingsChoiceRow(
+        title = "双语歌词",
+        subtitle = if (bilingualLyricsMode == 0) null else "将同行双语歌词拆成上下两行",
+        choices = BilingualLyricsModeChoices,
+        selectedValue = bilingualLyricsMode,
+        onSelect = { mode ->
+            uiSettings.updateLyricSplitEnabled(mode != 0)
+            if (mode != 0) {
+                uiSettings.updateLyricsBilingualDisplayMode(
+                    LyricsBilingualDisplayMode.entries[mode - 1],
+                )
+            }
+        },
     )
 
     if (showGlobalLyricsOffset) {
@@ -176,26 +189,15 @@ internal fun LyricsSettingsPanel(
 
     SettingsToggleRow(
         title = "显示读音 / 罗马音",
-        subtitle = "歌词文件自带读音时显示在原文上方（TTML x-roman* / Apple transliterations；LRC/SPL 同戳三行或主行后罗马音行）",
+        subtitle = "歌词自带读音时显示在原文上方",
         checked = uiSettings.lyricReadingEnabled,
         onCheckedChange = { uiSettings.updateLyricReadingEnabled(it) },
     )
 
-    SettingsChoiceRow(
-        title = "双语歌词显示",
-        subtitle = "仅在分割双语歌词开启、且当前歌词行可拆分时生效",
-        choices = LyricsBilingualDisplayChoices,
-        selectedValue = uiSettings.lyricsBilingualDisplayMode.ordinal,
-        onSelect = { ordinal ->
-            uiSettings.updateLyricsBilingualDisplayMode(
-                LyricsBilingualDisplayMode.entries[ordinal],
-            )
-        },
-    )
 
     SettingsChoiceRow(
         title = "歌词颜色",
-        subtitle = "动态取色：稳定主色 + 语义色阶（浅色更鲜艳）；自动：随背景判断黑白",
+        subtitle = "动态取色跟随歌曲；自动模式按背景选择黑白",
         choices = LyricsPageTextColorChoices,
         selectedValue = uiSettings.lyricsPageTextColorMode.ordinal,
         onSelect = { ordinal ->
@@ -207,22 +209,25 @@ internal fun LyricsSettingsPanel(
 
     SettingsSectionTitle("歌词输出")
 
-    SettingsToggleRow(
-        title = "信息行歌词",
-        subtitle = "播放时在列表信息行显示当前歌词；暂停或无歌词时仍显示列表信息",
-        checked = uiSettings.infoRowLyricsEnabled,
-        onCheckedChange = { uiSettings.updateInfoRowLyricsEnabled(it) },
-    )
-
-    if (uiSettings.infoRowLyricsEnabled) {
-        SettingsToggleRow(
-            title = "信息行逐字歌词",
-            subtitle = "开启后以柔边逐字填充显示，且仅显示原文；无逐字时间轴时回退为整行",
-            checked = uiSettings.infoRowWordLyricsEnabled,
-            onCheckedChange = { uiSettings.updateInfoRowWordLyricsEnabled(it) },
-        )
+    val infoRowLyricsMode = when {
+        !uiSettings.infoRowLyricsEnabled -> 0
+        uiSettings.infoRowWordLyricsEnabled -> 2
+        else -> 1
     }
-
+    SettingsChoiceRow(
+        title = "信息行歌词",
+        subtitle = when (infoRowLyricsMode) {
+            0 -> null
+            2 -> "仅原文；无逐字时间轴时显示整行"
+            else -> "暂停或无歌词时恢复列表信息"
+        },
+        choices = InfoRowLyricsModeChoices,
+        selectedValue = infoRowLyricsMode,
+        onSelect = { mode ->
+            uiSettings.updateInfoRowLyricsEnabled(mode != 0)
+            uiSettings.updateInfoRowWordLyricsEnabled(mode == 2)
+        },
+    )
     SettingsToggleRow(
         title = "通知栏歌词",
         subtitle = "主位显示歌词，副位显示歌名与歌手；车载蓝牙兼容为实验功能",
@@ -232,14 +237,14 @@ internal fun LyricsSettingsPanel(
 
     SettingsToggleRow(
         title = "词幕歌词",
-        subtitle = "向词幕提供当前歌词，支持逐字、翻译与罗马音；关闭后注销 Mica 歌词提供者",
+        subtitle = "提供逐字、翻译与罗马音",
         checked = uiSettings.lyriconLyricsEnabled,
         onCheckedChange = { uiSettings.updateLyriconLyricsEnabled(it) },
     )
 
     SettingsActionRow(
         title = "外部歌词",
-        subtitle = "当前：${uiSettings.externalLyricsMode.settingsLabel}；桌面歌词与状态栏歌词设置",
+        subtitle = "当前：${uiSettings.externalLyricsMode.settingsLabel}",
         onClick = onOpenExternalLyrics,
     )
 
@@ -250,7 +255,7 @@ internal fun LyricsSettingsPanel(
 
         SettingsChoiceRow(
             title = "逐字动画",
-            subtitle = "用于经典列表及歌词云不可用时的回退页面；仅影响带有真实逐字时间轴的歌词",
+            subtitle = "仅作用于真实逐字歌词",
             choices = LyricsWordAnimationPresetChoices,
             selectedValue = uiSettings.lyricsWordAnimationPreset.ordinal,
             onSelect = { ordinal ->
@@ -260,7 +265,7 @@ internal fun LyricsSettingsPanel(
 
         SettingsToggleRow(
             title = "强制使用逐字歌词样式",
-            subtitle = "用于经典列表与播放页迷你歌词；没有逐字时间轴时，当前句按播放进度从左到右填充",
+            subtitle = "无逐字时间轴时按播放进度填充当前句",
             checked = uiSettings.lyricLineFillEnabled,
             onCheckedChange = { uiSettings.updateLyricLineFillEnabled(it) },
         )
@@ -300,7 +305,7 @@ internal fun LyricsSettingsPanel(
 
         SettingsToggleRow(
             title = "歌词页沉浸模式",
-            subtitle = "开启后歌词页隐藏进度条和底部五个按钮；在歌词页长按播放按钮也可切换",
+            subtitle = "隐藏进度条与底部控件",
             checked = uiSettings.lyricsPageImmersive,
             onCheckedChange = { uiSettings.updateLyricsPageImmersive(it) },
         )
@@ -310,20 +315,27 @@ internal fun LyricsSettingsPanel(
 
     SettingsSectionTitle("字体")
 
-    SettingsActionRow(
+    SettingsChoiceRow(
         title = "歌词字体",
-        subtitle = "当前：${uiSettings.lyricFont.settingsLabel}；点击导入 TTF / OTF 字体",
-        onClick = { fontPicker.launch(arrayOf("*/*")) },
-    )
-
-    SettingsActionRow(
-        title = "清除导入字体",
-        subtitle = "回到系统默认歌词字体",
-        enabled = uiSettings.lyricFont.source == AppFontSource.IMPORTED,
-        onClick = {
-            AppFontImporter.clearLyricFont(context)
-            uiSettings.updateLyricFont(AppFontSelection.SystemDefault)
-            Toast.makeText(context, "已恢复系统默认歌词字体", Toast.LENGTH_SHORT).show()
+        subtitle = if (uiSettings.lyricFont.source == AppFontSource.IMPORTED) {
+            "当前：${uiSettings.lyricFont.settingsLabel} · 支持 TTF / OTF"
+        } else {
+            "支持 TTF / OTF"
+        },
+        choices = if (uiSettings.lyricFont.source == AppFontSource.IMPORTED) {
+            listOf(
+                AppFontSource.SYSTEM.ordinal to AppFontSource.SYSTEM.settingsLabel,
+                AppFontSource.IMPORTED.ordinal to "重新导入…",
+            )
+        } else {
+            FontSourceChoices
+        },
+        selectedValue = uiSettings.lyricFont.source.ordinal,
+        onSelect = { source ->
+            when (AppFontSource.entries[source]) {
+                AppFontSource.SYSTEM -> uiSettings.updateLyricFont(AppFontSelection.SystemDefault)
+                AppFontSource.IMPORTED -> fontPicker.launch(arrayOf("*/*"))
+            }
         },
     )
 }

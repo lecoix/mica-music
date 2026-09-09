@@ -19,10 +19,9 @@ import com.mica.music.data.PlaylistSidebarStyle
 import com.mica.music.data.StatusBarVisibilityMode
 import com.mica.music.ui.components.SettingsActionRow
 import com.mica.music.ui.components.SettingsChoiceRow
-import com.mica.music.ui.components.SettingsDropdownRow
+import com.mica.music.ui.components.SettingsPairedDropdownRow
 import com.mica.music.ui.components.SettingsSectionTitle
 import com.mica.music.ui.components.SettingsSliderRow
-import com.mica.music.ui.components.SettingsToggleRow
 import com.mica.music.ui.screens.settings.color.formatAccentHex
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.MicaPreset
@@ -110,9 +109,9 @@ internal fun AppearanceSettingsPanel(
     SettingsActionRow(
         title = "自定义壁纸",
         subtitle = if (uiSettings.customWallpaperPath == null) {
-            "选择图片后进入裁切；点应用后替换主界面背景"
+            "选择并裁切图片"
         } else {
-            "已启用；重新选择会先裁切，播放页与歌词页不受影响"
+            "已启用 · 不影响播放页与歌词页"
         },
         onClick = {
             wallpaperPicker.launch(
@@ -133,7 +132,7 @@ internal fun AppearanceSettingsPanel(
 
         SettingsSliderRow(
             title = "壁纸模糊度",
-            subtitle = "0dp 为不模糊；当前范围为 0–32dp",
+            subtitle = "0dp 为关闭",
             value = uiSettings.customWallpaperBlurDp,
             valueRange = 0..32,
             suffix = "dp",
@@ -142,14 +141,13 @@ internal fun AppearanceSettingsPanel(
 
         SettingsActionRow(
             title = "调整壁纸裁切",
-            subtitle = "拖动移动，双指缩放；参数保存后持续生效",
+            subtitle = "拖动移动 · 双指缩放",
             onClick = onShowCustomWallpaperCrop,
         )
     }
 
     SettingsActionRow(
         title = "恢复默认壁纸",
-        subtitle = "回到当前云母背景",
         enabled = uiSettings.customWallpaperPath != null,
         onClick = {
             scope.launch {
@@ -161,7 +159,7 @@ internal fun AppearanceSettingsPanel(
 
     SettingsChoiceRow(
         title = "侧栏歌单样式",
-        subtitle = "侧栏逐个显示歌单，或进入歌单总览页管理歌单",
+        subtitle = "直接显示歌单，或进入歌单总览",
         choices = PlaylistSidebarStyleChoices,
         selectedValue = uiSettings.playlistSidebarStyle.ordinal,
         onSelect = { ordinal ->
@@ -171,7 +169,7 @@ internal fun AppearanceSettingsPanel(
 
     SettingsChoiceRow(
         title = "隐藏状态栏",
-        subtitle = "按页面选择隐藏范围；隐藏后可从屏幕顶部下滑临时唤出",
+        subtitle = "隐藏后可从顶部下滑临时唤出",
         choices = StatusBarVisibilityModeChoices,
         selectedValue = uiSettings.statusBarVisibilityMode.ordinal,
         onSelect = { ordinal ->
@@ -192,52 +190,59 @@ internal fun AppearanceSettingsPanel(
         },
     )
 
-    SettingsToggleRow(
+    val miniLyricsMode = when {
+        !uiSettings.miniPlayerLyricsEnabled -> 0
+        uiSettings.miniPlayerWordLyricsEnabled -> 2
+        else -> 1
+    }
+    SettingsChoiceRow(
         title = "迷你播放栏歌词",
-        subtitle = "播放中在迷你播放栏显示当前歌词",
-        checked = uiSettings.miniPlayerLyricsEnabled,
-        onCheckedChange = { uiSettings.updateMiniPlayerLyricsEnabled(it) },
+        subtitle = if (miniLyricsMode == 2) "仅原文；无逐字时间轴时显示整行" else null,
+        choices = MiniPlayerLyricsModeChoices,
+        selectedValue = miniLyricsMode,
+        onSelect = { mode ->
+            uiSettings.updateMiniPlayerLyricsEnabled(mode != 0)
+            uiSettings.updateMiniPlayerWordLyricsEnabled(mode == 2)
+        },
     )
 
-    if (uiSettings.miniPlayerLyricsEnabled) {
-        SettingsToggleRow(
-            title = "迷你播放栏逐字歌词",
-            subtitle = "开启后以柔边逐字填充显示，且仅显示原文；无逐字时间轴时回退为整行歌词",
-            checked = uiSettings.miniPlayerWordLyricsEnabled,
-            onCheckedChange = { uiSettings.updateMiniPlayerWordLyricsEnabled(it) },
+    val effectiveLeftSwipeAction = if (uiSettings.miniPlayerSwipeEnabled) {
+        uiSettings.miniPlayerLeftSwipeAction
+    } else {
+        MiniPlayerSwipeAction.NONE
+    }
+    val effectiveRightSwipeAction = if (uiSettings.miniPlayerSwipeEnabled) {
+        uiSettings.miniPlayerRightSwipeAction
+    } else {
+        MiniPlayerSwipeAction.NONE
+    }
+    fun updateSwipeAction(isLeft: Boolean, action: MiniPlayerSwipeAction) {
+        val nextLeft = if (isLeft) action else effectiveLeftSwipeAction
+        val nextRight = if (isLeft) effectiveRightSwipeAction else action
+        uiSettings.updateMiniPlayerLeftSwipeAction(nextLeft)
+        uiSettings.updateMiniPlayerRightSwipeAction(nextRight)
+        uiSettings.updateMiniPlayerSwipeEnabled(
+            nextLeft != MiniPlayerSwipeAction.NONE || nextRight != MiniPlayerSwipeAction.NONE,
         )
     }
-
-    SettingsToggleRow(
-        title = "迷你播放栏滑动切歌",
-        subtitle = "开启后可在迷你播放栏左右滑动切换歌曲",
-        checked = uiSettings.miniPlayerSwipeEnabled,
-        onCheckedChange = { uiSettings.updateMiniPlayerSwipeEnabled(it) },
+    SettingsPairedDropdownRow(
+        title = "滑动切歌",
+        choices = MiniPlayerSwipeActionChoices,
+        leftTitle = "左滑",
+        leftSelectedValue = effectiveLeftSwipeAction.ordinal,
+        onLeftSelect = { ordinal ->
+            updateSwipeAction(
+                isLeft = true,
+                action = MiniPlayerSwipeAction.entries[ordinal],
+            )
+        },
+        rightTitle = "右滑",
+        rightSelectedValue = effectiveRightSwipeAction.ordinal,
+        onRightSelect = { ordinal ->
+            updateSwipeAction(
+                isLeft = false,
+                action = MiniPlayerSwipeAction.entries[ordinal],
+            )
+        },
     )
-
-    if (uiSettings.miniPlayerSwipeEnabled) {
-        SettingsDropdownRow(
-            title = "左滑动作",
-            subtitle = "手指向左滑动后的切歌动作",
-            choices = MiniPlayerSwipeActionChoices,
-            selectedValue = uiSettings.miniPlayerLeftSwipeAction.ordinal,
-            onSelect = { ordinal ->
-                uiSettings.updateMiniPlayerLeftSwipeAction(
-                    MiniPlayerSwipeAction.entries[ordinal],
-                )
-            },
-        )
-
-        SettingsDropdownRow(
-            title = "右滑动作",
-            subtitle = "手指向右滑动后的切歌动作",
-            choices = MiniPlayerSwipeActionChoices,
-            selectedValue = uiSettings.miniPlayerRightSwipeAction.ordinal,
-            onSelect = { ordinal ->
-                uiSettings.updateMiniPlayerRightSwipeAction(
-                    MiniPlayerSwipeAction.entries[ordinal],
-                )
-            },
-        )
-    }
 }

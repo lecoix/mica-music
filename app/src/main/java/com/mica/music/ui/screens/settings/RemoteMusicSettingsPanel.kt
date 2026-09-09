@@ -92,13 +92,12 @@ internal fun RemoteMusicSettingsPanel() {
 
     SettingsSectionTitle("远程曲库")
     SettingsTipRow("远程来源与本地曲库分开同步；播放时只保存稳定曲目 ID，认证地址不会写入队列或曲库数据库。")
-    SettingsTipRow("已启用来源会在网络可用时由系统后台任务约每 6 小时检查一次；只重同步尚未同步或已过期的来源。")
     SettingsToggleRow(
         title = "自动同步",
         subtitle = if (automaticSyncEnabled) {
-            "网络可用时约每 6 小时检查一次；手动同步仍可随时执行"
+            "网络可用时约每 6 小时检查一次"
         } else {
-            "已关闭后台同步；不影响远端播放和手动同步"
+            "不影响远端播放和手动同步"
         },
         checked = automaticSyncEnabled,
         onCheckedChange = { enabled ->
@@ -109,19 +108,19 @@ internal fun RemoteMusicSettingsPanel() {
 
     SettingsActionRow(
         title = "添加 Navidrome / OpenSubsonic",
-        subtitle = "使用 Subsonic API；默认请求原始音频，不主动转码",
+        subtitle = "默认请求原始音频，不主动转码",
         onClick = { addSourceType = RemoteSourceType.NAVIDROME },
         enabled = busySourceId == null,
     )
     SettingsActionRow(
         title = "添加 WebDAV",
-        subtitle = "递归枚举 WebDAV 目录；播放使用严格 Range 语义",
+        subtitle = "递归枚举目录",
         onClick = { addSourceType = RemoteSourceType.WEBDAV },
         enabled = busySourceId == null,
     )
     SettingsActionRow(
         title = "添加 SMB",
-        subtitle = "SMB2/SMB3 共享；使用协议级随机读，不启用 SMB1",
+        subtitle = "SMB2 / SMB3，不支持 SMB1",
         onClick = { addSourceType = RemoteSourceType.SMB },
         enabled = busySourceId == null,
     )
@@ -143,7 +142,7 @@ internal fun RemoteMusicSettingsPanel() {
             )
             SettingsToggleRow(
                 title = "启用",
-                subtitle = if (source.enabled) "允许同步和播放该来源" else "已停用；保留上次同步的曲库快照",
+                subtitle = if (source.enabled) null else "保留上次同步的曲库快照",
                 checked = source.enabled,
                 onCheckedChange = { enabled ->
                     runSourceAction(
@@ -166,7 +165,7 @@ internal fun RemoteMusicSettingsPanel() {
             )
             SettingsActionRow(
                 title = "同步曲库",
-                subtitle = if (busy) "正在同步…" else "重新枚举该来源并原子替换它自己的曲库快照",
+                subtitle = if (busy) "正在同步…" else null,
                 onClick = {
                     runSourceAction(source.id, "${source.displayName} 同步完成") {
                         manager.syncSource(source.id)
@@ -176,7 +175,7 @@ internal fun RemoteMusicSettingsPanel() {
             )
             SettingsActionRow(
                 title = "更新登录信息",
-                subtitle = "密码不会回显；保存时切换到新的加密 credentialRef",
+                subtitle = "密码不会回显",
                 onClick = { credentialSource = source },
                 enabled = !busy,
             )

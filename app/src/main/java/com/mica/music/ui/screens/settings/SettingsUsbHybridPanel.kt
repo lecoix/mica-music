@@ -163,12 +163,11 @@ internal fun UsbHybridSettingsPanel(usbDiagnosticsPort: UsbHybridDiagnosticsPort
     if (outputMode != UsbHybridOutputMode.SharedPcm) {
         SettingsActionRow(
             title = "授权并重试",
-            subtitle = "重新读取 USB DAC identity/descriptor，并创建新的 request epoch",
+            subtitle = "重新读取 DAC 并建立连接",
             onClick = { UsbHybridPreferences.requestRetry(context) },
         )
         SettingsActionRow(
             title = "关闭 USB 独占",
-            subtitle = "关闭 USB 独占传输，恢复 Android 系统共享音频输出",
             onClick = {
                 outputMode = UsbHybridOutputMode.SharedPcm
                 UsbHybridPreferences.setOutputMode(context, outputMode)
@@ -177,7 +176,7 @@ internal fun UsbHybridSettingsPanel(usbDiagnosticsPort: UsbHybridDiagnosticsPort
     }
     SettingsActionRow(
         title = "导出 USB 诊断",
-        subtitle = "包含 raw descriptor、USB topology、quirk、协商事实、URB telemetry 与最近错误；不导出 serial",
+        subtitle = "包含设备、协商、传输与最近错误；不含序列号",
         onClick = {
             scope.launch {
                 val section = withContext(Dispatchers.IO) {
@@ -189,7 +188,7 @@ internal fun UsbHybridSettingsPanel(usbDiagnosticsPort: UsbHybridDiagnosticsPort
     )
     SettingsActionRow(
         title = "导入 DAC quirk 配置",
-        subtitle = "粘贴参考项目兼容的 JSON；override 优先于 APK 内置表，重连后验证",
+        subtitle = "导入兼容 JSON；重连后验证",
         onClick = {
             quirkImportMessage = null
             showQuirkImport = true

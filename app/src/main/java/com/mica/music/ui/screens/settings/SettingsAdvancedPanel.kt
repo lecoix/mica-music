@@ -6,6 +6,7 @@ import com.mica.music.data.preferences.AudioOffloadPreferenceState
 import com.mica.music.ui.components.SettingsActionRow
 import com.mica.music.ui.components.SettingsNavigationRow
 import com.mica.music.ui.components.SettingsSectionTitle
+import com.mica.music.ui.components.SettingsTipRow
 import com.mica.music.ui.components.SettingsToggleRow
 
 @Composable
@@ -35,23 +36,23 @@ internal fun DiagnosticsSettingsPanel(
         checked = audioOffloadState.enabled,
         onCheckedChange = onAudioOffloadChanged,
     )
+    SettingsTipRow("部分 MP3 无法播放时可尝试关闭 Offload")
 
     SettingsActionRow(
         title = "元数据调试",
-        subtitle = "逐首查看应用内字段、ID3/Vorbis、MediaMetadataRetriever 与解析器结果",
+        subtitle = "查看标签与各解析器结果",
         onClick = onOpenMetadataDebug,
         enabled = hasSongs,
     )
 
     SettingsNavigationRow(
         title = "系统空间音频",
-        subtitle = "查看系统 Spatializer、当前输出与 2.1 PCM 能力和头部跟踪状态",
+        subtitle = "查看 Spatializer、输出能力与头部跟踪",
         onClick = onOpenSpatialAudio,
     )
 
     SettingsActionRow(
         title = "系统权限与应用信息",
-        subtitle = "管理存储/音频读取、通知等权限",
         onClick = onOpenAppSettings,
     )
 }

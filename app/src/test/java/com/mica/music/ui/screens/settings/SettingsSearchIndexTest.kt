@@ -39,6 +39,8 @@ class SettingsSearchIndexTest {
         assertTrue(SettingsSearchIndex.search("音效实验室").any { it.id == "audio.sound-fx" })
         assertTrue(SettingsSearchIndex.search("混响").any { it.id == "audio.sound-fx" })
         assertTrue(SettingsSearchIndex.search("360").any { it.id == "audio.sound-fx" })
+        assertTrue(SettingsSearchIndex.search("自动播放").any { it.id == "audio.auto-play-on-launch" })
+        assertTrue(SettingsSearchIndex.search("启动时自动播放").any { it.id == "audio.auto-play-on-launch" })
         assertTrue(SettingsSearchIndex.search("罗马音").any { it.id == "lyrics.reading" })
         assertTrue(SettingsSearchIndex.search("桌面歌词").any { it.id == "lyrics.external" })
         assertTrue(SettingsSearchIndex.search("悬浮窗").any { it.id == "lyrics.external" })
@@ -72,6 +74,7 @@ class SettingsSearchIndexTest {
         assertTrue(classic.availability!!.contains("经典列表"))
         assertTrue(notification.keywords.contains("车载蓝牙"))
         assertNotNull(notification.availability)
-        assertTrue(notification.availability!!.contains("车载蓝牙输出与通知栏歌词共用开关"))
+        assertTrue(notification.availability!!.contains("车载蓝牙兼容为实验功能"))
+        assertTrue(notification.availability!!.contains("与通知栏歌词共用开关"))
     }
 }

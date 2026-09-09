@@ -47,6 +47,26 @@ internal val ThemeChoices = listOf(
 
 internal val FontSourceChoices = listOf(
     AppFontSource.SYSTEM.ordinal to AppFontSource.SYSTEM.settingsLabel,
+    AppFontSource.IMPORTED.ordinal to "导入字体…",
+)
+
+internal val MiniPlayerLyricsModeChoices = listOf(
+    0 to "关闭",
+    1 to "整行",
+    2 to "逐字",
+)
+
+internal val InfoRowLyricsModeChoices = listOf(
+    0 to "关闭",
+    1 to "整行",
+    2 to "逐字",
+)
+
+internal val BilingualLyricsModeChoices = listOf(
+    0 to "不分割",
+    1 to "全部",
+    2 to "仅原文",
+    3 to "仅译文",
 )
 
 internal val PlayerLowerBgChoices = PlayerLowerBackgroundMode.entries

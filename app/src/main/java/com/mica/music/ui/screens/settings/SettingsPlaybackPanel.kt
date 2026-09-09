@@ -60,7 +60,6 @@ internal fun PlaybackSettingsPanel(
 
     SettingsChoiceRow(
         title = "播放页特殊主题",
-        subtitle = "主题会决定下方可用的专属选项",
         choices = PlayerCoverFlowChoices,
         selectedValue = uiSettings.playerCoverFlowMode.ordinal,
         onSelect = { ordinal ->
@@ -74,7 +73,7 @@ internal fun PlaybackSettingsPanel(
     if (!ParticleCoverThemePolicy.forcesSquareCrop(uiSettings.playerCoverFlowMode)) {
         SettingsChoiceRow(
             title = "封面显示",
-            subtitle = "原样比例：列表/歌词页为正方框内完整显示；播放页大图可按比例；裁切填充：居中裁切",
+            subtitle = "原样比例保留完整封面；裁切填充居中裁切",
             choices = CoverDisplayChoices,
             selectedValue = uiSettings.coverDisplayMode.ordinal,
             onSelect = { ordinal ->
@@ -94,7 +93,6 @@ internal fun PlaybackSettingsPanel(
 
     SettingsChoiceRow(
         title = "播放页 UI 颜色",
-        subtitle = "影响信息行、歌名、艺人、专辑、进度条与底部按钮",
         choices = PlaybackContentColorChoices,
         selectedValue = uiSettings.playerPageTextColorMode.ordinal,
         onSelect = { ordinal ->
@@ -107,13 +105,13 @@ internal fun PlaybackSettingsPanel(
     if (uiSettings.playerCoverFlowMode == PlayerCoverFlowMode.STANDARD) {
         SettingsToggleRow(
             title = "音乐 MV",
-            subtitle = "扫匹配同目录同文件名 MP4，只同步显示画面；切换后从下一首歌曲生效，仅在标准主题生效",
+            subtitle = "匹配同目录同名 MP4；从下一首生效",
             checked = uiSettings.musicVideoEnabled,
             onCheckedChange = uiSettings::updateMusicVideoEnabled,
         )
         SettingsToggleRow(
             title = "视频专辑封面",
-            subtitle = "开启后重扫文件夹曲库，匹配歌曲同目录内与专辑同名的 MP4，仅在标准主题生效",
+            subtitle = "匹配同目录专辑同名 MP4；开启后需重扫曲库",
             checked = uiSettings.videoAlbumCoverEnabled,
             onCheckedChange = uiSettings::updateVideoAlbumCoverEnabled,
         )
@@ -169,7 +167,7 @@ internal fun PlaybackSettingsPanel(
         if (uiSettings.playerCoverFlowMode.usesPhotoStack) {
             SettingsToggleRow(
                 title = "沉浸时标题显示歌词",
-                subtitle = "播放中用当前歌词替换相纸白边歌名；过长走马灯，有逐字时间轴时柔边填充；译文作副标题，单语言则为歌名 - 艺术家",
+                subtitle = "歌词替换相纸歌名；译文作为副标题",
                 checked = uiSettings.photoStackImmersiveLyricsEnabled,
                 onCheckedChange = uiSettings::updatePhotoStackImmersiveLyricsEnabled,
             )
@@ -241,41 +239,37 @@ internal fun PlaybackSettingsPanel(
     )
 
     Spacer(Modifier.height(HifiSpacing.lg))
-    SettingsSectionTitle("Hi-Res 标志")
-
     SettingsChoiceRow(
-        title = "标志样式",
-        choices = HiResBadgeStyleChoices,
+        title = "Hi-Res 标志",
+        subtitle = if (
+            uiSettings.hiResBadgeStyle == HiResBadgeStyle.CUSTOM_IMAGE &&
+            uiSettings.hiResBadgeCustomImagePath != null
+        ) {
+            "已设置自定义图片"
+        } else {
+            null
+        },
+        choices = buildList {
+            addAll(HiResBadgeStyleChoices)
+            if (uiSettings.hiResBadgeCustomImagePath != null) {
+                add(100 to "移除图片")
+            }
+        },
         selectedValue = uiSettings.hiResBadgeStyle.ordinal,
-        onSelect = { ordinal ->
-            uiSettings.updateHiResBadgeStyle(HiResBadgeStyle.entries[ordinal])
+        onSelect = { value ->
+            when (value) {
+                100 -> {
+                    uiSettings.updateHiResBadgeCustomImagePath(null)
+                    uiSettings.updateHiResBadgeStyle(HiResBadgeStyle.DEFAULT)
+                    Toast.makeText(context, "已取消使用自定义 Hi-Res 图片", Toast.LENGTH_SHORT).show()
+                }
+                HiResBadgeStyle.CUSTOM_IMAGE.ordinal -> {
+                    badgeImagePicker.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                    )
+                }
+                else -> uiSettings.updateHiResBadgeStyle(HiResBadgeStyle.entries[value])
+            }
         },
     )
-
-    if (uiSettings.hiResBadgeStyle == HiResBadgeStyle.CUSTOM_IMAGE) {
-        SettingsActionRow(
-            title = "选择图片",
-            subtitle = if (uiSettings.hiResBadgeCustomImagePath == null) {
-                "最高 24dp 视觉高度；上下各最多溢出 4dp，信息行布局不变"
-            } else {
-                "已设置自定义图片"
-            },
-            onClick = {
-                badgeImagePicker.launch(
-                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
-                )
-            },
-        )
-        SettingsActionRow(
-            title = "清除自定义图片",
-            subtitle = "恢复为默认圆点 + Hi-Res 文字",
-            enabled = uiSettings.hiResBadgeCustomImagePath != null,
-            onClick = {
-                AppHiResBadgeImporter.clearBadge(context)
-                uiSettings.updateHiResBadgeCustomImagePath(null)
-                uiSettings.updateHiResBadgeStyle(HiResBadgeStyle.DEFAULT)
-                Toast.makeText(context, "已恢复默认 Hi-Res 标志", Toast.LENGTH_SHORT).show()
-            },
-        )
-    }
 }

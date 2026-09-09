@@ -30,14 +30,14 @@ internal fun LibraryScanSettingsPanel(
 
     SettingsToggleRow(
         title = "在侧栏显示远程曲库",
-        subtitle = "默认关闭；关闭后仍可从此处管理远程来源",
+        subtitle = "关闭后仍可在此管理来源",
         checked = remoteLibrarySidebarEnabled,
         onCheckedChange = onRemoteLibrarySidebarEnabledChange,
     )
 
     SettingsActionRow(
         title = "远程曲库",
-        subtitle = "支持 Navidrome / OpenSubsonic、WebDAV、SMB · 每个来源独立同步",
+        subtitle = "Navidrome / OpenSubsonic、WebDAV、SMB",
         onClick = onOpenRemoteMusic,
         enabled = !library.isUserVisibleScanning,
     )
@@ -93,7 +93,7 @@ internal fun LibraryScanSettingsPanel(
 
     SettingsChoiceRow(
         title = "最短曲目时长",
-        subtitle = "过滤铃声、提示音等极短音频",
+        subtitle = "过滤铃声、提示音等短音频",
         choices = DurationChoices,
         selectedValue = minDurationSec,
         onSelect = onMinDurationSelected,
@@ -103,7 +103,7 @@ internal fun LibraryScanSettingsPanel(
 
     SettingsToggleRow(
         title = "深度分析音质与封面",
-        subtitle = "读取更完整的音频与封面信息，扫描时间和耗电会增加",
+        subtitle = "获取更多音频与封面信息，但扫描更慢、更耗电",
         checked = deepProbe,
         onCheckedChange = onDeepProbeChange,
     )

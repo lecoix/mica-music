@@ -49,7 +49,7 @@ fun SettingsSectionTitle(
 @Composable
 fun SettingsNavigationRow(
     title: String,
-    subtitle: String,
+    subtitle: String? = null,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
@@ -67,12 +67,14 @@ fun SettingsNavigationRow(
                 style = MicaTheme.typography.bodyLg,
                 color = if (enabled) MicaTheme.colors.textPrimary else MicaTheme.colors.textTertiary,
             )
-            Text(
-                text = subtitle,
-                style = MicaTheme.typography.caption,
-                color = MicaTheme.colors.textTertiary,
-                modifier = Modifier.padding(top = HifiSpacing.xxs),
-            )
+            subtitle?.takeIf { it.isNotBlank() }?.let { text ->
+                Text(
+                    text = text,
+                    style = MicaTheme.typography.caption,
+                    color = MicaTheme.colors.textTertiary,
+                    modifier = Modifier.padding(top = HifiSpacing.xxs),
+                )
+            }
         }
         Icon(
             imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
@@ -251,6 +253,81 @@ fun SettingsDropdownRow(
 }
 
 @Composable
+fun SettingsPairedDropdownRow(
+    title: String,
+    choices: List<Pair<Int, String>>,
+    leftTitle: String,
+    leftSelectedValue: Int,
+    onLeftSelect: (Int) -> Unit,
+    rightTitle: String,
+    rightSelectedValue: Int,
+    onRightSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var leftExpanded by remember { mutableStateOf(false) }
+    var rightExpanded by remember { mutableStateOf(false) }
+    val leftSelectedLabel = choices.firstOrNull { it.first == leftSelectedValue }?.second ?: leftSelectedValue.toString()
+    val rightSelectedLabel = choices.firstOrNull { it.first == rightSelectedValue }?.second ?: rightSelectedValue.toString()
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = HifiSpacing.lg, vertical = HifiSpacing.md),
+    ) {
+        Text(
+            text = title,
+            style = MicaTheme.typography.bodyLg,
+            color = MicaTheme.colors.textPrimary,
+        )
+        Spacer(Modifier.height(HifiSpacing.sm))
+        Row(horizontalArrangement = Arrangement.spacedBy(HifiSpacing.sm)) {
+            Box {
+                AccentTextChoice(
+                    label = "$leftTitle · $leftSelectedLabel",
+                    selected = true,
+                    onClick = { leftExpanded = true },
+                )
+                DropdownMenu(
+                    expanded = leftExpanded,
+                    onDismissRequest = { leftExpanded = false },
+                ) {
+                    choices.forEach { (value, label) ->
+                        DropdownMenuItem(
+                            text = { Text(text = label, style = MicaTheme.typography.bodyMd) },
+                            onClick = {
+                                leftExpanded = false
+                                onLeftSelect(value)
+                            },
+                        )
+                    }
+                }
+            }
+            Box {
+                AccentTextChoice(
+                    label = "$rightTitle · $rightSelectedLabel",
+                    selected = true,
+                    onClick = { rightExpanded = true },
+                )
+                DropdownMenu(
+                    expanded = rightExpanded,
+                    onDismissRequest = { rightExpanded = false },
+                ) {
+                    choices.forEach { (value, label) ->
+                        DropdownMenuItem(
+                            text = { Text(text = label, style = MicaTheme.typography.bodyMd) },
+                            onClick = {
+                                rightExpanded = false
+                                onRightSelect(value)
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun SettingsTipRow(
     text: String,
     modifier: Modifier = Modifier,
@@ -268,7 +345,7 @@ fun SettingsTipRow(
 @Composable
 fun SettingsActionRow(
     title: String,
-    subtitle: String,
+    subtitle: String? = null,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
@@ -284,11 +361,13 @@ fun SettingsActionRow(
             style = MicaTheme.typography.bodyLg,
             color = if (enabled) MicaTheme.colors.textPrimary else MicaTheme.colors.textTertiary,
         )
-        Text(
-            text = subtitle,
-            style = MicaTheme.typography.caption,
-            color = MicaTheme.colors.textTertiary,
-            modifier = Modifier.padding(top = HifiSpacing.xxs),
-        )
+        subtitle?.takeIf { it.isNotBlank() }?.let { text ->
+            Text(
+                text = text,
+                style = MicaTheme.typography.caption,
+                color = MicaTheme.colors.textTertiary,
+                modifier = Modifier.padding(top = HifiSpacing.xxs),
+            )
+        }
     }
 }
