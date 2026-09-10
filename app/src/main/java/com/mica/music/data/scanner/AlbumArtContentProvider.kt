@@ -5,7 +5,6 @@ import android.content.ContentValues
 import android.database.Cursor
 import android.net.Uri
 import android.os.ParcelFileDescriptor
-import com.mica.music.data.local.MicaDatabase
 import java.io.FileNotFoundException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
@@ -57,20 +56,8 @@ class AlbumArtContentProvider : ContentProvider() {
 
     private fun restoreArtworkFile(uri: Uri): Boolean {
         val appContext = context?.applicationContext ?: return false
-        val managed = AlbumArtCache.parseManagedArtworkUri(appContext, uri.toString()) ?: return false
-
         return runBlocking(Dispatchers.IO) {
-            val song = MicaDatabase.get(appContext).songDao().getById(managed.songId)
-                ?: return@runBlocking false
-            val bytes = AudioMetadataProbe.readEmbeddedArtworkBytes(appContext, song)
-                ?: return@runBlocking false
-            val restored = AlbumArtCache.storeEmbeddedPicture(appContext, bytes)
-            if (restored.nameWithoutExtension != managed.contentKey) {
-                restored.delete()
-                return@runBlocking false
-            }
-            AlbumArtCache.trimToBudget(appContext, protectedFile = restored)
-            true
+            ManagedArtworkRecovery.repairAfterLoadFailure(appContext, uri.toString())
         }
     }
 }

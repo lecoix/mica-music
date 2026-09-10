@@ -14,8 +14,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.draw.clip
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -32,8 +34,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.mica.music.data.scanner.ManagedArtworkRecovery
 import com.mica.music.imaging.MicaImageLoaders
 import com.mica.music.util.TrackSwitchPerformance
+import kotlinx.coroutines.launch
 
 /**
  * 模糊背景源图的解码尺寸（像素）。背景最终会被 [BlurEffect] 模糊到约 120px，
@@ -57,6 +61,8 @@ fun BlurredCoverBackground(
     val accent = PlayerBackgroundBlend.accentuateCover(coverColor, isDark)
     val canShowArtwork = !albumArtUri.isNullOrBlank()
     val context = LocalContext.current
+    val recoveryScope = rememberCoroutineScope()
+    var repairRetryGeneration by remember(albumArtUri) { mutableIntStateOf(0) }
     var readyBackgroundUri by remember { mutableStateOf<String?>(null) }
     val imageReady = albumArtUri.isNullOrBlank() || albumArtUri == readyBackgroundUri
     val backgroundImageLoader = remember { MicaImageLoaders.background }
@@ -93,6 +99,7 @@ fun BlurredCoverBackground(
                 AsyncImage(
                     model = ImageRequest.Builder(LocalContext.current)
                         .data(holdoverBackgroundUri)
+                        .diskCachePolicy(MicaImageLoaders.managedArtworkDiskCachePolicy(context, holdoverBackgroundUri))
                         .size(BlurredBackgroundSourcePx)
                         .memoryCacheKey(holdoverKey)
                         .placeholderMemoryCacheKey(holdoverKey)
@@ -110,10 +117,12 @@ fun BlurredCoverBackground(
                         },
                 )
             }
-            val backgroundKey = MicaImageLoaders.backgroundCacheKey(albumArtUri)
+            val backgroundKey = MicaImageLoaders.backgroundCacheKey(albumArtUri) +
+                if (repairRetryGeneration == 0) "" else ":repair:$repairRetryGeneration"
             AsyncImage(
                 model = ImageRequest.Builder(LocalContext.current)
                     .data(albumArtUri)
+                    .diskCachePolicy(MicaImageLoaders.managedArtworkDiskCachePolicy(context, albumArtUri))
                     .size(BlurredBackgroundSourcePx)
                     .memoryCacheKey(backgroundKey)
                     .placeholderMemoryCacheKey(backgroundKey)
@@ -136,6 +145,14 @@ fun BlurredCoverBackground(
                         "uri=${albumArtUri?.takeLast(48)} alpha=$foregroundAlpha",
                     )
                     readyBackgroundUri = albumArtUri
+                },
+                onError = {
+                    val failedUri = albumArtUri
+                    recoveryScope.launch {
+                        if (ManagedArtworkRecovery.repairAfterLoadFailure(context, failedUri)) {
+                            repairRetryGeneration++
+                        }
+                    }
                 },
             )
             if (dynamicLight) {
@@ -307,6 +324,7 @@ private fun DynamicLightTile(
         AsyncImage(
             model = ImageRequest.Builder(LocalContext.current)
                 .data(albumArtUri)
+                .diskCachePolicy(MicaImageLoaders.managedArtworkDiskCachePolicy(LocalContext.current, albumArtUri))
                 .size(BlurredBackgroundSourcePx)
                 .memoryCacheKey(backgroundKey)
                 .placeholderMemoryCacheKey(backgroundKey)

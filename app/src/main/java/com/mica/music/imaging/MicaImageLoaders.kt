@@ -5,9 +5,12 @@ import android.graphics.Bitmap
 import coil.ImageLoader
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
+import coil.request.CachePolicy
 import coil.request.ImageRequest
 import coil.request.SuccessResult
 import coil.size.Scale
+import com.mica.music.data.scanner.AlbumArtCache
+import com.mica.music.data.scanner.ManagedArtworkRecovery
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -138,7 +141,9 @@ object MicaImageLoaders {
 
     fun preloadBackground(context: Context, albumArtUri: String?) {
         if (albumArtUri.isNullOrBlank() || !::background.isInitialized) return
-        background.enqueue(buildBackgroundRequest(context, albumArtUri))
+        coverLoadScope.launch {
+            runCatching { ensureBackgroundCached(context, albumArtUri) }
+        }
     }
 
     /** 阻塞直到封面位图进入内存缓存（或失败），用于切歌前 gate。 */
@@ -152,8 +157,9 @@ object MicaImageLoaders {
                     if (coverMemoryBitmap(albumArtUri) != null) {
                         evictCoverMemory(albumArtUri)
                     }
-                    val result = cover.execute(buildCoverRequest(context, albumArtUri))
-                    result is SuccessResult
+                    executeWithManagedArtworkRecovery(context, albumArtUri) {
+                        cover.execute(buildCoverRequest(context, albumArtUri)) is SuccessResult
+                    }
                 }
             }
         }
@@ -168,8 +174,9 @@ object MicaImageLoaders {
             if (coverMemoryBitmap(albumArtUri, target) != null) {
                 true
             } else {
-                val result = cover.execute(buildCoverRequest(context, albumArtUri, target))
-                result is SuccessResult
+                executeWithManagedArtworkRecovery(context, albumArtUri) {
+                    cover.execute(buildCoverRequest(context, albumArtUri, target)) is SuccessResult
+                }
             }
         }
     }
@@ -185,14 +192,15 @@ object MicaImageLoaders {
             if (cover.memoryCache?.get(MemoryCache.Key(cacheKey)) != null) {
                 true
             } else {
-                val result = cover.execute(
-                    standardCoverRequest(
-                        context = context,
-                        albumArtUri = albumArtUri,
-                        requestSpec = requestSpec,
-                    ),
-                )
-                result is SuccessResult
+                executeWithManagedArtworkRecovery(context, albumArtUri) {
+                    cover.execute(
+                        standardCoverRequest(
+                            context = context,
+                            albumArtUri = albumArtUri,
+                            requestSpec = requestSpec,
+                        ),
+                    ) is SuccessResult
+                }
             }
         }
     }
@@ -202,14 +210,16 @@ object MicaImageLoaders {
         albumArtUri: String,
         requestSpec: StandardCoverRequestSpec,
         crossfadeMillis: Int = 0,
+        memoryCacheKeySuffix: String = "",
     ): ImageRequest {
-        val cacheKey = requestSpec.memoryCacheKey(albumArtUri)
+        val cacheKey = requestSpec.memoryCacheKey(albumArtUri) + memoryCacheKeySuffix
         return ImageRequest.Builder(context)
             .data(albumArtUri)
             .size(requestSpec.widthPx, requestSpec.heightPx)
             .scale(requestSpec.scale)
             .allowHardware(true)
             .crossfade(crossfadeMillis)
+            .diskCachePolicy(managedArtworkDiskCachePolicy(context, albumArtUri))
             .memoryCacheKey(cacheKey)
             .placeholderMemoryCacheKey(cacheKey)
             .build()
@@ -220,13 +230,15 @@ object MicaImageLoaders {
         withContext(Dispatchers.IO) {
             if (!::background.isInitialized) return@withContext false
             if (backgroundMemoryHit(albumArtUri)) return@withContext true
-            val result = background.execute(buildBackgroundRequest(context, albumArtUri))
-            result is SuccessResult
+            executeWithManagedArtworkRecovery(context, albumArtUri) {
+                background.execute(buildBackgroundRequest(context, albumArtUri)) is SuccessResult
+            }
         }
 
     private fun buildCoverRequest(context: Context, albumArtUri: String): ImageRequest =
         ImageRequest.Builder(context)
             .data(albumArtUri)
+            .diskCachePolicy(managedArtworkDiskCachePolicy(context, albumArtUri))
             .memoryCacheKey(albumArtUri)
             .build()
 
@@ -236,17 +248,36 @@ object MicaImageLoaders {
         target: CoverDecodeTarget,
     ): ImageRequest = ImageRequest.Builder(context)
         .data(albumArtUri)
+        .diskCachePolicy(managedArtworkDiskCachePolicy(context, albumArtUri))
         .size(target.widthPx, target.heightPx)
         .scale(Scale.FILL)
         .allowHardware(false)
         .memoryCacheKey(target.memoryCacheKey(albumArtUri))
         .build()
 
+    private suspend fun executeWithManagedArtworkRecovery(
+        context: Context,
+        albumArtUri: String,
+        load: suspend () -> Boolean,
+    ): Boolean {
+        if (load()) return true
+        if (!ManagedArtworkRecovery.repairAfterLoadFailure(context, albumArtUri)) return false
+        return load()
+    }
+
+    internal fun managedArtworkDiskCachePolicy(context: Context, albumArtUri: String): CachePolicy =
+        if (AlbumArtCache.parseManagedArtworkUri(context.applicationContext, albumArtUri) != null) {
+            CachePolicy.DISABLED
+        } else {
+            CachePolicy.ENABLED
+        }
+
     private fun originalCoverLoadKey(albumArtUri: String): String = "cover:original:$albumArtUri"
 
     private fun buildBackgroundRequest(context: Context, albumArtUri: String): ImageRequest =
         ImageRequest.Builder(context)
             .data(albumArtUri)
+            .diskCachePolicy(managedArtworkDiskCachePolicy(context, albumArtUri))
             .size(BackgroundSourcePx)
             .memoryCacheKey(backgroundCacheKey(albumArtUri))
             .build()

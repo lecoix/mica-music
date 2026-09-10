@@ -23,6 +23,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import coil.request.ImageRequest
 import coil.request.SuccessResult
 import coil.size.Scale
+import com.mica.music.data.scanner.ManagedArtworkRecovery
 import com.mica.music.imaging.MicaImageLoaders
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -59,15 +60,19 @@ internal fun DynamicLightGlBackground(
 private suspend fun loadDynamicLightTexture(context: Context, albumArtUri: String): Bitmap? =
     withContext(Dispatchers.IO) {
         if (!MicaImageLoaders.isInitialized()) return@withContext null
-        val result = MicaImageLoaders.background.execute(
-            ImageRequest.Builder(context)
-                .data(albumArtUri)
-                .size(DynamicLightSourcePx, DynamicLightSourcePx)
-                .scale(Scale.FILL)
-                .allowHardware(false)
-                .memoryCacheKey("dynamic-light-gl:$albumArtUri")
-                .build(),
-        )
+        fun request() = ImageRequest.Builder(context)
+            .data(albumArtUri)
+            .diskCachePolicy(MicaImageLoaders.managedArtworkDiskCachePolicy(context, albumArtUri))
+            .size(DynamicLightSourcePx, DynamicLightSourcePx)
+            .scale(Scale.FILL)
+            .allowHardware(false)
+            .memoryCacheKey("dynamic-light-gl:$albumArtUri")
+            .build()
+
+        var result = MicaImageLoaders.background.execute(request())
+        if (result !is SuccessResult && ManagedArtworkRecovery.repairAfterLoadFailure(context, albumArtUri)) {
+            result = MicaImageLoaders.background.execute(request())
+        }
         (result as? SuccessResult)?.drawable?.toDynamicLightTexture()
     }
 

@@ -8,6 +8,7 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.security.MessageDigest
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.locks.ReentrantReadWriteLock
 
 /** 深度扫描写入的 `cache/album_art` 内嵌封面文件。 */
@@ -27,6 +28,7 @@ internal object AlbumArtCache {
      * side so check/delete cannot overlap a write or an existing-file open.
      */
     private val artworkAccessLock = ReentrantReadWriteLock()
+    private val knownCorruptContentKeys = ConcurrentHashMap.newKeySet<String>()
     private var trackedDirectoryPath: String? = null
     private var trackedFileBytes = mutableMapOf<String, Long>()
     private var trackedTotalBytes = 0L
@@ -63,8 +65,9 @@ internal object AlbumArtCache {
     /** Stores exact embedded-art bytes once, shared by every track with the same content. */
     fun storeEmbeddedPicture(context: Context, bytes: ByteArray): File {
         require(bytes.isNotEmpty()) { "Embedded artwork must not be empty" }
-        val contentDigest = sha256Hex(bytes)
-        val target = File(currentAlbumArtDir(context), "$CONTENT_PREFIX$contentDigest.jpg")
+        val contentKey = contentKeyFor(bytes)
+        val contentDigest = contentKey.removePrefix(CONTENT_PREFIX)
+        val target = File(currentAlbumArtDir(context), "$contentKey.jpg")
         val lockIndex = (target.name.hashCode() and Int.MAX_VALUE) % writeLocks.size
 
         return withArtworkReadAccess {
@@ -75,6 +78,7 @@ internal object AlbumArtCache {
                         sha256Hex(target) == contentDigest
                 ) {
                     target.setLastModified(System.currentTimeMillis())
+                    clearManagedArtworkFailureState(contentKey)
                     return@withArtworkReadAccess target
                 }
 
@@ -94,6 +98,7 @@ internal object AlbumArtCache {
                     check(target.isFile && target.length() == bytes.size.toLong()) {
                         "Cached album art was not published completely: ${target.absolutePath}"
                     }
+                    clearManagedArtworkFailureState(contentKey)
                     return@withArtworkReadAccess target
                 } finally {
                     temporary.delete()
@@ -209,6 +214,8 @@ internal object AlbumArtCache {
         return remainingBytes
     }
 
+    fun contentKeyFor(bytes: ByteArray): String = "$CONTENT_PREFIX${sha256Hex(bytes)}"
+
     fun digestForKey(cacheKey: String): String =
         MessageDigest.getInstance("SHA-256")
             .digest(cacheKey.toByteArray())
@@ -258,22 +265,28 @@ internal object AlbumArtCache {
     fun isCachedArtReadable(context: Context, uriString: String?): Boolean {
         val uri = uriString ?: return true
         if (!isCachedArtUri(context, uri)) return true
-        if (parseManagedArtworkUri(context, uri) != null) {
+        val managed = parseManagedArtworkUri(context, uri)
+        if (managed != null) {
+            if (managed.contentKey in knownCorruptContentKeys) return false
             val file = fileForManagedArtwork(context, uri) ?: return true
-            return !file.exists() || managedArtworkFileIsValid(context, uri)
+            // Managed artwork is evictable: a missing resident file can be rematerialized lazily.
+            // Normal health/reuse checks deliberately avoid hashing the full file. Strong content
+            // verification is reserved for an actual image-load failure.
+            return !file.exists() || (file.isFile && file.length() > 0L)
         }
         val file = albumArtFileFromUri(uri) ?: return false
         return file.isFile && file.length() > 0L
     }
 
-    fun managedArtworkFileIsValid(context: Context, uriString: String?): Boolean {
-        val managed = parseManagedArtworkUri(context, uriString) ?: return false
-        val file = fileForManagedArtwork(context, uriString) ?: return false
-        if (!file.isFile || file.length() <= 0L) return false
-        return runCatching {
-            sha256Hex(file) == managed.contentKey.removePrefix(CONTENT_PREFIX)
-        }.getOrDefault(false)
-    }
+    fun managedArtworkFileIsValid(context: Context, uriString: String?): Boolean =
+        withArtworkReadAccess {
+            val managed = parseManagedArtworkUri(context, uriString) ?: return@withArtworkReadAccess false
+            val file = fileForManagedArtwork(context, uriString) ?: return@withArtworkReadAccess false
+            if (!file.isFile || file.length() <= 0L) return@withArtworkReadAccess false
+            runCatching {
+                sha256Hex(file) == managed.contentKey.removePrefix(CONTENT_PREFIX)
+            }.getOrDefault(false)
+        }
 
     fun hasReadableCachedArt(context: Context, song: Song): Boolean =
         isCachedArtReadable(context, song.albumArtUri)
@@ -310,17 +323,33 @@ internal object AlbumArtCache {
         )
     }
 
-    /** Opens an existing managed file while maintenance is excluded from the open. */
+    /**
+     * Opens an existing managed file while maintenance is excluded from the open.
+     *
+     * This is intentionally metadata-only. Hashing every resident cover on each open duplicated
+     * hundreds of MiB of storage reads during startup/list binding. If Coil later fails to decode
+     * the file, [ManagedArtworkRecovery] performs one strong verification for that content key.
+     */
     fun openExistingManagedArtwork(
         context: Context,
         uriString: String?,
     ): ParcelFileDescriptor? = withArtworkReadAccess {
+        val managed = parseManagedArtworkUri(context, uriString) ?: return@withArtworkReadAccess null
+        if (managed.contentKey in knownCorruptContentKeys) return@withArtworkReadAccess null
         val file = fileForManagedArtwork(context, uriString)
             ?.takeIf { it.isFile && it.length() > 0L }
-            ?.takeIf { managedArtworkFileIsValid(context, uriString) }
             ?: return@withArtworkReadAccess null
         file.setLastModified(System.currentTimeMillis())
-        ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+        runCatching { ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY) }
+            .getOrNull()
+    }
+
+    internal fun markManagedArtworkCorrupt(contentKey: String) {
+        knownCorruptContentKeys += contentKey
+    }
+
+    internal fun clearManagedArtworkFailureState(contentKey: String) {
+        knownCorruptContentKeys -= contentKey
     }
 
     fun digestFromArtUri(uriString: String?): String? {

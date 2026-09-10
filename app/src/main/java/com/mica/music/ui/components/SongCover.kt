@@ -10,8 +10,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -24,11 +26,13 @@ import coil.request.ImageRequest
 import coil.size.Scale
 import com.mica.music.R
 import com.mica.music.data.CoverDisplayMode
+import com.mica.music.data.scanner.ManagedArtworkRecovery
 import com.mica.music.imaging.CoverDecodeTarget
 import com.mica.music.imaging.MicaImageLoaders
 import com.mica.music.imaging.StandardCoverRequestSpec
 import com.mica.music.ui.theme.HifiPalette
 import com.mica.music.ui.theme.LocalCoverDisplayMode
+import kotlinx.coroutines.launch
 
 private var lastReadyCoverHoldoverUri by mutableStateOf<String?>(null)
 
@@ -90,6 +94,8 @@ fun SongCover(
     @DrawableRes noCoverPlaceholderResId: Int = R.drawable.no_cover_placeholder,
 ) {
     val context = LocalContext.current
+    val recoveryScope = rememberCoroutineScope()
+    var repairRetryGeneration by remember(albumArtUri) { mutableIntStateOf(0) }
     val displayMode = LocalCoverDisplayMode.current
     val resolvedScale = contentScale ?: when (displayMode) {
         CoverDisplayMode.CROP_FILL -> ContentScale.Crop
@@ -99,6 +105,8 @@ fun SongCover(
         ?: standardRequestSpec?.let { spec -> albumArtUri?.let(spec::memoryCacheKey) }
         ?: decodeTarget?.let { target -> albumArtUri?.let(target::memoryCacheKey) }
         ?: albumArtUri
+    val retryCacheSuffix = if (repairRetryGeneration == 0) "" else ":repair:$repairRetryGeneration"
+    val requestMemoryCacheKey = memoryCacheKey?.plus(retryCacheSuffix)
 
     var aspectRatio by remember(albumArtUri) { mutableFloatStateOf(1f) }
 
@@ -191,6 +199,7 @@ fun SongCover(
                             size(target.widthPx, target.heightPx)
                             scale(Scale.FILL)
                         }
+                        diskCachePolicy(MicaImageLoaders.managedArtworkDiskCachePolicy(context, underlayUri))
                         memoryCacheKey(underlayMemoryCacheKey)
                         placeholderMemoryCacheKey(underlayMemoryCacheKey)
                     }
@@ -209,6 +218,7 @@ fun SongCover(
                         albumArtUri = albumArtUri,
                         requestSpec = spec,
                         crossfadeMillis = crossfadeMillis,
+                        memoryCacheKeySuffix = retryCacheSuffix,
                     )
                 } ?: ImageRequest.Builder(context)
                     .data(albumArtUri)
@@ -218,9 +228,10 @@ fun SongCover(
                             size(target.widthPx, target.heightPx)
                             scale(Scale.FILL)
                         }
-                        if (!memoryCacheKey.isNullOrBlank()) {
-                            memoryCacheKey(memoryCacheKey)
-                            placeholderMemoryCacheKey(memoryCacheKey)
+                        diskCachePolicy(MicaImageLoaders.managedArtworkDiskCachePolicy(context, albumArtUri))
+                        if (!requestMemoryCacheKey.isNullOrBlank()) {
+                            memoryCacheKey(requestMemoryCacheKey)
+                            placeholderMemoryCacheKey(requestMemoryCacheKey)
                         }
                     }
                     .build(),
@@ -250,6 +261,12 @@ fun SongCover(
                 onError = {
                     lastPaintedUri = albumArtUri
                     onImageFailed()
+                    val failedUri = albumArtUri
+                    recoveryScope.launch {
+                        if (ManagedArtworkRecovery.repairAfterLoadFailure(context, failedUri)) {
+                            repairRetryGeneration++
+                        }
+                    }
                 },
             )
         }

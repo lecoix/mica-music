@@ -76,7 +76,7 @@ class AlbumArtCacheTest {
     }
 
     @Test
-    fun managedArtworkRejectsSameLengthCorruptionAndCanBeRewritten() {
+    fun managedArtworkDefersSameLengthCorruptionUntilStrongValidationAndCanBeRewritten() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val bytes = ByteArray(4096) { index -> (index * 7).toByte() }
         val uri = AlbumArtCache.storeManagedArtwork(context, "corruptible", bytes)
@@ -85,6 +85,13 @@ class AlbumArtCacheTest {
         try {
             file.writeBytes(bytes.copyOf().also { it[0] = (it[0] + 1).toByte() })
             assertFalse(AlbumArtCache.managedArtworkFileIsValid(context, uri))
+            // Startup/reuse health is deliberately metadata-only; same-length corruption is
+            // discovered only after an actual image load reports a failure.
+            assertTrue(AlbumArtCache.isCachedArtReadable(context, uri))
+            assertEquals(0, AlbumArtCache.health(context, listOf(matchingCachedSong(uri))).missingCachedArtUris)
+
+            val managed = AlbumArtCache.parseManagedArtworkUri(context, uri)!!
+            AlbumArtCache.markManagedArtworkCorrupt(managed.contentKey)
             assertFalse(AlbumArtCache.isCachedArtReadable(context, uri))
 
             AlbumArtCache.storeManagedArtwork(context, "corruptible", bytes)

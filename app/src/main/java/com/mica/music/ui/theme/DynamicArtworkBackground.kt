@@ -21,6 +21,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import coil.request.ImageRequest
 import coil.request.SuccessResult
 import coil.size.Scale
+import com.mica.music.data.scanner.ManagedArtworkRecovery
 import com.mica.music.imaging.MicaImageLoaders
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import kotlinx.coroutines.Dispatchers
@@ -79,15 +80,19 @@ private data class DynamicArtworkLoad(
 private suspend fun loadDynamicArtworkBitmap(context: Context, albumArtUri: String): Bitmap? =
     withContext(Dispatchers.IO) {
         if (!MicaImageLoaders.isInitialized()) return@withContext null
-        val result = MicaImageLoaders.background.execute(
-            ImageRequest.Builder(context)
-                .data(albumArtUri)
-                .size(DynamicArtworkSourcePx, DynamicArtworkSourcePx)
-                .scale(Scale.FILL)
-                .allowHardware(false)
-                .memoryCacheKey("dynamic-artwork:$albumArtUri")
-                .build(),
-        )
+        fun request() = ImageRequest.Builder(context)
+            .data(albumArtUri)
+            .diskCachePolicy(MicaImageLoaders.managedArtworkDiskCachePolicy(context, albumArtUri))
+            .size(DynamicArtworkSourcePx, DynamicArtworkSourcePx)
+            .scale(Scale.FILL)
+            .allowHardware(false)
+            .memoryCacheKey("dynamic-artwork:$albumArtUri")
+            .build()
+
+        var result = MicaImageLoaders.background.execute(request())
+        if (result !is SuccessResult && ManagedArtworkRecovery.repairAfterLoadFailure(context, albumArtUri)) {
+            result = MicaImageLoaders.background.execute(request())
+        }
         (result as? SuccessResult)?.drawable?.toDynamicArtworkBitmap()
     }
 
