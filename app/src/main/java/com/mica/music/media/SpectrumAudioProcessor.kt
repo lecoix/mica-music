@@ -17,9 +17,10 @@ import java.nio.ByteBuffer
  * [MicaMediaService.flushAudioPipeline] so [isActive] is re-evaluated safely.
  */
 @UnstableApi
-class SpectrumAudioProcessor : AudioProcessor {
+class SpectrumAudioProcessor internal constructor(private val spectrumSession: SpectrumSinkSession? = null) : AudioProcessor {
 
     private var inputFormat = AudioProcessor.AudioFormat.NOT_SET
+    private var pendingFormat = AudioProcessor.AudioFormat.NOT_SET
     private var outputFormat = AudioProcessor.AudioFormat.NOT_SET
     private var pendingInput = AudioProcessor.EMPTY_BUFFER
     private var pendingOutput = AudioProcessor.EMPTY_BUFFER
@@ -41,7 +42,8 @@ class SpectrumAudioProcessor : AudioProcessor {
     private var probeMaxTapNanos = 0L
 
     override fun configure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
-        inputFormat = inputAudioFormat
+        pendingFormat = inputAudioFormat
+        if (inputFormat == AudioProcessor.AudioFormat.NOT_SET) inputFormat = inputAudioFormat
         outputFormat = inputAudioFormat
         DiagnosticLog.event(
             "SpectrumTap",
@@ -73,7 +75,7 @@ class SpectrumAudioProcessor : AudioProcessor {
             return pendingOutput
         }
         val length = pendingInput.remaining()
-        if (MicaSpectrumAnalyzer.isAnalysisActive()) {
+        if (MicaSpectrumAnalyzer.isCaptureActive() || spectrumSession != null) {
             val tapStart = System.nanoTime()
             val tapped = tapSpectrum(pendingInput.duplicate(), length)
             recordTap(length, System.currentTimeMillis(), System.nanoTime() - tapStart, tapped)
@@ -89,6 +91,8 @@ class SpectrumAudioProcessor : AudioProcessor {
     override fun isEnded(): Boolean = inputEnded && !pendingOutput.hasRemaining()
 
     override fun flush() {
+        spectrumSession?.processorFlushed()
+        inputFormat = pendingFormat
         DiagnosticLog.event(
             "SpectrumTap",
             "flush pendingInput=${pendingInput.remaining()} pendingOutput=${pendingOutput.remaining()}",
@@ -101,6 +105,7 @@ class SpectrumAudioProcessor : AudioProcessor {
     override fun reset() {
         DiagnosticLog.event("SpectrumTap", "reset")
         inputFormat = AudioProcessor.AudioFormat.NOT_SET
+        pendingFormat = AudioProcessor.AudioFormat.NOT_SET
         outputFormat = AudioProcessor.AudioFormat.NOT_SET
         flush()
     }
@@ -110,7 +115,9 @@ class SpectrumAudioProcessor : AudioProcessor {
         if (encoding == android.media.AudioFormat.ENCODING_INVALID) return false
         val bytes = ByteArray(length)
         buffer.get(bytes)
-        MicaSpectrumAnalyzer.processPcmBuffer(
+        if (spectrumSession != null) {
+            spectrumSession.capture(bytes, 0, length, encoding, inputFormat.sampleRate, inputFormat.channelCount)
+        } else MicaSpectrumAnalyzer.processPcmBuffer(
             buffer = bytes,
             offset = 0,
             length = length,

@@ -29,6 +29,7 @@ internal class ServicePlaybackEngineCoordinator(
         player.removeListener(this)
         player.playbackCoordinator = null
         MicaSpectrumAnalyzer.setPlaybackAdvancing(false)
+        MicaSpectrumAnalyzer.resetBufferedPcm("service-release")
         onPlaybackFailure = null
         onPlaybackBoundary = null
         onMusicVideoFallback = null

@@ -97,13 +97,13 @@ class MainActivity : ComponentActivity(), LyricoTagEditorHost {
 
     override fun onStart() {
         super.onStart()
-        MicaSpectrumAnalyzer.setAnalysisActive(true)
+        MicaSpectrumAnalyzer.setAnalysisActive(this, true)
         (application as MicaApp).desktopLyricsOverlayStateStore.setAppInForeground(true)
         viewModel.library.onForegroundChanged(true)
     }
 
     override fun onStop() {
-        MicaSpectrumAnalyzer.setAnalysisActive(false)
+        MicaSpectrumAnalyzer.setAnalysisActive(this, false)
         (application as MicaApp).desktopLyricsOverlayStateStore.setAppInForeground(false)
         viewModel.library.onForegroundChanged(false)
         (application as MicaApp).playerController.persistPlaybackSessionNow()

@@ -152,6 +152,7 @@ class SpectrumAudioProcessorTest {
         MicaSpectrumAnalyzer.setPlaybackAdvancing(true)
         MicaSpectrumAnalyzer.analyzeTickForTest()
 
-        assertTrue(MicaSpectrumAnalyzer.queuedPcmSampleCount() < prebufferedSamples)
+        // Playback intent alone is not a sample clock. Keep history until timestamped eviction.
+        assertEquals(prebufferedSamples, MicaSpectrumAnalyzer.queuedPcmSampleCount())
     }
 }

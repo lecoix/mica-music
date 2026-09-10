@@ -59,18 +59,19 @@ internal class MicaRenderersFactory(
         if (outputPath.outputMode.requiresMinimalProcessorChain) {
             return buildUsbExactPcmSink()
         }
-        val processorChain = buildUnifiedFixedChain(context)
+        val spectrumSession = SpectrumSinkSession(processorDriven = true)
+        val processorChain = buildUnifiedFixedChain(context, spectrumSession)
         PcmFormatDiagnostics.logSinkBuild(
             profile = "$UNIFIED_SINK_PROFILE+production-int16-sink",
             enableFloatOutput = false,
             enableAudioOutputPlaybackParameters = false,
             processorNames = processorChain.processorNamesForDiagnostics(),
         )
-        return DefaultAudioSink.Builder(context)
+        return SpectrumClockAudioSink(DefaultAudioSink.Builder(context)
             .setEnableFloatOutput(false)
             .setEnableAudioOutputPlaybackParameters(false)
             .setAudioProcessorChain(processorChain)
-            .build()
+            .build(), spectrumSession)
     }
 
     override fun buildAudioRenderers(
@@ -178,13 +179,14 @@ internal class MicaRenderersFactory(
         if (outputPath.outputMode.requiresMinimalProcessorChain) {
             return buildUsbExactPcmSink()
         }
+        val spectrumSession = SpectrumSinkSession(processorDriven = true)
         val trace = AudioPipelineDebugDiagnostics.formatTraceEnabled
         val chain = MicaAudioProcessorChain(
             *buildList {
                 if (trace) add(PipelineFormatTraceAudioProcessor("dsd-sink-entry"))
                 add(buildDsdDecimationProcessor(context))
                 if (trace) add(PipelineFormatTraceAudioProcessor("dsd-after-dsd"))
-                add(SpectrumAudioProcessor())
+                add(SpectrumAudioProcessor(spectrumSession))
                 if (trace) add(PipelineFormatTraceAudioProcessor("dsd-after-spectrum"))
                 // R4 follow-up: EQ on the decimated 24-bit int PCM. SoftwareEqualizer has a
                 // 24-bit branch, so this is purely additive (off by default → bit-exact). Speed/
@@ -202,11 +204,11 @@ internal class MicaRenderersFactory(
             enableAudioOutputPlaybackParameters = false,
             processorNames = chain.processorNamesForDiagnostics(),
         )
-        return DefaultAudioSink.Builder(context)
+        return SpectrumClockAudioSink(DefaultAudioSink.Builder(context)
             .setEnableFloatOutput(enableFloatDsdOutput)
             .setEnableAudioOutputPlaybackParameters(false)
             .setAudioProcessorChain(chain)
-            .build()
+            .build(), spectrumSession)
     }
 
     /**
@@ -220,6 +222,7 @@ internal class MicaRenderersFactory(
         if (outputPath.outputMode.requiresMinimalProcessorChain) {
             return buildUsbExactPcmSink()
         }
+        val spectrumSession = SpectrumSinkSession()
         val chain = MicaAudioProcessorChain(
             includePlaybackTuning = false,
             includeFormatTrace = false,
@@ -238,17 +241,20 @@ internal class MicaRenderersFactory(
             )
             .setAudioProcessorChain(chain)
             .build()
-        return MicaFloatDspAudioSink(inner, MicaEqualizerSpectrumTap())
+        return SpectrumClockAudioSink(
+            MicaFloatDspAudioSink(inner, MicaEqualizerSpectrumTap(spectrumSession = spectrumSession)),
+            spectrumSession,
+        )
     }
 
-    private fun buildUnifiedFixedChain(context: Context): MicaAudioProcessorChain {
+    private fun buildUnifiedFixedChain(context: Context, spectrumSession: SpectrumSinkSession): MicaAudioProcessorChain {
         val trace = AudioPipelineDebugDiagnostics.formatTraceEnabled
         return MicaAudioProcessorChain(
             *buildList {
                 if (trace) add(PipelineFormatTraceAudioProcessor("sink-entry"))
                 add(buildDsdDecimationProcessor(context))
                 if (trace) add(PipelineFormatTraceAudioProcessor("after-dsd"))
-                add(SpectrumAudioProcessor())
+                add(SpectrumAudioProcessor(spectrumSession))
                 if (trace) add(PipelineFormatTraceAudioProcessor("after-spectrum"))
                 add(MicaEqualizerManager.audioProcessor)
                 if (trace) add(PipelineFormatTraceAudioProcessor("after-eq"))

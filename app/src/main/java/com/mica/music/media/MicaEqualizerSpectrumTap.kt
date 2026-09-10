@@ -11,6 +11,7 @@ import com.mica.music.audio.eq.SoftwareEqualizer
 @UnstableApi
 internal class MicaEqualizerSpectrumTap(
     private val equalizer: SoftwareEqualizer = MicaEqualizerManager.equalizer,
+    private val spectrumSession: SpectrumSinkSession? = null,
 ) : MicaFloatDspAudioSink.FloatPcmDspTap {
 
     override fun configure(sampleRate: Int, channelCount: Int) {
@@ -19,7 +20,7 @@ internal class MicaEqualizerSpectrumTap(
     }
 
     override fun isActive(): Boolean =
-        equalizer.isProcessingRequired() || MicaSpectrumAnalyzer.isAnalysisActive()
+        equalizer.isProcessingRequired() || MicaSpectrumAnalyzer.isCaptureActive()
 
     override fun process(
         bytes: ByteArray,
@@ -31,7 +32,9 @@ internal class MicaEqualizerSpectrumTap(
     ) {
         // EQ mutates in place (no-op when disabled); spectrum only reads.
         equalizer.processInterleaved(bytes, offset, length, androidEncoding)
-        if (MicaSpectrumAnalyzer.isAnalysisActive()) {
+        if (spectrumSession != null) {
+            spectrumSession.capture(bytes, offset, length, androidEncoding, sampleRate, channelCount, timestampEachBuffer = true)
+        } else if (MicaSpectrumAnalyzer.isCaptureActive()) {
             MicaSpectrumAnalyzer.processPcmBuffer(
                 buffer = bytes,
                 offset = offset,

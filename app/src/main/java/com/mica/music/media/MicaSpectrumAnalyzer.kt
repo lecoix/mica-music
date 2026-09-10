@@ -1,441 +1,119 @@
 package com.mica.music.media
 
 import android.media.AudioFormat
-import android.util.Log
-import com.mica.music.audio.spectrum.SPECTRUM_BAND_COUNT
 import com.mica.music.audio.spectrum.SpectrumUiProjection
 import com.mica.music.diagnostics.AudioPipelineDebugDiagnostics
 import com.mica.music.util.DiagnosticLog
-import kotlin.math.PI
-import kotlin.math.cos
-import kotlin.math.ln
-import kotlin.math.log10
-import kotlin.math.pow
-import kotlin.math.sqrt
+import java.util.Collections
+import java.util.IdentityHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
+/** Process facade. Stream time/PCM/publication ownership lives in [SpectrumAnalysisEngine]. */
 object MicaSpectrumAnalyzer {
-    private const val BandCount = SPECTRUM_BAND_COUNT
-    private const val WindowSize = 2048
-    private const val AnalysisFps = 60
-    // The base queue covers normal decoder buffers. SpectrumQueueCapacityPolicy adds bounded
-    // headroom when a format delivers unusually large consecutive buffers (such as APE).
-    private const val BaseMaxQueuedAudioSeconds = 2f
-    private const val SilenceDecay = 0.88f
-    private const val ProbeTag = "MicaSpectrumProbe"
-    private val ProbeEnabled: Boolean
-        get() = AudioPipelineDebugDiagnostics.formatTraceEnabled
-
-    // 时间常数（秒）。攻/放/beat 的平滑基于两帧之间的真实 dt，
-    // 而非"按帧固定系数"，因此与解码器喂 PCM 的帧率（采样率/缓冲区）无关，
-    // 不同歌曲的频谱"速度"保持一致。tau 越小越快。
-    @Volatile
-    private var enabled = false
-
-    @Volatile
-    private var analysisActive = false
-
-    @Volatile
-    private var playbackAdvancing = false
-
-    private val ring = FloatArray(WindowSize)
-    private val pcmQueue = SpectrumPcmQueue()
-    private val queueCapacityPolicy = SpectrumQueueCapacityPolicy()
-    private val windowed = FloatArray(WindowSize)
-    private val window = FloatArray(WindowSize) { index ->
-        0.5f - 0.5f * cos((2.0 * PI * index) / (WindowSize - 1)).toFloat()
-    }
-    private val real = FloatArray(WindowSize)
-    private val imag = FloatArray(WindowSize)
-    private val weightedLevels = FloatArray(BandCount)
-    private val contrastLevels = FloatArray(BandCount)
-    private val visualLevels = FloatArray(BandCount)
-    private val previousLevels = FloatArray(BandCount)
-    private val shapedLevels = FloatArray(BandCount)
-    private var previousBassEnergy = 0f
-
-    private val lock = Any()
-    private var ringWriteIndex = 0
-    private var ringSampleCount = 0
-    private var queuedSampleRateHz = 0
-    private var hopRemainder = 0.0
-    private var probeWindowStartMs = 0L
-    private var probeProcessCalls = 0
-    private var probeOutputFrames = 0
-    private var probePcmBytes = 0L
-    private var probeAnalyzeNanos = 0L
-    private var probeAppendNanos = 0L
-    private var probeOfferedSamples = 0L
-    private var probeDroppedSamples = 0L
-    private var probeTickCalls = 0
-    private var probeEmptyQueueTicks = 0
-    private var probeLastTickMs = 0L
-    private var probeMaxTickGapMs = 0L
-    private var probeEmptyRunStartMs = 0L
-    private var probeMaxEmptyRunMs = 0L
-
-    private val analyzeExecutor = Executors.newSingleThreadScheduledExecutor { runnable ->
-        Thread(runnable, "mica-spectrum-analyze").apply { isDaemon = true }
-    }
-
-    init {
-        analyzeExecutor.scheduleAtFixedRate(
-            ::analyzeTick,
-            0L,
-            1_000_000_000L / AnalysisFps,
-            TimeUnit.NANOSECONDS,
-        )
-    }
-
-    /** Fired on the caller thread when [setEnabled] changes the flag. */
+    internal val engine = SpectrumAnalysisEngine(publish = { levels, envelope ->
+        SpectrumUiProjection.publishEnvelope(envelope)
+        SpectrumUiProjection.publishLevels(levels)
+    }, onHealth = { message ->
+        if (AudioPipelineDebugDiagnostics.formatTraceEnabled) DiagnosticLog.event("SpectrumProbe", message)
+    })
+    private val directSource = Any()
+    private var directFrames = 0L
+    private val analysisOwnerLock = Any()
+    private val analysisOwners = Collections.newSetFromMap(IdentityHashMap<Any, Boolean>())
+    private val legacyAnalysisOwner = Any()
     var onEnabledChanged: ((Boolean) -> Unit)? = null
 
-    private data class RingSnapshot(
-        val samples: FloatArray,
-        val count: Int,
-        val writeIndex: Int,
-    )
-
-    fun isEnabledForProcessing(): Boolean = enabled
-
-    /**
-     * Whether PCM capture and FFT work should run right now. Unlike [setEnabled], changing this
-     * flag never reconfigures ExoPlayer's audio pipeline.
-     */
-    fun isAnalysisActive(): Boolean = enabled && analysisActive
-
-    internal fun isPlaybackAdvancing(): Boolean = playbackAdvancing
-
-    internal fun maxQueuedPcmSampleCount(sampleRateHz: Int): Int =
-        (sampleRateHz * BaseMaxQueuedAudioSeconds).toInt()
-
-    fun setAnalysisActive(value: Boolean) {
-        if (analysisActive == value) return
-        analysisActive = value
-        if (!value) clearAnalysisState()
-        DiagnosticLog.event("Spectrum", "analysis-active=$value enabled=$enabled")
+    init {
+        Executors.newSingleThreadScheduledExecutor { r ->
+            Thread(r, "mica-spectrum-analyze").apply { isDaemon = true }
+        }.scheduleAtFixedRate({
+            try { engine.tick() } catch (failure: Exception) {
+                // A malformed frame must not permanently cancel the scheduled task.
+                engine.reset()
+                DiagnosticLog.event("Spectrum", "analysis-failed", failure)
+            }
+        }, 0L, 1_000_000_000L / 60, TimeUnit.NANOSECONDS)
     }
 
+    fun isEnabledForProcessing() = engine.isEnabled()
+    fun isAnalysisActive() = engine.isAnalysisActive()
+    internal fun isCaptureActive() = engine.isCaptureActive()
+    internal fun isPlaybackAdvancing() = engine.isAdvancing()
+    internal fun queuedPcmSampleCount() = engine.bufferedSamples()
+    internal fun maxQueuedPcmSampleCount(sampleRateHz: Int) = sampleRateHz * 2
+    internal fun analyzeTickForTest() = engine.tick()
+
+    fun setEnabled(value: Boolean, notifyPipeline: Boolean = true) {
+        if (engine.isEnabled() == value) return
+        engine.setEnabled(value)
+        if (notifyPipeline) onEnabledChanged?.invoke(value)
+    }
+    fun setAnalysisActive(value: Boolean) = setAnalysisActive(legacyAnalysisOwner, value)
+
+    @androidx.annotation.VisibleForTesting
+    internal fun resetAnalysisOwnersForTest() {
+        synchronized(analysisOwnerLock) {
+            analysisOwners.clear()
+            engine.setAnalysisActive(false)
+        }
+    }
+
+    fun setAnalysisActive(owner: Any, value: Boolean) {
+        val state = synchronized(analysisOwnerLock) {
+            if (value) analysisOwners.add(owner) else analysisOwners.remove(owner)
+            val active = analysisOwners.isNotEmpty()
+            engine.setAnalysisActive(active)
+            active to analysisOwners.size
+        }
+        DiagnosticLog.event(
+            "Spectrum",
+            "analysis-active=${state.first} requested=$value owners=${state.second} enabled=${engine.isEnabled()}",
+        )
+    }
     fun setPlaybackAdvancing(value: Boolean) {
-        if (playbackAdvancing == value) return
-        playbackAdvancing = value
+        engine.setPlaybackAdvancing(value)
         DiagnosticLog.event("Spectrum", "playback-advancing=$value")
     }
-
     fun resetBufferedPcm(reason: String) {
-        clearAnalysisState()
+        engine.reset()
+        directFrames = 0
         DiagnosticLog.event("Spectrum", "buffer-reset reason=$reason")
     }
 
-    internal fun queuedPcmSampleCount(): Int = synchronized(lock) { pcmQueue.size }
-
-    fun setEnabled(value: Boolean, notifyPipeline: Boolean = true) {
-        if (enabled == value) return
-        enabled = value
-        if (!value) clearAnalysisState()
-        if (notifyPipeline) {
-            onEnabledChanged?.invoke(value)
-        }
+    // Kept for standalone processor/tap clients; production passes a sink-owned token and time.
+    fun processPcmBuffer(buffer: ByteArray, offset: Int, length: Int, encoding: Int,
+        sampleRateHz: Int, channelCount: Int) {
+        if (!isCaptureActive() || sampleRateHz <= 0) return
+        val token = engine.beginStream(directSource)
+        val positionUs = directFrames * 1_000_000L / sampleRateHz
+        val mono = decodeMono(buffer, offset, length, encoding, channelCount)
+        directFrames += mono.size
+        engine.append(token, mono, sampleRateHz, positionUs)
     }
 
-    fun processPcmBuffer(
-        buffer: ByteArray,
-        offset: Int,
-        length: Int,
-        encoding: Int,
-        sampleRateHz: Int,
-        channelCount: Int,
-    ) {
-        if (!isAnalysisActive() || length <= 0 || sampleRateHz <= 0) return
-        val nowMs = System.currentTimeMillis()
-        synchronized(lock) {
-            val appendStart = if (ProbeEnabled) System.nanoTime() else 0L
-            if (queuedSampleRateHz != sampleRateHz) {
-                pcmQueue.clear()
-                queueCapacityPolicy.reset()
-                ring.fill(0f)
-                ringWriteIndex = 0
-                ringSampleCount = 0
-                hopRemainder = 0.0
-                queuedSampleRateHz = sampleRateHz
-            }
-            val incomingSamples = pcmFrameCount(length, encoding, channelCount.coerceAtLeast(1))
-            val maxQueuedSamples = queueCapacityPolicy.capacitySamples(sampleRateHz, incomingSamples)
-            if (ProbeEnabled) {
-                if (probeWindowStartMs == 0L) probeWindowStartMs = nowMs
-                probeProcessCalls++
-                probePcmBytes += length
-            }
-            val queuedBeforeAppend = pcmQueue.size
-            val offeredSamples = appendMonoSamples(
-                buffer = buffer,
-                offset = offset,
-                length = length,
-                encoding = encoding,
-                channelCount = channelCount.coerceAtLeast(1),
-                maxQueuedSamples = maxQueuedSamples,
-            )
-            SpectrumPcmPipelineDiagnostics.onAnalyzerQueueBurst(
-                previousQueuedSamples = queuedBeforeAppend,
-                queuedSamples = pcmQueue.size,
-                offeredSamples = offeredSamples,
-                sampleRateHz = sampleRateHz,
-            )
-            if (ProbeEnabled) {
-                probeAppendNanos += System.nanoTime() - appendStart
-                probeOfferedSamples += offeredSamples
-            }
+    internal fun decodeMono(buffer: ByteArray, offset: Int, length: Int, encoding: Int,
+        channelCount: Int, maxFrames: Int = Int.MAX_VALUE): FloatArray {
+        val bytesPerSample = when (encoding) {
+            AudioFormat.ENCODING_PCM_8BIT -> 1
+            AudioFormat.ENCODING_PCM_16BIT -> 2
+            AudioFormat.ENCODING_PCM_24BIT_PACKED -> 3
+            AudioFormat.ENCODING_PCM_32BIT, AudioFormat.ENCODING_PCM_FLOAT -> 4
+            else -> return FloatArray(0)
         }
-    }
-
-    private fun analyzeTick() {
-        if (!isAnalysisActive() || !playbackAdvancing) return
-        val nowMs = System.currentTimeMillis()
-        var snapshot: RingSnapshot? = null
-        var sampleRateHz = 0
-        var emptyQueueSampleRateHz = 0
-        synchronized(lock) {
-            recordProbeTick(nowMs)
-            sampleRateHz = queuedSampleRateHz
-            if (sampleRateHz <= 0 || pcmQueue.size == 0) {
-                if (ProbeEnabled && sampleRateHz > 0 && probeWindowStartMs != 0L) {
-                    recordEmptyQueueTick(nowMs)
-                    emptyQueueSampleRateHz = sampleRateHz
-                }
-            } else {
-                finishEmptyQueueRun(nowMs)
-            }
-            if (sampleRateHz <= 0 || pcmQueue.size == 0) {
-                // Report outside the analyzer lock to keep the audio callback path light.
-            } else {
-                hopRemainder += sampleRateHz.toDouble() / AnalysisFps
-                val hopSamples = hopRemainder.toInt().coerceAtLeast(1)
-                hopRemainder -= hopSamples
-                pcmQueue.drain(hopSamples, ::appendRingSample)
-                if (ringSampleCount < WindowSize / 2) return
-                snapshot = captureRingSnapshot()
-                emptyQueueSampleRateHz = 0
-            }
-        }
-        if (emptyQueueSampleRateHz > 0) {
-            reportProbeIfNeeded(nowMs, emptyQueueSampleRateHz)
-            return
-        }
-        runAnalysis(snapshot ?: return, sampleRateHz, nowMs)
-    }
-
-    internal fun analyzeTickForTest() = analyzeTick()
-
-    private fun recordProbeTick(nowMs: Long) {
-        if (!ProbeEnabled) return
-        if (probeWindowStartMs == 0L) probeWindowStartMs = nowMs
-        probeTickCalls++
-        if (probeLastTickMs != 0L) {
-            probeMaxTickGapMs = maxOf(probeMaxTickGapMs, nowMs - probeLastTickMs)
-        }
-        probeLastTickMs = nowMs
-    }
-
-    private fun recordEmptyQueueTick(nowMs: Long) {
-        probeEmptyQueueTicks++
-        if (probeEmptyRunStartMs == 0L) probeEmptyRunStartMs = nowMs
-        probeMaxEmptyRunMs = maxOf(probeMaxEmptyRunMs, nowMs - probeEmptyRunStartMs)
-    }
-
-    private fun finishEmptyQueueRun(nowMs: Long) {
-        if (probeEmptyRunStartMs == 0L) return
-        val durationMs = nowMs - probeEmptyRunStartMs
-        probeMaxEmptyRunMs = maxOf(probeMaxEmptyRunMs, durationMs)
-        SpectrumPcmPipelineDiagnostics.onAnalyzerStarvation(
-            durationMs = durationMs,
-            sampleRateHz = queuedSampleRateHz,
-        )
-        probeEmptyRunStartMs = 0L
-    }
-
-    private fun clearAnalysisState() {
-        synchronized(lock) {
-            pcmQueue.clear()
-            ring.fill(0f)
-            windowed.fill(0f)
-            real.fill(0f)
-            imag.fill(0f)
-            weightedLevels.fill(0f)
-            contrastLevels.fill(0f)
-            visualLevels.fill(0f)
-            previousLevels.fill(0f)
-            shapedLevels.fill(0f)
-            previousBassEnergy = 0f
-            ringWriteIndex = 0
-            ringSampleCount = 0
-            queuedSampleRateHz = 0
-            queueCapacityPolicy.reset()
-            hopRemainder = 0.0
-            resetProbe()
-            SpectrumUiProjection.reset()
-        }
-    }
-
-    private fun captureRingSnapshot(): RingSnapshot =
-        RingSnapshot(ring.copyOf(), ringSampleCount, ringWriteIndex)
-
-    private fun runAnalysis(snapshot: RingSnapshot, sampleRateHz: Int, nowMs: Long) {
-        val analyzeStart = if (ProbeEnabled) System.nanoTime() else 0L
-        copyWindowedSamplesFromSnapshot(snapshot)
-        SpectrumUiProjection.publishEnvelope(analyzeEnvelope(windowed))
-        val next = shapeBands(analyzeBands(windowed, sampleRateHz))
-        if (ProbeEnabled) {
-            probeAnalyzeNanos += System.nanoTime() - analyzeStart
-            probeOutputFrames++
-            reportProbeIfNeeded(nowMs, sampleRateHz)
-        }
-        SpectrumUiProjection.publishLevels(next.map { it.coerceIn(0f, 1f) })
-    }
-
-    private fun analyzeEnvelope(samples: FloatArray): Float {
-        val start = (samples.size * 0.25f).toInt().coerceIn(0, samples.lastIndex)
-        var sumSquares = 0f
-        var peak = 0f
-        var count = 0
-        for (index in start until samples.size) {
-            val sample = samples[index]
-            sumSquares += sample * sample
-            peak = maxOf(peak, kotlin.math.abs(sample))
-            count++
-        }
-        if (count == 0) return 0f
-        val rms = sqrt(sumSquares / count).coerceIn(0f, 1f)
-        val compressedRms = (ln(1f + rms * 18f) / ln(19f)).coerceIn(0f, 1f)
-        val compressedPeak = (ln(1f + peak * 9f) / ln(10f)).coerceIn(0f, 1f)
-        return (compressedRms * 0.72f + compressedPeak * 0.28f).coerceIn(0f, 1f)
-    }
-
-    private fun copyWindowedSamplesFromSnapshot(snapshot: RingSnapshot) {
-        val available = snapshot.count.coerceAtMost(WindowSize)
-        val start = (snapshot.writeIndex - available + WindowSize) % WindowSize
-        val silence = WindowSize - available
-        for (i in 0 until silence) {
-            windowed[i] = 0f
-        }
-        for (i in 0 until available) {
-            val sourceIndex = (start + i) % WindowSize
-            val targetIndex = silence + i
-            windowed[targetIndex] = snapshot.samples[sourceIndex] * window[targetIndex]
-        }
-    }
-
-    private fun resetProbe() {
-        probeWindowStartMs = 0L
-        probeProcessCalls = 0
-        probeOutputFrames = 0
-        probePcmBytes = 0L
-        probeAnalyzeNanos = 0L
-        probeAppendNanos = 0L
-        probeOfferedSamples = 0L
-        probeDroppedSamples = 0L
-        probeTickCalls = 0
-        probeEmptyQueueTicks = 0
-        probeLastTickMs = 0L
-        probeMaxTickGapMs = 0L
-        probeEmptyRunStartMs = 0L
-        probeMaxEmptyRunMs = 0L
-    }
-
-    private fun reportProbeIfNeeded(nowMs: Long, sampleRateHz: Int) {
-        val start = probeWindowStartMs
-        val elapsedMs = nowMs - start
-        if (elapsedMs < 1_000L) return
-        val seconds = elapsedMs / 1_000f
-        val outputFps = probeOutputFrames / seconds
-        val callFps = probeProcessCalls / seconds
-        val kbps = probePcmBytes / 1024f / seconds
-        val avgAnalyzeMs = if (probeOutputFrames > 0) {
-            probeAnalyzeNanos / probeOutputFrames / 1_000_000f
-        } else {
-            0f
-        }
-        val avgAppendMs = if (probeProcessCalls > 0) {
-            probeAppendNanos / probeProcessCalls / 1_000_000f
-        } else {
-            0f
-        }
-        val tickFps = probeTickCalls / seconds
-        Log.d(
-            ProbeTag,
-            "analysis fps=${outputFps.format1()} calls=${callFps.format1()} " +
-                "pcmKBps=${kbps.format1()} avgAnalyzeMs=${avgAnalyzeMs.format2()} " +
-                "sr=$sampleRateHz window=$WindowSize bands=$BandCount",
-        )
-        DiagnosticLog.event(
-            "SpectrumProbe",
-            "analysis fps=${outputFps.format1()} calls=${callFps.format1()} " +
-                "pcmKBps=${kbps.format1()} avgAnalyzeMs=${avgAnalyzeMs.format2()} " +
-                "queuedSamples=${queuedPcmSampleCount()} sr=$sampleRateHz " +
-                "window=$WindowSize bands=$BandCount tickFps=${tickFps.format1()} " +
-                "emptyTicks=$probeEmptyQueueTicks maxTickGapMs=$probeMaxTickGapMs " +
-                "maxEmptyMs=$probeMaxEmptyRunMs offeredSamples=$probeOfferedSamples " +
-                "droppedSamples=$probeDroppedSamples avgAppendMs=${avgAppendMs.format2()}",
-        )
-        resetProbe()
-        probeWindowStartMs = nowMs
-    }
-
-    private fun decayToSilence() {
-        synchronized(lock) {
-            for (i in 0 until BandCount) {
-                previousLevels[i] *= SilenceDecay
-                shapedLevels[i] *= SilenceDecay
-            }
-            SpectrumUiProjection.publishLevels(previousLevels.map { it.coerceIn(0f, 1f) })
-        }
-    }
-
-    private fun appendMonoSamples(
-        buffer: ByteArray,
-        offset: Int,
-        length: Int,
-        encoding: Int,
-        channelCount: Int,
-        maxQueuedSamples: Int,
-    ): Int {
-        val bytesPerSample = bytesPerSample(encoding)
-        val frameCount = pcmFrameCount(length, encoding, channelCount)
-        if (frameCount <= 0) return 0
+        if (channelCount <= 0 || offset < 0 || length <= 0 || offset > buffer.size - length) return FloatArray(0)
         val frameBytes = bytesPerSample * channelCount
-        for (frame in 0 until frameCount) {
+        val frameCount = length / frameBytes
+        val skipped = (frameCount - maxFrames).coerceAtLeast(0)
+        return FloatArray(frameCount - skipped) { frame ->
             var sum = 0f
-            for (ch in 0 until channelCount) {
-                val pos = offset + frame * frameBytes + ch * bytesPerSample
-                sum += readSample(buffer, pos, encoding)
+            repeat(channelCount) { ch ->
+                val sample = readSample(buffer, offset + (frame + skipped) * frameBytes + ch * bytesPerSample, encoding)
+                if (sample.isFinite()) sum += sample
             }
-            if (ProbeEnabled && pcmQueue.size >= maxQueuedSamples) {
-                probeDroppedSamples++
-            }
-            pcmQueue.offer(sum / channelCount, maxQueuedSamples)
+            sum / channelCount
         }
-        return frameCount
     }
-
-    private fun pcmFrameCount(length: Int, encoding: Int, channelCount: Int): Int {
-        val frameBytes = bytesPerSample(encoding) * channelCount.coerceAtLeast(1)
-        return if (frameBytes > 0) length / frameBytes else 0
-    }
-
-    private fun bytesPerSample(encoding: Int): Int = when (encoding) {
-        AudioFormat.ENCODING_PCM_8BIT -> 1
-        AudioFormat.ENCODING_PCM_16BIT -> 2
-        AudioFormat.ENCODING_PCM_24BIT_PACKED -> 3
-        AudioFormat.ENCODING_PCM_32BIT, AudioFormat.ENCODING_PCM_FLOAT -> 4
-        else -> 2
-    }
-
-    private fun appendRingSample(sample: Float) {
-        ring[ringWriteIndex] = sample
-        ringWriteIndex = (ringWriteIndex + 1) % WindowSize
-        ringSampleCount = (ringSampleCount + 1).coerceAtMost(WindowSize)
-    }
-
     private fun readSample(buffer: ByteArray, pos: Int, encoding: Int): Float {
         if (pos !in buffer.indices) return 0f
         return when (encoding) {
@@ -479,157 +157,4 @@ object MicaSpectrumAnalyzer {
         }
     }
 
-    private fun analyzeBands(samples: FloatArray, sampleRateHz: Int): FloatArray {
-        val out = FloatArray(BandCount)
-        for (i in 0 until WindowSize) {
-            real[i] = samples[i]
-            imag[i] = 0f
-        }
-        fft(real, imag)
-
-        val nyquist = sampleRateHz / 2f
-        val minHz = 50f
-        val maxHz = minOf(16_000f, nyquist * 0.92f).coerceAtLeast(minHz + 1f)
-        val minLog = ln(minHz)
-        val maxLog = ln(maxHz)
-        val binHz = sampleRateHz.toFloat() / WindowSize
-        for (i in 0 until BandCount) {
-            val leftT = i / BandCount.toFloat()
-            val rightT = (i + 1) / BandCount.toFloat()
-            val leftHz = kotlin.math.exp(minLog + (maxLog - minLog) * leftT)
-            val rightHz = kotlin.math.exp(minLog + (maxLog - minLog) * rightT)
-            val startBin = maxOf(1, (leftHz / binHz).toInt())
-            val endBin = minOf(WindowSize / 2 - 1, kotlin.math.ceil(rightHz / binHz).toInt())
-            var energy = 0f
-            var bins = 0
-            for (bin in startBin..endBin) {
-                val re = real[bin]
-                val im = imag[bin]
-                energy += re * re + im * im
-                bins++
-            }
-            val magnitude = if (bins > 0) {
-                sqrt(energy / bins) / WindowSize * 2f
-            } else {
-                1e-7f
-            }.coerceAtLeast(1e-7f)
-            val db = 20f * log10(magnitude)
-            out[i] = ((db + 52f) / 44f).coerceIn(0f, 1f)
-        }
-        return out
-    }
-
-    private fun shapeBands(raw: FloatArray): FloatArray {
-        // 主分支视觉权重：压低天然占优的低频，中频最突出，高频逐步回落。
-        for (i in 0 until BandCount) {
-            val t = i / (BandCount - 1f)
-            val presence = when {
-                t < 0.08f -> 0.46f
-                t < 0.20f -> 0.60f
-                t < 0.55f -> 0.88f
-                t < 0.80f -> 0.78f
-                else -> 0.65f - (t - 0.80f) * 0.55f
-            }.coerceIn(0.40f, 0.92f)
-            val weighted = raw[i].coerceIn(0f, 1f).pow(1.5f) * presence
-            weightedLevels[i] = weighted / (1f + weighted * 0.3f)
-        }
-
-        // 主分支高对比参数：突出局部波峰，压低波谷。
-        for (i in 0 until BandCount) {
-            val from = maxOf(0, i - 2)
-            val to = minOf(BandCount - 1, i + 2)
-            var localSum = 0f
-            var count = 0
-            for (j in from..to) {
-                localSum += weightedLevels[j]
-                count++
-            }
-            val localAvg = if (count > 0) localSum / count else weightedLevels[i]
-            val value = weightedLevels[i]
-            val prominence = (value - localAvg * 0.7f).coerceAtLeast(0f)
-            val base = if (value < localAvg) value * 0.06f else value * 0.22f
-            contrastLevels[i] = (base + prominence * 3.6f).coerceIn(0f, 1f)
-        }
-
-        val bassEnergy = weightedLevels.take(7).average().toFloat().coerceIn(0f, 1f)
-        val beatLift = (bassEnergy - previousBassEnergy * 0.82f).coerceAtLeast(0f)
-            .coerceIn(0f, 0.42f)
-        previousBassEnergy = previousBassEnergy * 0.72f + bassEnergy * 0.28f
-
-        for (i in 0 until BandCount) {
-            val t = i / (BandCount - 1f)
-            val rhythmReach = (1f - t * 0.95f).coerceIn(0f, 1f)
-            val pulse = beatLift * rhythmReach * 0.68f
-            visualLevels[i] = (contrastLevels[i] + pulse).coerceIn(0f, 1f)
-        }
-
-        // 主分支快攻慢放参数。
-        for (i in 0 until BandCount) {
-            val lifted = visualLevels[i]
-            val attack = if (lifted > previousLevels[i]) 0.85f else 0.28f
-            shapedLevels[i] = previousLevels[i] + (lifted - previousLevels[i]) * attack
-        }
-
-        // 窄核平滑：保留峰谷起伏，仅消除单条噪点
-        for (i in 0 until BandCount) {
-            val left = shapedLevels[maxOf(0, i - 1)]
-            val center = shapedLevels[i]
-            val right = shapedLevels[minOf(BandCount - 1, i + 1)]
-            previousLevels[i] = (left * 0.12f + center * 0.76f + right * 0.12f)
-                .coerceIn(0f, 1f)
-        }
-        return previousLevels
-    }
-
-    private fun fft(real: FloatArray, imag: FloatArray) {
-        var j = 0
-        for (i in 1 until WindowSize) {
-            var bit = WindowSize shr 1
-            while ((j and bit) != 0) {
-                j = j xor bit
-                bit = bit shr 1
-            }
-            j = j xor bit
-            if (i < j) {
-                val tempReal = real[i]
-                real[i] = real[j]
-                real[j] = tempReal
-                val tempImag = imag[i]
-                imag[i] = imag[j]
-                imag[j] = tempImag
-            }
-        }
-
-        var length = 2
-        while (length <= WindowSize) {
-            val angle = (-2.0 * PI / length).toFloat()
-            val wLengthReal = cos(angle)
-            val wLengthImag = kotlin.math.sin(angle)
-            var i = 0
-            while (i < WindowSize) {
-                var wReal = 1f
-                var wImag = 0f
-                val half = length / 2
-                for (k in 0 until half) {
-                    val even = i + k
-                    val odd = even + half
-                    val oddReal = real[odd] * wReal - imag[odd] * wImag
-                    val oddImag = real[odd] * wImag + imag[odd] * wReal
-                    real[odd] = real[even] - oddReal
-                    imag[odd] = imag[even] - oddImag
-                    real[even] += oddReal
-                    imag[even] += oddImag
-                    val nextReal = wReal * wLengthReal - wImag * wLengthImag
-                    wImag = wReal * wLengthImag + wImag * wLengthReal
-                    wReal = nextReal
-                }
-                i += length
-            }
-            length = length shl 1
-        }
-    }
-
-    private fun Float.format1(): String = String.format("%.1f", this)
-
-    private fun Float.format2(): String = String.format("%.2f", this)
 }

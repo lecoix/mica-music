@@ -52,7 +52,7 @@ class FloatDspSpectrumTapDecouplingTest {
     }
 
     @Test
-    fun flacSizedBuffer_secondBufferTappedWhileFirstWritePending() {
+    fun flacSizedBuffer_retriesSameBufferUntilAcceptedWithoutDuplicateTap() {
         MicaSpectrumAnalyzer.setEnabled(true)
         MicaSpectrumAnalyzer.setAnalysisActive(true)
         MicaSpectrumAnalyzer.setPlaybackAdvancing(false)
@@ -69,7 +69,10 @@ class FloatDspSpectrumTapDecouplingTest {
         assertFalse(sink.handleBuffer(first, 0L, 1))
         assertEquals(flacFrames, MicaSpectrumAnalyzer.queuedPcmSampleCount())
 
-        assertFalse(sink.handleBuffer(second, 1L, 1))
+        assertFalse(sink.handleBuffer(first, 0L, 1))
+        assertEquals(flacFrames, MicaSpectrumAnalyzer.queuedPcmSampleCount())
+        assertTrue(sink.handleBuffer(first, 0L, 1))
+        assertTrue(sink.handleBuffer(second, 85_333L, 1))
         assertEquals(flacFrames * 2, MicaSpectrumAnalyzer.queuedPcmSampleCount())
 
         MicaSpectrumAnalyzer.setPlaybackAdvancing(true)
@@ -105,27 +108,32 @@ class FloatDspSpectrumTapDecouplingTest {
     }
 
     @Test
-    fun apeThenFlac_bothRetainedUnderSustainedInnerReject() {
+    fun apeThenFlac_nextBufferArrivesOnlyAfterPendingWriteAccepted() {
         MicaSpectrumAnalyzer.setEnabled(true)
         MicaSpectrumAnalyzer.setAnalysisActive(true)
         MicaSpectrumAnalyzer.setPlaybackAdvancing(false)
 
         val inner = mockk<AudioSink>(relaxed = true)
-        every { inner.handleBuffer(any(), any(), any()) } returns false
+        every { inner.handleBuffer(any(), any(), any()) } returnsMany listOf(false, false, true, true)
         val sink = MicaFloatDspAudioSink(inner, AnalyzerTap())
         sink.configure(floatFormat(sampleRate = 44_100), 0, null)
 
         val apeFrames = 73_728
         val flacFrames = 4_096
-        assertFalse(sink.handleBuffer(floatStereoBuffer(apeFrames, 0.2f), 0L, 1))
-        assertFalse(sink.handleBuffer(floatStereoBuffer(flacFrames, 0.6f), 1L, 1))
+        val first = floatStereoBuffer(apeFrames, 0.2f)
+        assertFalse(sink.handleBuffer(first, 0L, 1))
+        assertFalse(sink.handleBuffer(first, 0L, 1))
+        assertEquals(apeFrames, MicaSpectrumAnalyzer.queuedPcmSampleCount())
+        assertTrue(sink.handleBuffer(first, 0L, 1))
+        assertTrue(sink.handleBuffer(floatStereoBuffer(flacFrames, 0.6f), 1_671_837L, 1))
 
         assertEquals(apeFrames + flacFrames, MicaSpectrumAnalyzer.queuedPcmSampleCount())
 
         MicaSpectrumAnalyzer.setPlaybackAdvancing(true)
         val queuedBeforeDrain = MicaSpectrumAnalyzer.queuedPcmSampleCount()
         repeat(120) { MicaSpectrumAnalyzer.analyzeTickForTest() }
-        assertTrue(MicaSpectrumAnalyzer.queuedPcmSampleCount() < queuedBeforeDrain)
+        // No sink clock was supplied: visual ticks must never consume future PCM by themselves.
+        assertEquals(queuedBeforeDrain, MicaSpectrumAnalyzer.queuedPcmSampleCount())
     }
 
     @Test
