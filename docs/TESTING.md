@@ -28,6 +28,16 @@ Windows PowerShell 5.1 若看到中文乱码，先在当前会话启用 UTF-8：
 .\gradlew :app:micaNightlyCheck --no-configuration-cache
 ```
 
+真实 App 自动化流程测试使用连接的 ARM 设备和独立 QA application id，不接触普通 `com.mica.music` 数据：
+
+```powershell
+.\scripts\run-android-flow-tests.ps1
+# 多设备时：
+.\scripts\run-android-flow-tests.ps1 -Serial <adb-serial>
+```
+
+流程测试分层、首批矩阵和 CI 晋级规则见 [`AUTOMATED_FLOW_TESTING.md`](AUTOMATED_FLOW_TESTING.md)。当前 GitHub Hosted runner 只负责**编译** `androidTest`；项目仅打包 ARM native ABI，因此不使用 x86_64 emulator 冒充运行时流程门。
+
 更新截图前先人工检查差异，再运行：
 
 ```powershell

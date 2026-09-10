@@ -213,7 +213,7 @@ internal object SettingsSearchIndex {
         ),
 
         context("song-list.sort", "歌曲列表排序", SettingsIndexSurface.SONG_LIST, "排序", "升序", "降序", "自定义"),
-        context("song-list.info", "歌曲列表信息显示", SettingsIndexSurface.SONG_LIST, "格式", "时长", "文件大小", "歌曲列表"),
+        context("song-list.info", "歌曲列表信息显示", SettingsIndexSurface.SONG_LIST, "格式", "时长", "文件大小", "歌曲列表", "音质", "HQ", "SQ", "HR"),
         context("browse.display", "浏览分组显示", SettingsIndexSurface.BROWSE, "专辑", "艺术家", "网格", "列数"),
         context("browse.stats", "专辑/艺术家统计信息", SettingsIndexSurface.BROWSE, "专辑", "艺术家", "统计", "曲目数"),
         context("browse.folder-mode", "文件夹浏览模式", SettingsIndexSurface.BROWSE, "文件夹", "深度", "统合"),

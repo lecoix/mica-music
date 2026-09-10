@@ -147,7 +147,7 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x gradlew
-          ./gradlew :app:compileDebugKotlin :app:testDebugUnitTest :app:lintDebug \
+          ./gradlew :app:compileDebugKotlin :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug \
             --no-configuration-cache
           ./gradlew :app:assembleRelease \
             --no-configuration-cache \

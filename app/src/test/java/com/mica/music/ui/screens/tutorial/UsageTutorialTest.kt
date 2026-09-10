@@ -12,6 +12,9 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.test.core.app.ApplicationProvider
+import com.github.takahirom.roborazzi.ExperimentalRoborazziApi
+import com.github.takahirom.roborazzi.RoborazziOptions
+import com.github.takahirom.roborazzi.RoborazziTaskType
 import com.github.takahirom.roborazzi.captureRoboImage
 import com.mica.music.data.preferences.UsageTutorialPreferences
 import com.mica.music.data.SongSortField
@@ -35,9 +38,11 @@ import java.io.File
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class, qualifiers = "w360dp-h800dp-mdpi")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
+@OptIn(ExperimentalRoborazziApi::class)
 class UsageTutorialTest {
     @get:Rule val compose = createComposeRule()
     private val context: Context get() = ApplicationProvider.getApplicationContext()
+    private val reviewCaptureOptions = RoborazziOptions(taskType = RoborazziTaskType.Record)
 
     @Before fun resetTutorial() {
         MicaImageLoaders.init(context)
@@ -113,7 +118,10 @@ class UsageTutorialTest {
         compose.runOnIdle { scanning = true }
         compose.onNodeWithText("扫描中，是否打开使用技巧？").assertIsDisplayed()
         assertTrue(compose.onNodeWithText("是").getUnclippedBoundsInRoot().left < compose.onNodeWithText("否").getUnclippedBoundsInRoot().left)
-        compose.onNode(isDialog()).captureRoboImage("../../../build/reports/usage-tutorial/scan-question.png")
+        compose.onNode(isDialog()).captureRoboImage(
+            "../../../build/reports/usage-tutorial/scan-question.png",
+            reviewCaptureOptions,
+        )
         compose.onNodeWithText("否").performClick()
         assertTrue(scanning)
         assertTrue(UsageTutorialPreferences.isCompleted(context))
@@ -251,7 +259,10 @@ class UsageTutorialTest {
             times.forEachIndexed { index, frame ->
                 compose.runOnIdle { tip = lesson; time = frame }
                 compose.onNodeWithContentDescription("${lesson.instruction} ${lesson.result}。真实界面组件演示，不需要操作。").assertExists()
-                compose.onRoot().captureRoboImage("../../../build/reports/usage-tutorial/stage-${lesson.name.lowercase()}-$index.png")
+                compose.onRoot().captureRoboImage(
+                    "../../../build/reports/usage-tutorial/stage-${lesson.name.lowercase()}-$index.png",
+                    reviewCaptureOptions,
+                )
             }
         }
     }
@@ -282,7 +293,10 @@ class UsageTutorialTest {
             // Review artifacts, not golden images of an unapproved design.
             val directory = File("build/reports/usage-tutorial").apply { mkdirs() }
             // Project Roborazzi strategy resolves paths from app/src/test/snapshots, even absolute Windows paths.
-            compose.onRoot().captureRoboImage("../../../build/reports/usage-tutorial/${if (dark) "dark" else "light"}-$index.png")
+            compose.onRoot().captureRoboImage(
+                "../../../build/reports/usage-tutorial/${if (dark) "dark" else "light"}-$index.png",
+                reviewCaptureOptions,
+            )
         }
         assertEquals(preferencesBefore, context.getSharedPreferences("mica_settings", Context.MODE_PRIVATE).all)
         assertTrue(TutorialSongs.all { it.mediaUri.isEmpty() && it.albumArtUri == null })

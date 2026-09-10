@@ -360,6 +360,7 @@ class PlaybackUiPreferencesRobolectricTest {
             showSongAlbum = false,
             showSongPlayCount = false,
             showSongDuration = true,
+            showSongQualityTier = true,
             trailingInfo = SongTrailingInfo.PLAY_COUNT,
         )
 

@@ -265,6 +265,8 @@ dependencies {
     androidTestImplementation(libs.androidx.test.core)
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(platform(libs.androidx.compose.bom))
+    androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     androidTestImplementation(libs.androidx.room.testing)
 }
 
@@ -289,9 +291,10 @@ tasks.matching { it.name == "preReleaseBuild" || it.name == "prePerfBuild" }.con
 
 tasks.register("micaCheck") {
     group = "verification"
-    description = "Runs Mica's compile, lint, JVM/Robolectric, and screenshot regression gates."
+    description = "Runs Mica's compile, androidTest compile, lint, JVM/Robolectric, and screenshot regression gates."
     dependsOn(
         "compileDebugKotlin",
+        "compileDebugAndroidTestKotlin",
         "lintDebug",
         "testDebugUnitTest",
         "verifyRoborazziDebug",

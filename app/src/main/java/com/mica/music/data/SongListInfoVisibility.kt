@@ -5,6 +5,7 @@ data class SongListInfoVisibility(
     val showSongAlbum: Boolean = true,
     val showSongPlayCount: Boolean = true,
     val showSongDuration: Boolean = false,
+    val showSongQualityTier: Boolean = false,
     val showSongCount: Boolean = true,
     val showLibrarySize: Boolean = true,
     val showSortOrder: Boolean = true,

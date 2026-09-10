@@ -30,7 +30,7 @@ jobs:
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
       - run: chmod +x gradlew
-      - run: ./gradlew :app:compileDebugKotlin :app:lintDebug --no-configuration-cache
+      - run: ./gradlew :app:compileDebugKotlin :app:compileDebugAndroidTestKotlin :app:lintDebug --no-configuration-cache
       - if: failure()
         uses: actions/upload-artifact@v4
         with:
