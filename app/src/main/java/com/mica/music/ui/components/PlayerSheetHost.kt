@@ -37,6 +37,7 @@ import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import com.mica.music.ui.screens.NowPlayingActions
 import com.mica.music.ui.screens.NowPlayingContent
 import com.mica.music.util.WallpaperBarSliceDiagnostics
+import com.mica.music.util.WindowInteractionDiagnostics
 
 internal enum class PlayerSheetPhase {
     Collapsed,
@@ -178,6 +179,15 @@ fun PlayerSheetHost(
             miniPlayerChromeVisible = miniPlayerChromeVisible,
             miniPlayerStyle = uiSettings.miniPlayerStyle.name,
             overlayFullScreen = showFullPlayer,
+        )
+        WindowInteractionDiagnostics.logPlayerSheet(
+            viewportWidthDp = configuration.screenWidthDp,
+            viewportHeightDp = configuration.screenHeightDp,
+            expanded = expanded,
+            progress = progress,
+            sheetPhase = sheetPhase.name,
+            showFullPlayer = showFullPlayer,
+            underlayOccluded = underlayOccluded,
         )
     }
 

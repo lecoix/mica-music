@@ -56,6 +56,7 @@ import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.media.MicaSpectrumAnalyzer
 import com.mica.music.util.DiagnosticLog
 import com.mica.music.util.WallpaperBarSliceDiagnostics
+import com.mica.music.util.WindowInteractionDiagnostics
 import com.mica.music.ui.theme.LocalMicaBlurTarget
 import com.mica.music.ui.theme.MicaAppRoot
 import com.mica.music.ui.theme.WallpaperViewportState
@@ -111,6 +112,7 @@ class MainActivity : ComponentActivity(), LyricoTagEditorHost {
 
     private val viewModel: MainViewModel by viewModels()
     private lateinit var navigationCoordinator: AppNavigationCoordinator
+    private var overlayComposeView: ComposeView? = null
     private var externalAudioOpenJob: Job? = null
     private var pendingLyricoSongId: String? = null
     private var externalAudioOpenActive by mutableStateOf(false)
@@ -150,6 +152,7 @@ class MainActivity : ComponentActivity(), LyricoTagEditorHost {
     override fun onResume() {
         super.onResume()
         applyWindowStatusBar()
+        logWindowTouchState("activity-resume")
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -176,6 +179,25 @@ class MainActivity : ComponentActivity(), LyricoTagEditorHost {
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         ScreenLockDiagnostics.onConfigurationChanged(this)
+        logWindowTouchState("configuration-changed")
+    }
+
+    override fun onMultiWindowModeChanged(
+        isInMultiWindowMode: Boolean,
+        newConfig: Configuration,
+    ) {
+        super.onMultiWindowModeChanged(isInMultiWindowMode, newConfig)
+        logWindowTouchState("multi-window-changed:$isInMultiWindowMode")
+    }
+
+    private fun logWindowTouchState(event: String) {
+        WindowInteractionDiagnostics.logActivity(
+            event = event,
+            activity = this,
+            playerExpanded = ::navigationCoordinator.isInitialized && navigationCoordinator.playerExpanded,
+            overlayFullScreen = ::navigationCoordinator.isInitialized && navigationCoordinator.overlayFullScreen,
+            overlayView = overlayComposeView,
+        )
     }
 
     private fun applyWindowStatusBar() {
@@ -245,6 +267,12 @@ class MainActivity : ComponentActivity(), LyricoTagEditorHost {
             )
             clipChildren = false
             clipToPadding = false
+        }
+        overlayComposeView = overlayCompose
+        overlayCompose.addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
+            if (left != oldLeft || top != oldTop || right != oldRight || bottom != oldBottom) {
+                logWindowTouchState("overlay-layout")
+            }
         }
 
         bindComposeViewOwners(mainCompose)
