@@ -188,6 +188,70 @@ class MediaControllerQueueSyncTest {
     }
 
     @Test
+    fun metadataChangedIndicesIgnorePlaybackStats() {
+        val song = SongFixtures.song(id = "same-id")
+        assertTrue(
+            MediaControllerQueueSync.metadataChangedIndices(
+                listOf(song),
+                listOf(song.copy(playCount = 99, totalListenSeconds = 1_234L, lastPlayedAtMs = 5_678L)),
+            ).isEmpty(),
+        )
+    }
+
+    @Test
+    fun planMetadataRefreshReplacesCallerChangedIndicesWithoutReadingPlayerExtras() {
+        val source = SongFixtures.queue(3)
+        val refreshed = source.mapIndexed { index, song ->
+            if (index == 0) song else song.copy(title = "${song.title} (updated)")
+        }
+        val player = mockPlayer(source.map { item(it.id) })
+        every { player.isCommandAvailable(Player.COMMAND_CHANGE_MEDIA_ITEMS) } returns true
+
+        val changed = MediaControllerQueueSync.metadataChangedIndices(source, refreshed)
+        val plan = MediaControllerQueueSync.planMetadataRefresh(
+            player = player,
+            queue = refreshed,
+            changedIndices = changed,
+        )
+
+        assertEquals(listOf(1, 2), changed)
+        assertTrue(plan is PlaybackQueueSyncPlan.ReplaceMediaItems)
+        assertEquals(
+            listOf(1, 2),
+            (plan as PlaybackQueueSyncPlan.ReplaceMediaItems).replacements.map { it.index },
+        )
+        MediaControllerQueueSync.executeSyncPlan(player, plan)
+        verify(exactly = 0) { player.replaceMediaItem(0, any()) }
+        verify(exactly = 1) {
+            player.replaceMediaItem(1, match { SongMediaItemCodec.decode(it)?.title == "song-1 (updated)" })
+        }
+        verify(exactly = 1) {
+            player.replaceMediaItem(2, match { SongMediaItemCodec.decode(it)?.title == "song-2 (updated)" })
+        }
+        verify(exactly = 0) { player.setMediaItems(any<List<MediaItem>>(), any(), any()) }
+    }
+
+    @Test
+    fun planMetadataRefreshSkipsWhenServiceIdentityIsMisaligned() {
+        val source = SongFixtures.queue(3)
+        val refreshed = source.map { it.copy(title = "${it.title} (updated)") }
+        val player = mockPlayer(listOf(item(source[0].id), item("stale"), item(source[2].id)))
+        every { player.isCommandAvailable(Player.COMMAND_CHANGE_MEDIA_ITEMS) } returns true
+
+        val plan = MediaControllerQueueSync.planMetadataRefresh(
+            player = player,
+            queue = refreshed,
+            changedIndices = MediaControllerQueueSync.metadataChangedIndices(source, refreshed),
+        )
+
+        assertTrue(plan is PlaybackQueueSyncPlan.Skip)
+        assertTrue(plan?.result?.targetMismatch == true)
+        MediaControllerQueueSync.executeSyncPlan(player, plan)
+        verify(exactly = 0) { player.replaceMediaItem(any(), any()) }
+        verify(exactly = 0) { player.setMediaItems(any<List<MediaItem>>(), any(), any()) }
+    }
+
+    @Test
     fun playbackStatsDoNotInvalidateQueueMetadata() {
         val song = SongFixtures.song(id = "same-id")
         val player = mockPlayer(listOf(SongMediaItemCodec.encode(song)))

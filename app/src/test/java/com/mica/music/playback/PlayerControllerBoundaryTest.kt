@@ -371,6 +371,58 @@ class PlayerControllerBoundaryTest {
     }
 
     @Test
+    fun metadataOnlySetQueueReplacesNonCurrentItemsWithoutRebuildingPlayback() {
+        val connector = FakeConnector()
+        val controller = controller(connector = connector)
+        val mediaController = mockk<MediaController>(relaxed = true)
+        val queue = listOf(
+            SongFixtures.song(id = "song-a", title = "Alpha"),
+            SongFixtures.song(id = "song-b", title = "Beta"),
+            SongFixtures.song(id = "song-c", title = "Gamma"),
+        )
+        every { mediaController.getMediaItemAt(any()) } answers {
+            MediaItem.Builder().setMediaId(queue[firstArg()].id).build()
+        }
+        every { mediaController.currentMediaItem } returns MediaItem.Builder()
+            .setMediaId(queue[0].id)
+            .build()
+        every { mediaController.currentMediaItemIndex } returns 0
+        every { mediaController.mediaItemCount } returns queue.size
+        every { mediaController.currentPosition } returns 12_345L
+        every { mediaController.duration } returns 60_000L
+        every { mediaController.isCommandAvailable(Player.COMMAND_CHANGE_MEDIA_ITEMS) } returns true
+        controller.setQueue(queue)
+        controller.connectIfNeeded()
+        connector.requests.single().onConnected(mediaController)
+        clearMocks(mediaController, answers = false, recordedCalls = true)
+
+        val refreshed = listOf(
+            queue[0],
+            queue[1].copy(title = "Beta (updated)"),
+            queue[2].copy(title = "Gamma (updated)"),
+        )
+        controller.setQueue(refreshed)
+
+        verify(exactly = 0) { mediaController.replaceMediaItem(0, any()) }
+        verify(exactly = 1) {
+            mediaController.replaceMediaItem(
+                1,
+                match { it.mediaMetadata.title?.toString() == "Beta (updated)" },
+            )
+        }
+        verify(exactly = 1) {
+            mediaController.replaceMediaItem(
+                2,
+                match { it.mediaMetadata.title?.toString() == "Gamma (updated)" },
+            )
+        }
+        verify(exactly = 0) { mediaController.setMediaItems(any<List<MediaItem>>(), any(), any()) }
+        verify(exactly = 0) { mediaController.play() }
+        assertEquals(refreshed, controller.playbackQueueState.queue)
+        controller.release()
+    }
+
+    @Test
     fun misalignedQueueReorderFallsBackToSingleFullSync() {
         val connector = FakeConnector()
         val controller = controller(connector = connector)

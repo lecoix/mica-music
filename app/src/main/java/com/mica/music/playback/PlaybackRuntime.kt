@@ -1121,6 +1121,7 @@ internal class PlaybackRuntime(
         }
         if (playbackUnchanged) {
             val metadataDiff = summarizePlaybackUnchangedQueueDiff(songQueue, newQueue, currentIndex)
+            val changedIndices = MediaControllerQueueSync.metadataChangedIndices(songQueue, newQueue)
             if (songQueue != newQueue) {
                 commitSongQueue(newQueue)
                 preserveId?.let { queueCoordinator.replaceOrder(playbackOrderState.moveTo(it)) }
@@ -1129,11 +1130,8 @@ internal class PlaybackRuntime(
             val c = controller
             if (c == null) pendingQueue = songQueue
             else {
-                if (c.mediaItemCount > 0) {
-                    refreshControllerMediaItemForSongIfNeeded(
-                        c = c,
-                        songId = currentSong?.id,
-                    )
+                if (c.mediaItemCount > 0 && changedIndices.isNotEmpty()) {
+                    applyControllerQueueMetadataRefresh(c, changedIndices)
                 }
                 syncPlaybackState()
             }
@@ -1615,6 +1613,45 @@ internal class PlaybackRuntime(
         TrackSwitchPerformance.mark("audio-start", "index=$refreshedServiceIndex songId=$songId")
         expectedController.seekTo(refreshedServiceIndex, positionMs.toLong())
         expectedController.play()
+    }
+
+    private fun applyControllerQueueMetadataRefresh(
+        c: MediaController,
+        changedIndices: List<Int>,
+    ) {
+        val plan = MediaControllerQueueSync.planMetadataRefresh(
+            player = c,
+            queue = songQueue,
+            changedIndices = changedIndices,
+            mediaItemFactory = { song -> song.toMediaItem(appCtx) },
+        )
+        when (plan) {
+            is PlaybackQueueSyncPlan.ReplaceMediaItems -> {
+                MediaControllerQueueSync.executeSyncPlan(c, plan)
+                DiagnosticLog.event(
+                    "QueueSync",
+                    "controller-refresh-queue-metadata changed=${plan.replacements.size} " +
+                        "queue=${songQueue.size} serviceItems=${c.mediaItemCount}",
+                )
+            }
+            is PlaybackQueueSyncPlan.Skip -> {
+                if (changedIndices.isNotEmpty()) {
+                    DiagnosticLog.event(
+                        "QueueSync",
+                        "controller-refresh-queue-metadata skipped changed=${changedIndices.size} " +
+                            "queue=${songQueue.size} serviceItems=${c.mediaItemCount} " +
+                            "aligned=${plan.result.queueAligned} targetMismatch=${plan.result.targetMismatch}",
+                    )
+                }
+            }
+            is PlaybackQueueSyncPlan.SetMediaItems,
+            is PlaybackQueueSyncPlan.MoveMediaItems,
+            -> DiagnosticLog.event(
+                "QueueSync",
+                "controller-refresh-queue-metadata rejected unexpected-plan=${plan.javaClass.simpleName} " +
+                    "changed=${changedIndices.size} queue=${songQueue.size} serviceItems=${c.mediaItemCount}",
+            )
+        }
     }
 
     private fun refreshControllerMediaItemForSongIfNeeded(
