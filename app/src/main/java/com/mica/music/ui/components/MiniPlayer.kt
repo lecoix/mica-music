@@ -294,6 +294,7 @@ private fun Modifier.miniPlayerSwipe(
 
     fun runAction(action: MiniPlayerSwipeAction) {
         when (action) {
+            MiniPlayerSwipeAction.NONE -> Unit
             MiniPlayerSwipeAction.PREVIOUS -> onPrevious()
             MiniPlayerSwipeAction.NEXT -> onNext()
         }

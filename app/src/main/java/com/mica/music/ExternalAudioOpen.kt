@@ -58,10 +58,12 @@ internal fun persistExternalAudioUriPermission(
     val resolver = context.contentResolver
     val flags = intent?.flags ?: 0
     if (flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION == 0) return false
-    val accessFlags = flags and Intent.FLAG_GRANT_READ_URI_PERMISSION
-    if (accessFlags == 0) return false
+    if (flags and Intent.FLAG_GRANT_READ_URI_PERMISSION == 0) return false
     return runCatching {
-        resolver.takePersistableUriPermission(request.uri, accessFlags)
+        resolver.takePersistableUriPermission(
+            request.uri,
+            Intent.FLAG_GRANT_READ_URI_PERMISSION,
+        )
         isExternalAudioUriRestorableNow(context, request.uri)
     }.getOrDefault(false)
 }

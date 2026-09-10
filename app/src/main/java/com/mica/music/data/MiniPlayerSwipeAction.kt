@@ -4,6 +4,7 @@ enum class MiniPlayerSwipeAction(
     val storageValue: String,
     val settingsLabel: String,
 ) {
+    NONE("none", "无"),
     PREVIOUS("previous", "上一曲"),
     NEXT("next", "下一曲"),
     ;
