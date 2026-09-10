@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
+import androidx.annotation.RequiresApi
 import com.mica.music.data.DsdSupport
 import java.io.IOException
 
@@ -246,6 +247,7 @@ internal class AndroidDeviceMediaStoreDeltaQueryApi(
 ) : DeviceMediaStoreDeltaQueryApi {
     private val resolver = context.applicationContext.contentResolver
 
+    @RequiresApi(Build.VERSION_CODES.R)
     override fun query(
         window: DeviceDeltaWindow,
         channel: DeviceDeltaChannel,
@@ -266,6 +268,7 @@ internal class AndroidDeviceMediaStoreDeltaQueryApi(
         }
     }
 
+    @RequiresApi(Build.VERSION_CODES.R)
     private fun queryAudio(window: DeviceDeltaWindow): List<DeviceDeltaRow> {
         val uri = MediaStore.Audio.Media.getContentUri(window.volumeName)
         val projection = arrayOf(

@@ -7,6 +7,7 @@ import com.mica.music.data.playback.ServicePlaybackStateStore
 import com.mica.music.audio.AudioQualityMode
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -366,6 +367,9 @@ class MicaMediaService : MediaSessionService() {
         finishTemporaryWidgetForegroundIfIdle(startId)
     }
 
+    // The merged manifest declares mediaPlayback plus its Android 14 permission; lint cannot
+    // associate this ServiceCompat call with that MediaSessionService declaration.
+    @SuppressLint("ForegroundServiceType")
     private fun startTemporaryWidgetForegroundIfNeeded() {
         if (temporaryWidgetForegroundActive || compositePlayer?.playWhenReady == true) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

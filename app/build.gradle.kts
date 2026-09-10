@@ -76,6 +76,9 @@ android {
             buildConfigString(updateInternationalManifestUrl),
         )
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // Reuse the established test-only package for side-by-side QA so MIUI can update it
+        // without requiring a new-package install confirmation; instrumentation still targets applicationId.
+        testApplicationId = "com.mica.music.test"
         ndk {
             // Package both supported ABIs; each self-owned native library must exist for both.
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")

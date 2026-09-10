@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
+import androidx.annotation.RequiresApi
 import java.io.IOException
 
 internal fun DeviceDeltaRow.deviceObjectRevisionFingerprint(): String =
@@ -94,6 +95,7 @@ internal class AndroidDeviceObjectRevisionQueryApi(
 ) : DeviceObjectRevisionQueryApi {
     private val resolver = context.applicationContext.contentResolver
 
+    @RequiresApi(Build.VERSION_CODES.R)
     override fun query(ref: DeviceObjectRef): DeviceDeltaRow? {
         check(Build.VERSION.SDK_INT >= Build.VERSION_CODES.R)
         return when (ref.channel) {
@@ -104,6 +106,7 @@ internal class AndroidDeviceObjectRevisionQueryApi(
         }
     }
 
+    @RequiresApi(Build.VERSION_CODES.R)
     private fun queryAudio(ref: DeviceObjectRef): DeviceDeltaRow? {
         val uri = MediaStore.Audio.Media.getContentUri(ref.volumeName)
         val projection = arrayOf(

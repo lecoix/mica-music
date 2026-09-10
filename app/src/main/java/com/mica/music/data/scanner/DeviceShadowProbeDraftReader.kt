@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
+import androidx.annotation.RequiresApi
 import com.mica.music.data.DsdSupport
 import java.io.IOException
 
@@ -73,6 +74,7 @@ internal class AndroidDeviceShadowProbeDraftQueryApi(
 ) : DeviceShadowProbeDraftQueryApi {
     private val resolver = context.applicationContext.contentResolver
 
+    @RequiresApi(Build.VERSION_CODES.R)
     override fun query(
         ref: DeviceObjectRef,
         lyricsInventory: MediaStoreLyricsSidecarInventoryResult,
@@ -89,6 +91,7 @@ internal class AndroidDeviceShadowProbeDraftQueryApi(
         }
     }
 
+    @RequiresApi(Build.VERSION_CODES.R)
     private fun queryAudio(
         ref: DeviceObjectRef,
         lyricsInventory: MediaStoreLyricsSidecarInventoryResult,

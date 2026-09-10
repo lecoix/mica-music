@@ -1,5 +1,7 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+
     <uses-feature
         android:name="android.hardware.usb.host"
         android:required="false" />
@@ -96,6 +98,7 @@
         <!-- Debug-only long-running S4 metadata profiler. -->
         <service
             android:name="com.mica.music.data.LibraryAutoSyncQaProfileService"
-            android:exported="true" />
+            android:exported="true"
+            android:foregroundServiceType="dataSync" />
     </application>
 </manifest>

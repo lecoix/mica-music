@@ -20,8 +20,9 @@ class ExternalAudioOpenContractTest {
     @Test
     fun resolvesReadableDocumentsProviderAudioIntoTransientSong() {
         val context = ApplicationProvider.getApplicationContext<Context>()
+        val authority = TestDocumentsProvider.authorityForPackage(context.packageName)
         val uri = DocumentsContract.buildDocumentUri(
-            TestDocumentsProvider.AUTHORITY,
+            authority,
             "root/music/contract.wav",
         )
         val request = parseExternalAudioOpenRequest(

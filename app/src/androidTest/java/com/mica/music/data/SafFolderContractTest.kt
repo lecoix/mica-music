@@ -21,8 +21,9 @@ class SafFolderContractTest {
     @Test
     fun persistedTreeGrantSurvivesResolverReentryAndScansProviderCursor() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
+        val authority = TestDocumentsProvider.authorityForPackage(context.packageName)
         val treeUri = DocumentsContract.buildTreeDocumentUri(
-            TestDocumentsProvider.AUTHORITY,
+            authority,
             TestDocumentsProvider.ROOT_ID,
         )
         val rootDocumentUri = DocumentsContract.buildDocumentUriUsingTree(
@@ -67,7 +68,7 @@ class SafFolderContractTest {
 
             assertEquals(1, result.songs.size)
             assertEquals("Music", result.songs.single().folderPath)
-            assertTrue(result.songs.single().mediaUri.contains(TestDocumentsProvider.AUTHORITY))
+            assertTrue(result.songs.single().mediaUri.contains(authority))
         } finally {
             LibraryFolderStore.releaseTreeAccess(context, treeUri)
             context.revokeUriPermission(treeUri, flags)

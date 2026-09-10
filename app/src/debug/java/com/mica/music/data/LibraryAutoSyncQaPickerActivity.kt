@@ -1,5 +1,6 @@
 package com.mica.music.data
 
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Intent
 import android.net.Uri
@@ -41,6 +42,9 @@ class LibraryAutoSyncQaPickerActivity : Activity() {
         }
     }
 
+    // takePersistableUriPermission accepts the READ/WRITE grant bitmask from Intent.flags;
+    // lint loses the @IntDef after the runtime mask below.
+    @SuppressLint("WrongConstant")
     @Deprecated("Legacy debug-only picker callback")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
