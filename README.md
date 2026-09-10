@@ -4,7 +4,7 @@
 
 > 极简直角 · 多种主题 · 自定义
 
-一款以本地曲库为核心的 **HiFi 播放器**，支持多种播放页主题与自定义、内嵌/外挂/结构化歌词、ALAC/DSF/APE、USB Exclusive Hybrid，并可选接入 Navidrome/OpenSubsonic、WebDAV 与 SMB 远程曲库。
+一款以本地曲库为核心的 **HiFi 播放器**，支持多种播放页主题与自定义、内嵌/外挂/结构化歌词、ALAC/DSF/APE、USB 独占，并可选接入 Navidrome/OpenSubsonic、WebDAV 与 SMB 远程曲库。
 
 ---
 <p align="center">
@@ -64,7 +64,7 @@ Windows PowerShell 5.1 若看到中文乱码，先在当前会话启用 UTF-8：
 | 模块 | 说明 |
 |------|------|
 | **播放页主题** | 标准 / 自定义 / **粒子封面**/ 平行封面带 / 复古立体 / **拍立得回忆** |
-| **播放页背景** | 主题色、封面渐变、封面模糊、动态烟云（设置暂隐藏）、流光溢彩、星图 |
+| **播放页背景** | 主题色、封面渐变、封面模糊、流光溢彩、星图 |
 | **播放页其他行为** | 沉浸模式、频谱条、共享封面转场、拖动缩放显隐播放页组件 |
 | **播放** | Media3/Exo 单链路；Jellyfin FFmpeg 扩展解码 ALAC/DSF/APE；USB Exclusive Hybrid（默认“关闭独占”/Shared PCM，Exact PCM / DoP / Native DSD 按设备能力 fail-closed）；音频管线协调 + offload 失速熔断；10 段软件 EQ；可选音效实验室 |
 | **曲库扫描** | 自托管 TagLib、封面缓存与取色、MediaStore/SAF Full Scan；DEVICE 与 SAF/FOLDER durable automatic sync 已接 ordinary scheduler，并带 completeness/capability gate、重试与 kill switch |
@@ -72,7 +72,7 @@ Windows PowerShell 5.1 若看到中文乱码，先在当前会话启用 UTF-8：
 | **歌词** | 内嵌 + 外挂 `.lrc` / TTML / 逐字歌词；三行/展开歌词、双语与偏移；桌面/状态栏歌词、车机 presentation 与可选 Lyricon provider 共用结构化歌词事实 |
 | **浏览** | 本地 + 远程统一搜索；歌曲 / 歌手 / 专辑 / 最近播放 / 歌单 / 远程曲库 / 音乐库分析；搜索结果与远程列表支持安全多选 |
 | **迷你栏** | 浮岛毛玻璃（BlurView）/ 极简 Hi‑Fi 底栏、迷你播放栏歌词 |
-| **界面** | 可自定义强调色/背景、自定义背景图片、六种播放页背景（含程序化星图）、六种封面行为、横屏；Glance 提供“自适应 / 四宫格 / 大封面”三类桌面小组件 |
+| **界面** | 可自定义强调色/背景、自定义背景图片、六种播放页背景、六种封面行为、横屏；Glance 提供“自适应 / 四宫格 / 大封面”三类桌面小组件 |
 
 ---
 
@@ -143,4 +143,4 @@ USB 的逐函数来源/适配分类见
 
 ---
 #爱发电：https://ifdian.net/a/lwcoz
-**Made with AI · 2026-08**
+**Made with AI · 2026-09**
