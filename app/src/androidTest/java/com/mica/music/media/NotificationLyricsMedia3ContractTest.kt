@@ -96,6 +96,54 @@ class NotificationLyricsMedia3ContractTest {
     }
 
     @Test
+    fun repeatOneLaterWrapsResetProgressWhenControllerDropsDiscontinuity() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val audioFile = createSilentWav(context.cacheDir, "repeat-progress", durationSeconds = 2)
+        val song = testSong("repeat-progress", Uri.fromFile(audioFile).toString(), durationSeconds = 2)
+        val previousLyricsSetting = LyricsPreferences.notificationLyricsEnabled(context)
+        var lyricsCoordinator: NotificationLyricsCoordinator? = null
+        try {
+            LyricsPreferences.setNotificationLyricsEnabled(context, true)
+            withPlayback(context, listOf(song), Player.REPEAT_MODE_ONE) { contract ->
+                lyricsCoordinator = onMain {
+                    NotificationLyricsCoordinator(
+                        context = context,
+                        player = contract.player,
+                        handler = Handler(Looper.getMainLooper()),
+                        notificationPresentation = contract.presentation,
+                        songLoader = { song },
+                    ).also { it.start() }
+                }
+                val wrapRevisions = mutableListOf<Long>()
+                repeat(3) { index ->
+                    val wrapNumber = index + 1
+                    await("raw wrap $wrapNumber", timeoutMs = 8_000L) {
+                        contract.rawPlayerEvents.autoPositionWraps.get() >= wrapNumber
+                    }
+                    await("wrap $wrapNumber ui reset", timeoutMs = 2_000L) {
+                        onMain {
+                            contract.playerController.syncPosition()
+                            contract.playerController.playbackProgressState.positionMs < 500
+                        }
+                    }
+                    val progress = onMain { contract.playerController.playbackProgressState }
+                    wrapRevisions += progress.positionRevision
+                }
+                assertTrue("revisions=$wrapRevisions", wrapRevisions[1] > wrapRevisions[0])
+                assertTrue(
+                    "sessions=${contract.playSessions}",
+                    contract.playSessions.size >= 4 &&
+                        contract.playSessions.all { it == "repeat-progress" },
+                )
+            }
+        } finally {
+            lyricsCoordinator?.let { onMain { it.release() } }
+            LyricsPreferences.setNotificationLyricsEnabled(context, previousLyricsSetting)
+            audioFile.delete()
+        }
+    }
+
+    @Test
     fun pauseResumeAndManualSeekToStartDoNotCount() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val audioFile = createSilentWav(context.cacheDir, "seek", durationSeconds = 10)

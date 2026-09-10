@@ -165,7 +165,7 @@ Capacity boundary: scan-time text candidates are capped at 1,000,000 characters 
 1. **纯状态机契约（JVM）**：显式播放等待新的 transition/seek 证据，无关 batch 不消耗请求，新请求替换尚未发布的旧会话；Service 确认的跨 mediaId 自动边界和同 mediaId 位置回卷各计一次，连续三个确认边界每轮各计一次；Controller 的 AUTO/REPEAT 组合、重复 callback、歌词元数据伪 REPEAT、同曲 seek、暂停恢复、无位置回卷和 mediaId 不匹配均为 0。
 2. **Service 边界与 Session 事件（Robolectric）**：`ServicePlaybackEngineCoordinatorTest` 验证原始 Player 的 AUTO discontinuity 原样产生自然切歌/单曲循环边界，而 SEEK 不产生边界；`PlaybackBoundarySessionEventTest` 验证 custom command 参数无损往返且忽略无关 command。
 3. **PlayerController 接线（Robolectric）**：覆盖自动下一首、连续单曲循环、playing 延迟到达和显式同曲 seek 重播；确认旧 Controller callback 不计数、不跨 batch 配对，也不与 Service 边界重复计数；从结尾手动 seek 到开头、暂停恢复、歌词元数据替换和连接恢复均为 0。
-4. **真实 Media3 契约（设备/模拟器）**：`NotificationLyricsMedia3ContractTest` 使用运行时生成的 4 秒静音 WAV、真实 ExoPlayer/MediaSession/MediaController、repeat-one 和 `NotificationLyricsCoordinator`，覆盖歌词 `replaceMediaItem` 后三次真实连续循环各计一次、暂停恢复与手动 seek 为 0、自然下一首与显式重播各计一次，以及播放中连接第二个 Controller 为 0。该测试需要已连接的 arm64 设备，不属于纯 JVM 门禁。
+4. **真实 Media3 契约（设备/模拟器）**：`NotificationLyricsMedia3ContractTest` 使用运行时生成的 4 秒静音 WAV、真实 ExoPlayer/MediaSession/MediaController、repeat-one 和 `NotificationLyricsCoordinator`，覆盖歌词 `replaceMediaItem` 后三次真实连续循环各计一次、**后续同曲回卷在 Controller 丢掉 discontinuity 时进度仍归零**、暂停恢复与手动 seek 为 0、自然下一首与显式重播各计一次，以及播放中连接第二个 Controller 为 0。该测试需要已连接的 arm64 设备，不属于纯 JVM 门禁。
 
 仅运行真实 Media3 契约测试：
 

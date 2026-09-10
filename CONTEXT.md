@@ -191,7 +191,7 @@ _Avoid_: add to queue（未强调「紧挨下一首」时）
 _Avoid_: player state（笼统说法）、alacStreamActive
 
 **PlaybackProgressState**：
-进度态：当前位置、总时长、`pendingSeekMs`（seek 尚未反映到进度前）。
+进度态：当前位置、总时长、`pendingSeekMs`（seek 尚未反映到进度前）。单曲循环回卷由 Service 权威 `AUTO_TRANSITION` 边界重置展示时钟，不能依赖 `MediaController` 对相同 `PositionInfo` / `MediaItem` 的第二次 discontinuity；用户拖动进度时该边界不得覆盖 pending seek。
 _Avoid_: timeline、position state
 
 **PlaybackQueueState**：

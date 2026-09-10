@@ -522,6 +522,19 @@ internal class PlaybackRuntime(
                 "newSong=${boundary.newSongId.shortSongIdOrNone()} oldPositionMs=${boundary.oldPositionMs} " +
                 "newPositionMs=${boundary.newPositionMs}",
         )
+        val sameSongRewind = armed &&
+            boundary.oldSongId != null &&
+            boundary.oldSongId == boundary.newSongId &&
+            currentSong?.id == boundary.newSongId &&
+            pendingSeekMs < 0 &&
+            !timelineCoordinator.seekUiActive
+        if (sameSongRewind) {
+            timelineCoordinator.markPositionDiscontinuity()
+            notifyPlaybackProgress(
+                boundary.newPositionMs.toInt().coerceAtLeast(0),
+                allowBackward = true,
+            )
+        }
         controller?.let { publishPlayCountIfStarted(it, it.isPlaying) }
     }
 

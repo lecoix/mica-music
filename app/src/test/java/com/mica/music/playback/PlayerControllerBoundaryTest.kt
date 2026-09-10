@@ -2452,6 +2452,84 @@ class PlayerControllerBoundaryTest {
     }
 
     @Test
+    fun serviceBoundaryResetsProgressWhenControllerDropsLaterRepeatWrap() {
+        val connector = FakeConnector()
+        val controller = controller(connector = connector)
+        val mediaController = mockk<MediaController>(relaxed = true)
+        val listener = slot<Player.Listener>()
+        val song = SongFixtures.song("same-song")
+        val currentItem = MediaItem.Builder().setMediaId(song.id).build()
+        var playerPositionMs = 40_000L
+        every { mediaController.addListener(capture(listener)) } returns Unit
+        every { mediaController.currentMediaItem } returns currentItem
+        every { mediaController.currentMediaItemIndex } returns 0
+        every { mediaController.mediaItemCount } returns 1
+        every { mediaController.currentPosition } answers { playerPositionMs }
+        every { mediaController.duration } returns 60_000L
+        every { mediaController.isPlaying } returns true
+        controller.setQueue(listOf(song))
+        controller.connectIfNeeded()
+        connector.requests.single().onConnected(mediaController)
+        controller.syncPosition()
+
+        listener.captured.onPositionDiscontinuity(
+            positionInfo(currentItem, 0, 59_900L),
+            positionInfo(currentItem, 0, 0L),
+            Player.DISCONTINUITY_REASON_AUTO_TRANSITION,
+        )
+        assertEquals(0, controller.uiPositionMs())
+        val revisionAfterFirstWrap = controller.playbackProgressState.positionRevision
+
+        playerPositionMs = 59_900L
+        controller.syncPosition()
+        assertEquals(59_900, controller.uiPositionMs())
+
+        listener.captured.onMediaItemTransition(
+            currentItem,
+            Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT,
+        )
+        assertEquals(59_900, controller.uiPositionMs())
+        assertEquals(revisionAfterFirstWrap, controller.playbackProgressState.positionRevision)
+
+        connector.requests.single().onPlaybackBoundary(
+            ConfirmedPlaybackBoundary(song.id, song.id, 59_900L, 0L),
+        )
+        assertEquals(0, controller.uiPositionMs())
+        assertTrue(controller.playbackProgressState.positionRevision > revisionAfterFirstWrap)
+        controller.release()
+    }
+
+    @Test
+    fun serviceBoundaryDoesNotResetProgressWhileSeekUiIsActive() {
+        val connector = FakeConnector()
+        val controller = controller(connector = connector)
+        val mediaController = mockk<MediaController>(relaxed = true)
+        val listener = slot<Player.Listener>()
+        val song = SongFixtures.song("same-song")
+        val currentItem = MediaItem.Builder().setMediaId(song.id).build()
+        every { mediaController.addListener(capture(listener)) } returns Unit
+        every { mediaController.currentMediaItem } returns currentItem
+        every { mediaController.currentMediaItemIndex } returns 0
+        every { mediaController.mediaItemCount } returns 1
+        every { mediaController.currentPosition } returns 59_900L
+        every { mediaController.duration } returns 60_000L
+        every { mediaController.isPlaying } returns true
+        controller.setQueue(listOf(song))
+        controller.connectIfNeeded()
+        connector.requests.single().onConnected(mediaController)
+        controller.syncPosition()
+        controller.setSeekUiActive(true)
+
+        connector.requests.single().onPlaybackBoundary(
+            ConfirmedPlaybackBoundary(song.id, song.id, 59_900L, 0L),
+        )
+
+        assertEquals(59_900, controller.uiPositionMs())
+        controller.setSeekUiActive(false)
+        controller.release()
+    }
+
+    @Test
     fun playlistChangeResetsProgressWhenCurrentSongChanges() {
         val connector = FakeConnector()
         val controller = controller(connector = connector)
