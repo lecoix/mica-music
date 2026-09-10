@@ -1092,6 +1092,7 @@ fun HomeScreen(
                         selectionMode = songMultiSelectActive && songMultiSelectSearch,
                         selectedSongIds = selectedSongIds,
                         onSelectionToggle = ::toggleSongSelection,
+                        infoVisibility = uiSettings.songListInfoVisibility,
                         modifier = Modifier.fillMaxSize(),
                     )
                     HomePaneKey.Songs -> HomeLibraryPane(
@@ -1135,6 +1136,7 @@ fun HomeScreen(
                         selectedSongIds = selectedSongIds,
                         onSelectionToggle = ::toggleSongSelection,
                         listBottomPadding = listBottomPadding,
+                        infoVisibility = uiSettings.songListInfoVisibility,
                         locateSongId = pendingLocateSongId,
                         locateRequestKey = pendingLocateRequestKey,
                         onLocateConsumed = { requestKey ->
@@ -1178,6 +1180,7 @@ fun HomeScreen(
                             playlistStore.moveSongInPlaylist(key.id, from, to)
                         },
                         listBottomPadding = listBottomPadding,
+                        infoVisibility = uiSettings.songListInfoVisibility,
                         modifier = Modifier.fillMaxSize(),
                     )
                     HomePaneKey.Folders -> HomeBrowseContent(
@@ -1209,6 +1212,7 @@ fun HomeScreen(
                         albumSortDirection = uiState.browseSort.albumSortDirection,
                         albumGridColumns = uiState.browseSort.albumGridColumns,
                         browseListInfoVisibility = uiSettings.browseListInfoVisibility,
+                        songListInfoVisibility = uiSettings.songListInfoVisibility,
                         onAlbumGridColumnsChange = { columns ->
                             val normalized = columns.coerceIn(1, 4)
                             uiState = uiState.copy(
@@ -1262,6 +1266,7 @@ fun HomeScreen(
                         albumSortDirection = uiState.browseSort.albumSortDirection,
                         albumGridColumns = uiState.browseSort.albumGridColumns,
                         browseListInfoVisibility = uiSettings.browseListInfoVisibility,
+                        songListInfoVisibility = uiSettings.songListInfoVisibility,
                         onAlbumGridColumnsChange = { columns ->
                             val normalized = columns.coerceIn(1, 4)
                             uiState = uiState.copy(

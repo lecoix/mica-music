@@ -12,6 +12,7 @@ import androidx.compose.material3.Text
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.PlaylistStore
 import com.mica.music.data.Song
+import com.mica.music.data.SongListInfoVisibility
 import com.mica.music.data.SongSortField
 import com.mica.music.ui.components.PlaylistSongListPanel
 import com.mica.music.ui.components.EmptyStatePresets
@@ -30,6 +31,7 @@ internal fun HomePlaylistContent(
     onSongOpenMenu: (Song) -> Unit,
     onMoveSong: (Int, Int) -> Unit,
     listBottomPadding: Dp = 0.dp,
+    infoVisibility: SongListInfoVisibility = SongListInfoVisibility(),
     modifier: Modifier = Modifier,
 ) {
     val playlist = playlistStore.playlists.find { it.id == playlistId }
@@ -94,6 +96,7 @@ internal fun HomePlaylistContent(
         sortDirection = playlist.sortDirection,
         emptyMessage = "歌单为空",
         listBottomPadding = listBottomPadding,
+        infoVisibility = infoVisibility,
         modifier = modifier,
     )
 }

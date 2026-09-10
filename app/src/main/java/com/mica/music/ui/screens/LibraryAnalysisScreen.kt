@@ -33,11 +33,11 @@ import com.mica.music.data.LabeledCount
 import com.mica.music.data.LibraryAnalysis
 import com.mica.music.data.LibraryAnalyzer
 import com.mica.music.data.MusicLibrary
-import com.mica.music.ui.theme.HifiPalette
 import com.mica.music.ui.components.HiResIndicator
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.MicaTheme
+import com.mica.music.ui.theme.QualityTierColors
 import java.util.Locale
 
 private val OverviewCellMinHeight = 88.dp
@@ -71,19 +71,8 @@ private val WafflePaletteDark = listOf(
     Color(0xFFC9B85A),
 )
 
-private val QualityTierColorsLight = mapOf(
-    LibraryAnalyzer.TIER_HR to HifiPalette.HiResGold,
-    LibraryAnalyzer.TIER_SQ to HifiPalette.PurplePrimary,
-    LibraryAnalyzer.TIER_HQ to Color(0xFF5B9BD5),
-    LibraryAnalyzer.TIER_OTHER to Color(0xFF5BA88C),
-)
-
-private val QualityTierColorsDark = mapOf(
-    LibraryAnalyzer.TIER_HR to Color(0xFFE0BE6A),
-    LibraryAnalyzer.TIER_SQ to Color(0xFF9D92FF),
-    LibraryAnalyzer.TIER_HQ to Color(0xFF72B0E8),
-    LibraryAnalyzer.TIER_OTHER to Color(0xFF6BBF9A),
-)
+private val QualityTierColorsLight = QualityTierColors.Light
+private val QualityTierColorsDark = QualityTierColors.Dark
 
 @Composable
 fun LibraryAnalysisContent(

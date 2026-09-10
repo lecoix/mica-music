@@ -95,4 +95,8 @@ object LibraryAnalyzer {
         if (metadata.bitrateKbps >= 320) return TIER_HQ
         return TIER_OTHER
     }
+
+    /** 列表音质标签：仅 HQ / SQ / HR，「其他」不显示。 */
+    fun qualityBadgeLabel(metadata: TrackMetadata): String? =
+        qualityTierLabel(metadata).takeUnless { it == TIER_OTHER }
 }

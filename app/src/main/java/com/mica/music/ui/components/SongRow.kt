@@ -16,9 +16,16 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
@@ -28,6 +35,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.mica.music.R
 import com.mica.music.data.ArtistNames
+import com.mica.music.data.LibraryAnalyzer
 import com.mica.music.data.Song
 import com.mica.music.data.SongListInfoVisibility
 import com.mica.music.data.SongTrailingInfo
@@ -35,6 +43,7 @@ import com.mica.music.imaging.CoverDecodeTarget
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.MicaTheme
+import com.mica.music.ui.theme.QualityTierColors
 import com.mica.music.ui.theme.coverColor
 
 /**
@@ -64,6 +73,8 @@ fun SongRow(
 ) {
     val titleStyle = if (compact) MicaTheme.typography.bodyMd else MicaTheme.typography.bodyLg
     val rowHeight = if (compact) 48.dp else HifiSize.listRowHeight
+    val qualityBadge = songQualityBadgeLabel(song, infoVisibility).takeIf { subtitleOverride == null }
+    val artistDisplay = ArtistNames.normalizeDisplay(song.artist)
     Column(modifier = modifier) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -72,9 +83,14 @@ fun SongRow(
                 .height(rowHeight)
                 .semantics(mergeDescendants = true) {
                     contentDescription = if (selectionMode) {
-                        "${if (isSelected) "取消选择" else "选择"} ${song.title}，${ArtistNames.normalizeDisplay(song.artist)}"
+                        "${if (isSelected) "取消选择" else "选择"} ${song.title}，$artistDisplay"
                     } else {
-                        "播放 ${song.title}，${ArtistNames.normalizeDisplay(song.artist)}"
+                        buildString {
+                            append("播放 ${song.title}，$artistDisplay")
+                            if (!compact && qualityBadge != null) {
+                                append("，$qualityBadge")
+                            }
+                        }
                     }
                     selected = if (selectionMode) isSelected else isCurrent
                     role = Role.Button
@@ -142,16 +158,11 @@ fun SongRow(
                     }
                 }
                 if (!compact || subtitleOverride != null) {
-                    val meta = subtitleOverride ?: songSubtitle(song, infoVisibility)
-                    if (meta.isNotBlank()) {
-                        Text(
-                            text = meta,
-                            style = MicaTheme.typography.bodySm,
-                            color = MicaTheme.colors.textSecondary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
+                    SongSubtitleLine(
+                        song = song,
+                        visibility = infoVisibility,
+                        subtitleOverride = subtitleOverride,
+                    )
                 }
             }
 
@@ -179,6 +190,9 @@ internal fun songTrailingLabel(song: Song, mode: SongTrailingInfo): String? = wh
     SongTrailingInfo.NONE -> null
 }
 
+internal fun songQualityBadgeLabel(song: Song, visibility: SongListInfoVisibility): String? =
+    if (visibility.showSongQualityTier) LibraryAnalyzer.qualityBadgeLabel(song.metadata) else null
+
 internal fun songSubtitle(song: Song, visibility: SongListInfoVisibility): String =
     listOfNotNull(
         ArtistNames.normalizeDisplay(song.artist).takeIf { visibility.showSongArtist },
@@ -186,3 +200,71 @@ internal fun songSubtitle(song: Song, visibility: SongListInfoVisibility): Strin
         "${song.playCount} 次播放".takeIf { visibility.showSongPlayCount && song.playCount > 0 },
         song.durationLabel.takeIf { visibility.showSongDuration && song.durationSec > 0 },
     ).joinToString(" · ")
+
+@Composable
+internal fun SongQualityBadge(
+    label: String,
+    modifier: Modifier = Modifier,
+) {
+    val color = QualityTierColors.of(label, MicaTheme.colors.isDark) ?: MicaTheme.colors.textTertiary
+    val vector = remember(label) { tracedQualityBadgeVector(label) } ?: return
+    Box(
+        modifier = modifier
+            .width(14.dp)
+            .height(9.dp)
+            .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
+            .drawWithContent {
+                drawRect(color = color, size = size)
+                val inset = 1.05.dp.toPx()
+                val scale = minOf(
+                    (size.width - inset * 2f) / vector.width,
+                    (size.height - inset * 2f) / vector.height,
+                )
+                val left = (size.width - vector.width * scale) / 2f
+                val top = (size.height - vector.height * scale) / 2f + 0.2.dp.toPx()
+                withTransform({
+                    translate(left = left, top = top)
+                    scale(scaleX = scale, scaleY = scale, pivot = Offset.Zero)
+                }) {
+                    drawPath(
+                        path = vector.path,
+                        color = Color.White,
+                        blendMode = BlendMode.DstOut,
+                    )
+                }
+            },
+    )
+}
+
+@Composable
+internal fun SongSubtitleLine(
+    song: Song,
+    visibility: SongListInfoVisibility,
+    subtitleOverride: String? = null,
+    modifier: Modifier = Modifier,
+) {
+    val badge = if (subtitleOverride == null) songQualityBadgeLabel(song, visibility) else null
+    val text = subtitleOverride ?: songSubtitle(song, visibility)
+    if (badge == null && text.isBlank()) return
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (badge != null) {
+            SongQualityBadge(label = badge)
+            if (text.isNotBlank()) {
+                Spacer(Modifier.width(HifiSpacing.xs))
+            }
+        }
+        if (text.isNotBlank()) {
+            Text(
+                text = text,
+                style = MicaTheme.typography.bodySm,
+                color = MicaTheme.colors.textSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+        }
+    }
+}

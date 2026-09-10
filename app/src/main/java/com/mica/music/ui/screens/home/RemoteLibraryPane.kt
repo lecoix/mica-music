@@ -16,6 +16,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import com.mica.music.data.Song
+import com.mica.music.data.SongListInfoVisibility
 import com.mica.music.ui.components.SongRow
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.MicaTheme
@@ -32,6 +33,7 @@ internal fun RemoteLibraryPane(
     selectedSongIds: Set<String> = emptySet(),
     onSelectionToggle: (String) -> Unit = {},
     listBottomPadding: Dp,
+    infoVisibility: SongListInfoVisibility = SongListInfoVisibility(),
     locateSongId: String? = null,
     locateRequestKey: Int = 0,
     onLocateConsumed: (Int) -> Unit = {},
@@ -91,6 +93,7 @@ internal fun RemoteLibraryPane(
                         }
                     },
                     onLongClick = if (selectionMode) null else ({ onSongOpenMenu(song) }),
+                    infoVisibility = infoVisibility,
                 )
             }
         }

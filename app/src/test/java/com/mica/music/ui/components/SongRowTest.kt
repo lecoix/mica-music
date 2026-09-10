@@ -44,4 +44,34 @@ class SongRowTest {
     fun subtitleKeepsExistingDefaults() {
         assertEquals("Artist · Album · 2 次播放", songSubtitle(song, SongListInfoVisibility()))
     }
+
+    @Test
+    fun qualityBadgeStaysOffByDefaultAndOmitsOtherTier() {
+        assertEquals(null, songQualityBadgeLabel(song, SongListInfoVisibility()))
+        assertEquals(
+            "SQ",
+            songQualityBadgeLabel(song, SongListInfoVisibility(showSongQualityTier = true)),
+        )
+        assertEquals(
+            "HR",
+            songQualityBadgeLabel(
+                song.copy(metadata = TrackMetadata("FLAC", 96_000, 24, 2_000, 2, "audio/flac")),
+                SongListInfoVisibility(showSongQualityTier = true),
+            ),
+        )
+        assertEquals(
+            "HQ",
+            songQualityBadgeLabel(
+                song.copy(metadata = TrackMetadata("MP3", 44_100, 16, 320, 2, "audio/mpeg")),
+                SongListInfoVisibility(showSongQualityTier = true),
+            ),
+        )
+        assertEquals(
+            null,
+            songQualityBadgeLabel(
+                song.copy(metadata = TrackMetadata("MP3", 44_100, 16, 128, 2, "audio/mpeg")),
+                SongListInfoVisibility(showSongQualityTier = true),
+            ),
+        )
+    }
 }

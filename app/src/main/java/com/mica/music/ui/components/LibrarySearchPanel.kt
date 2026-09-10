@@ -10,6 +10,7 @@ import com.mica.music.data.LibraryBrowse
 import com.mica.music.data.LibrarySearchIndex
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.Song
+import com.mica.music.data.SongListInfoVisibility
 import com.mica.music.data.preferences.LibraryZoomPage
 import java.util.Locale
 
@@ -26,6 +27,7 @@ fun LibrarySearchPanel(
     selectionMode: Boolean = false,
     selectedSongIds: Set<String> = emptySet(),
     onSelectionToggle: (String) -> Unit = {},
+    infoVisibility: SongListInfoVisibility = SongListInfoVisibility(),
     modifier: Modifier = Modifier,
 ) {
     val emptyMessage = if (query.isBlank()) {
@@ -48,6 +50,7 @@ fun LibrarySearchPanel(
         selectionMode = selectionMode,
         selectedSongIds = selectedSongIds,
         onSelectionToggle = onSelectionToggle,
+        infoVisibility = infoVisibility,
         zoomPage = LibraryZoomPage.SEARCH,
         modifier = modifier.fillMaxSize(),
     )

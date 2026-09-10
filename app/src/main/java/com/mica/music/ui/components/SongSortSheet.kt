@@ -167,6 +167,7 @@ fun SongSortSheet(
                         "专辑" to info.showSongAlbum,
                         "播放次数" to info.showSongPlayCount,
                         "歌曲时长" to info.showSongDuration,
+                        "音质" to info.showSongQualityTier,
                     ).forEach { (label, selected) ->
                         AccentTextChoice(label, selected, onClick = {
                             update {
@@ -174,7 +175,8 @@ fun SongSortSheet(
                                     "艺术家" -> it.copy(showSongArtist = !selected)
                                     "专辑" -> it.copy(showSongAlbum = !selected)
                                     "播放次数" -> it.copy(showSongPlayCount = !selected)
-                                    else -> it.copy(showSongDuration = !selected)
+                                    "歌曲时长" -> it.copy(showSongDuration = !selected)
+                                    else -> it.copy(showSongQualityTier = !selected)
                                 }
                             }
                         })

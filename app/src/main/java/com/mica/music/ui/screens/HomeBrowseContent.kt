@@ -113,10 +113,13 @@ import kotlinx.coroutines.flow.collectLatest
 
 private const val BrowseDetailDebugTag = "[DEBUG-BROWSE-DETAIL-4F7C]"
 
-private val FolderSongInfoVisibility = SongListInfoVisibility(showSongPlayCount = false)
-private val RecentSongInfoVisibility = FolderSongInfoVisibility.copy(
-    trailingInfo = SongTrailingInfo.PLAY_COUNT,
+private fun folderSongInfoVisibility(showQualityTier: Boolean) = SongListInfoVisibility(
+    showSongPlayCount = false,
+    showSongQualityTier = showQualityTier,
 )
+
+private fun recentSongInfoVisibility(showQualityTier: Boolean) =
+    folderSongInfoVisibility(showQualityTier).copy(trailingInfo = SongTrailingInfo.PLAY_COUNT)
 
 @Composable
 internal fun HomeBrowseContent(
@@ -138,6 +141,7 @@ internal fun HomeBrowseContent(
     albumGridColumns: Int = 1,
     onAlbumGridColumnsChange: (Int) -> Unit = {},
     browseListInfoVisibility: BrowseListInfoVisibility = BrowseListInfoVisibility(),
+    songListInfoVisibility: SongListInfoVisibility = SongListInfoVisibility(),
     artistSortField: ArtistBrowseSortField = ArtistBrowseSortField.TITLE,
     artistSortDirection: SortDirection = SortDirection.ASC,
     artistGridColumns: Int = 1,
@@ -153,6 +157,8 @@ internal fun HomeBrowseContent(
     modifier: Modifier = Modifier,
 ) {
     val folderListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
+    val folderInfoVisibility = folderSongInfoVisibility(songListInfoVisibility.showSongQualityTier)
+    val recentInfoVisibility = recentSongInfoVisibility(songListInfoVisibility.showSongQualityTier)
 
     val availableSongs = remember(library.songs, remoteSongs) {
         mergedBrowseSongs(library.songs, remoteSongs)
@@ -287,7 +293,7 @@ internal fun HomeBrowseContent(
                 onSongOpenMenu = onSongOpenMenu,
                 fastScrollSortField = null,
                 emptyMessage = "暂无播放记录",
-                infoVisibility = RecentSongInfoVisibility,
+                infoVisibility = recentInfoVisibility,
                 listBottomPadding = listBottomPadding,
                 zoomPage = LibraryZoomPage.RECENT,
                 modifier = modifier,
@@ -306,6 +312,7 @@ internal fun HomeBrowseContent(
                     onQueueSongClick = onQueueSongClick,
                     onSongOpenMenu = onSongOpenMenu,
                     listBottomPadding = listBottomPadding,
+                    songInfoVisibility = folderInfoVisibility,
                     modifier = modifier,
                 )
                 FolderBrowseMode.HIERARCHY -> HierarchyFoldersBrowse(
@@ -319,6 +326,7 @@ internal fun HomeBrowseContent(
                     onQueueSongClick = onQueueSongClick,
                     onSongOpenMenu = onSongOpenMenu,
                     listBottomPadding = listBottomPadding,
+                    songInfoVisibility = folderInfoVisibility,
                     modifier = modifier,
                 )
             }
@@ -339,6 +347,7 @@ private fun MusicFoldersBrowse(
     onQueueSongClick: (List<Song>, String) -> Unit,
     onSongOpenMenu: (Song) -> Unit,
     listBottomPadding: Dp,
+    songInfoVisibility: SongListInfoVisibility,
     modifier: Modifier,
 ) {
     val scopePathSegments = (destination as? BrowseDestination.Folder)?.scopePathSegments.orEmpty()
@@ -367,6 +376,7 @@ private fun MusicFoldersBrowse(
             onSongClick = {},
             onSongOpenMenu = onSongOpenMenu,
             listBottomPadding = listBottomPadding,
+            songInfoVisibility = songInfoVisibility,
             fastScrollLabels = groups.map { it.title },
             forceListLayout = true,
             modifier = modifier,
@@ -383,7 +393,7 @@ private fun MusicFoldersBrowse(
         onSongClick = { songId -> onQueueSongClick(songs, songId) },
         onSongOpenMenu = onSongOpenMenu,
         emptyMessage = "该文件夹下暂无歌曲",
-        infoVisibility = FolderSongInfoVisibility,
+        infoVisibility = songInfoVisibility,
         listBottomPadding = listBottomPadding,
         zoomPage = LibraryZoomPage.FOLDERS,
         modifier = modifier,
@@ -402,6 +412,7 @@ private fun HierarchyFoldersBrowse(
     onQueueSongClick: (List<Song>, String) -> Unit,
     onSongOpenMenu: (Song) -> Unit,
     listBottomPadding: Dp,
+    songInfoVisibility: SongListInfoVisibility,
     modifier: Modifier,
 ) {
     val folderDestination = destination as? BrowseDestination.Folder
@@ -480,6 +491,7 @@ private fun HierarchyFoldersBrowse(
             },
             onSongOpenMenu = onSongOpenMenu,
             listBottomPadding = listBottomPadding,
+            songInfoVisibility = songInfoVisibility,
             modifier = Modifier.fillMaxSize(),
         )
     }
@@ -1184,6 +1196,7 @@ private fun FolderDepthPage(
     onFolderSelect: (FolderBrowseGroup) -> Unit,
     onSongOpenMenu: (Song) -> Unit,
     listBottomPadding: Dp = 0.dp,
+    songInfoVisibility: SongListInfoVisibility,
     modifier: Modifier = Modifier,
 ) {
     val groups = library.folderGroupsAtDepth(depth, scopePathSegments)
@@ -1218,6 +1231,7 @@ private fun FolderDepthPage(
                 },
                 onSongOpenMenu = onSongOpenMenu,
                 listBottomPadding = listBottomPadding,
+                songInfoVisibility = songInfoVisibility,
                 forceListLayout = depth == 0 && scopePathSegments.isEmpty(),
                 modifier = modifier,
             )
@@ -1232,7 +1246,7 @@ private fun FolderDepthPage(
                 onSongClick = { songId -> onQueueSongClick(songs, songId) },
                 onSongOpenMenu = onSongOpenMenu,
                 emptyMessage = "该文件夹下暂无歌曲",
-                infoVisibility = FolderSongInfoVisibility,
+                infoVisibility = songInfoVisibility,
                 listBottomPadding = listBottomPadding,
                 zoomPage = LibraryZoomPage.FOLDERS,
                 modifier = modifier,
@@ -1986,6 +2000,7 @@ private fun FolderContentList(
     onSongClick: (String) -> Unit,
     onSongOpenMenu: (Song) -> Unit,
     listBottomPadding: Dp = 0.dp,
+    songInfoVisibility: SongListInfoVisibility,
     fastScrollLabels: List<String>? = null,
     forceListLayout: Boolean = false,
     modifier: Modifier = Modifier,
@@ -2009,7 +2024,7 @@ private fun FolderContentList(
             isPlaying = isCurrent && isPlaying,
             onClick = { onSongClick(song.id) },
             onLongClick = { onSongOpenMenu(song) },
-            infoVisibility = FolderSongInfoVisibility,
+            infoVisibility = songInfoVisibility,
         )
     }
 

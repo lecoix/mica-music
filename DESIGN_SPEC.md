@@ -383,6 +383,7 @@
 - 高度 64dp
 - 左侧封面 44×44dp，0dp 圆角
 - 右侧格式标签：`mono.sm`，无框
+- 歌曲副行可选音质标签：排序底栏「歌曲副行 → 音质」启用后，在副行最前显示 `HQ` / `SQ` / `HR`（分级色块镂空字，与播放页 Hi‑Res 黄底镂空同一 `DstOut` 挖空；字号 9sp，框高低于 `body.sm`）。「其他」不显示。默认关闭。专辑详情与播放队列不加
 - 末尾三点按钮：48dp 触摸目标
 - 行间分隔：hairline @ 8% opacity
 
@@ -1106,9 +1107,10 @@ dependencies {
 | `HifiColors.surfaceCard` / `like` / `isDark` | `Color.kt` |
 | EQ 频响曲线编辑器 | `EqualizerCurveEditor.kt`：曲线即推子，10 段等宽列 + 矩形游标 + hairline 网格 + 10% accent 包络填充；取代原「只读曲线图 + 2×5 竖推子网格」双份表达 |
 | 音效实验室 | 设置 → 音频；`SoundFxScreen`：立体声宽度、低/高架、混响房间/阻尼/湿比（湿比 0 为关）、360° 环绕强度/转速（强度 0 为关）；默认关闭，仅 Shared PCM |
+| 歌曲副行音质标签 | 排序底栏「歌曲副行」；`SongQualityBadge`；分级复用 `LibraryAnalyzer` 与分析页配色 |
 
 ---
 
 **版本**：v1.4
-**最后更新**：2026-09-02
+**最后更新**：2026-09-10
 **适用平台**：Android 8.0+（minSdk 26）/ Jetpack Compose BOM 2024.10+

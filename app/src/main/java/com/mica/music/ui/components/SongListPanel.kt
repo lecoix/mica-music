@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -597,6 +598,8 @@ internal fun SongZoomSceneItem(
     } else {
         songSubtitle(song, infoVisibility)
     }
+    val qualityBadge = songQualityBadgeLabel(song, infoVisibility)
+        .takeUnless { selectionMode && selected && upperPreset.gridTile && p > 0.5f }
     val trailing = songTrailingLabel(song, infoVisibility.trailingInfo).orEmpty()
 
     Layout(
@@ -619,13 +622,22 @@ internal fun SongZoomSceneItem(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Text(
-                text = subtitle,
-                style = MicaTheme.typography.bodySm,
-                color = MicaTheme.colors.textSecondary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (qualityBadge != null) {
+                    SongQualityBadge(label = qualityBadge)
+                    if (subtitle.isNotBlank()) {
+                        Spacer(Modifier.width(HifiSpacing.xs))
+                    }
+                }
+                Text(
+                    text = subtitle,
+                    style = MicaTheme.typography.bodySm,
+                    color = MicaTheme.colors.textSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+            }
             Box(Modifier.size(12.dp)) {
                 if (isPlaying) PlayingIndicator(Modifier.fillMaxSize())
             }
