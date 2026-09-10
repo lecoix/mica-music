@@ -1,5 +1,7 @@
 # ReplayGain 实际应用状态计划
 
+> 现状复核：2026-09-11。ReplayGain 的事实来源/owner 契约继续有效；USB Exact/DoP/Native 的 signal-exact 判定不得因“独占已激活”而自动继承 ReplayGain/DSP 路径。
+
 > 状态：2026-07-13 R1–R3 已实现；定向编译与兼容测试通过。
 >
 > 关联决策：[`ADR-0001`](adr/0001-usb-host-exclusive-output.md) 只规定远期 USB Host 输出，不属于本计划的实现范围。

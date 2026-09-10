@@ -1,5 +1,7 @@
 # Mica 界面动效规范（Motion Rules）
 
+> 现状复核：2026-09-11。现有 `MicaMotion` token 与 Compose/View 岛分工继续有效；星图/粒子等持续渲染使用各自帧循环，不应把通用页面补间 token 机械套到实时 renderer。
+
 > **单一实现入口**：`app/src/main/java/com/mica/music/ui/motion/MicaMotion.kt`  
 > **本文件为动效规则的权威说明**；`DESIGN_SPEC.md` §九 中的时长表为早期草案，若与本文或 `MicaMotion` 常量不一致，以本文为准。
 

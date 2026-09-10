@@ -1,6 +1,8 @@
 # Mica 音频播放链路改造计划
 
-> **状态（2026-07-13）**：**Gate 1 ✅ Gate 2 ✅ Gate 4 ✅**；**G3-0 ✅**；**G3-1a 证伪**；**G3-1b 已废弃**；**候选 R = 终选架构（全 build type，2026-07-08 推广 release）**：R0–R4 ✅（log 33–41）；DsdOnly int sink（频谱+EQ）+ PcmOnly float sink（频谱+EQ+硬件变速）+ 平台 fallback。远期 USB 独占已确定采用 **USB Host 独立输出**（[`ADR-0001`](adr/0001-usb-host-exclusive-output.md)），当前不实现；近期实施仅限 [`ReplayGain 实际应用状态`](REPLAYGAIN_SIGNAL_STATE_PLAN.md)。
+> 2026-09-11 适用性复核：本文保留 2026-07 Exo PCM 重构 Gate 的历史证据；顶部“USB 独占远期不实现”等当时结论已被 ADR-0004 / Hybrid 实现 supersede。当前 Shared/USB 边界与 staged spectrum clock 以 `CONTEXT.md`、`USB_EXCLUSIVE_HYBRID_STATUS.md`、`SPECTRUM_STALL_BUG.md` 为准。
+
+> **状态（2026-07-13）**：**Gate 1 ✅ Gate 2 ✅ Gate 4 ✅**；**G3-0 ✅**；**G3-1a 证伪**；**G3-1b 已废弃**；**候选 R = 终选架构（全 build type，2026-07-08 推广 release）**：R0–R4 ✅（log 33–41）；DsdOnly int sink（频谱+EQ）+ PcmOnly float sink（频谱+EQ+硬件变速）+ 平台 fallback。远期 USB 独占当时确定采用 **USB Host 独立输出**（[`ADR-0001`](adr/0001-usb-host-exclusive-output.md)）；该“当前不实现”历史状态已由后续 Hybrid 实现 supersede；近期实施仅限 [`ReplayGain 实际应用状态`](REPLAYGAIN_SIGNAL_STATE_PLAN.md)。
 > **目标分支**：`exoplayer-only`  
 > **整理日期**：2026-07-07（§18 终态/Gate：2026-07-08）  
 > **关联文档**：[`AUDIO_PIPELINE_DISCUSSION.md`](AUDIO_PIPELINE_DISCUSSION.md)（背景讨论）、[`DSD_EXO_PLAYBACK.md`](DSD_EXO_PLAYBACK.md)（DSD 现网行为）、[`CONTEXT.md`](../CONTEXT.md) → **Audio quality consent**  

@@ -1,5 +1,7 @@
 # Huawei MediaSession 封面触发锁屏兼容方案
 
+> 2026-09-11 复核：OXF-AN10 的 app-owned managed artwork URI 兼容策略继续保留为机型特例证据，不能外推其他 Huawei/HarmonyOS。当前工作树的 managed artwork lazy recovery/health 改动解决的是缓存健康/ANR 边界，不应移除本页 MediaSession 兼容分支。
+
 > 状态：已在问题真机验证有效  
 > 验证日期：2026-08-15  
 > 已验证设备：HUAWEI OXF-AN10、Android API 31（HarmonyOS 系统）

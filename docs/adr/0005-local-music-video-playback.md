@@ -4,6 +4,8 @@ status: accepted
 
 # 本地音乐 MV 使用音乐权威的单 ExoPlayer 时间线
 
+> 2026-09-11 applicability review: still accepted. The single-Exo, music-audio-authority model remains current; any documentation describing a second short-lived ExoPlayer for MV is obsolete. Hardware/video-codec/audio-output device acceptance remains separate.
+
 文件夹曲库允许将同目录、同基本文件名的 MP4 作为歌曲的 `musicVideoUri`。音乐文件始终是唯一音频来源；`MusicVideoMediaSourceFactory` 将原歌曲过滤为 audio-only、MP4 过滤为 video-only，再以 `MergingMediaSource(adjustPeriodTimeOffsets = true, clipDurations = false)` 合并。歌曲 `MediaItem`、mediaId、队列、时长、通知、统计和音频输出路径保持权威，不允许双播放器同步或播放 MP4 内嵌音轨。
 
 ## 配对与持久化

@@ -1,7 +1,40 @@
 # 频谱停滞（Spectrum Stall）问题档案
 
-> 最后更新：2026-08-06  
-> 状态：**主路径已缓解**（tap / write 解耦）；inner-reject 与输出设备切换仍为后续项。
+> 2026-09-11 状态复核：§0 的 sink media clock / PCM timeline / analysis engine 属于**当前未提交工作树的 staged 修复**。桌面 focused/full JVM 已有通过记录，设备验收仍在进行；不要把它描述成 0.4.0 clean HEAD 或 release 已交付。
+
+> 最后更新：2026-09-11
+> 当前改动：频谱改用 sink 媒体时钟选择 PCM 窗口；验证记录见 §0。§1–10 为历史调查，不代表现行实现或本次验收。
+
+## 0. 2026-09-10：播放时钟与频谱旁路
+
+### 行为与边界
+
+- Shared PCM 的三个 sink（平台整数、DSD 解码后 PCM、Float DSP）各有独立 `SpectrumSinkSession`，由 `SpectrumClockAudioSink` 在播放线程观察输入 PTS 与 `getCurrentPositionUs`。不从 FFT/UI 线程调用 sink，不改变 AudioTrack buffer、音频写入重试或 EQ/Sonic 顺序。
+- Float tap 使用每块输入的 PTS；整数 tap 在 Sonic 前，以当前 sink 输入 PTS 加累计 PCM 帧数建立时间线。Media3 1.9.0 的 `DefaultAudioSink.setupAudioProcessors()` 调用无时间参数的 pipeline flush，因此不能假定 `StreamMetadata` 已提供有效偏移。内部变速 flush 在下一块输入处重新建立时间基准，保留已采集历史；pending format 直到 processor flush 才生效。
+- `SpectrumPcmTimeline` 保留有界 mono PCM 历史，按 sink 媒体位置复制 2048 样本 FFT 窗口。60Hz 回调只决定刷新机会，不再按调用次数消耗 FIFO。不加固定 1.1 秒视觉延迟，不裁成“最新 1.1 秒”。
+- 普通前后台切换保留 PCM，后台继续采集但停 FFT；关闭频谱不采集。暂停保留历史并清空可见投影。清空、seek、格式应用、sink reset/release 和服务 release 使旧结果失效。
+- PCM 不覆盖播放位置，或媒体时钟 250ms 未推进时，按单调时间以 120ms 时间常数回落。恢复有效数据后重新分析当前位置；回落不是合成假频谱，也不算有效分析帧。
+- 原有频段数、FFT 窗口、频率权重、攻放曲线与 UI 几何不变。USB Exact/DoP/Native 路径不接入这条旁路。
+
+### 并发协议评审
+
+| Owner / 边界 | 副作用与同步 | 确定性证明 |
+|---|---|---|
+| `SpectrumAnalysisEngine` 持有 stream generation、当前 sink identity、可见性 revision | reset、PCM append、clock update、levels/envelope 发布统一在 owner lock 下 | `oldFftCannotPublishAfterResetAndNewStreamAppend` |
+| PCM 字节转换（锁外） | 转换前捕获 token，转换后 append 在 owner lock 下复验；旧 token 不可重新占有 source | 同测试的旧 PCM append，以及 `retiredSinkCannotClearOrPublishOverItsSuccessor` |
+| FFT 计算与测试 barrier（锁外、不可取消） | worker lock 独占 FFT scratch；计算后在 owner lock 下复验 generation/revision，再发布两路投影；生命周期不修改 FFT scratch | latch 在发布边界停旧 FFT，reset 并写新 PCM，再放行，检查真实 levels/envelope 和历史 |
+| 隐藏/暂停 | revision 使在途分析不能发布；PCM 不清空 | `SpectrumResumeRegressionTest` 与 engine tests |
+| sink 退出 | 仅当前 source 能 reset；旧 sink clock/reset 不可影响接替者 | retired-sink test；clock sink flush test |
+
+没有以取消任务作为正确性条件，也没有新增持久化、曲库写入或文件缓存。
+
+### 容量与测试
+
+沿用 2 秒基本容量、按最大输入 burst 扩到至多 4 秒。最多 512 块，边界裁剪只移动 offset；单个过大输入仅转换最后至多 4 秒 mono。保留的有效样本最多 `C = 4 × sampleRate`，块边界的已淘汰 backing 最多额外 C，转换与加入时的临时数组再至多 2C；频谱 mono 数组保守峰值为 `16C` bytes，即 384kHz 时约 24.6MB、768kHz 时约 49.2MB，另加小型 FFT/频段数据及原音频链已有输入字节缓冲。它只属于当前播放流，与 10,000 首曲库和逐字歌词数量无关；该上界不是整机内存或耗电验收。
+
+新增时间线、引擎、sink 适配与真实 Media3/Sonic 测试。旧 `FloatDspSpectrumTapDecouplingTest` 已改为 `false` 后重试同一个 buffer，收到 `true` 后才送下一块，不能再用违规的连续新 buffer 注入声称 decoder 不受背压。
+
+验证进度与设备证据记录于 `.scratch/spectrum-clock/REPORT.md`。JVM/受控 AudioOutput 证明不等于 OEM AudioTrack、蓝牙和视觉同步验收。
 
 ---
 

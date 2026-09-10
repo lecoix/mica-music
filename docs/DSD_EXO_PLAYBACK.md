@@ -1,7 +1,9 @@
 # DSD / Exo 播放扩展
 
-> 最后更新：2026-08-14
-> 状态：生产默认仍为 `.dsf` 经 **Media3（Exo）单链路解码为 PCM**；`.dff` **不支持播放**。USB Direct DSD / DoP 已进入 **QA-only Media3 renderer 原型阶段**，但尚未成为生产输出模式。
+> 2026-09-11 现状复核：Shared PCM 的 `.dsf`→PCM 单链路仍是默认；`.dff` 仍拒绝。本文早期“USB Direct/DoP 仅 QA-only”是 8 月 bring-up 快照；当前 Hybrid 已有显式 Exact PCM / DoP / Native DSD 模式，但按设备能力和物理资格 fail-closed，DSD256 仍不能宣称普适稳定。
+
+> 最后更新：2026-09-11
+> 状态：默认仍为 `.dsf` 经 **Media3（Exo）单链路解码为 PCM**；`.dff` **不支持播放**。USB Hybrid 已接入显式 DoP / Native DSD，但兼容性与 signal-exact 资格按设备/路径单独证明。
 
 ---
 
@@ -10,9 +12,9 @@
 | 项目 | 说明 |
 |------|------|
 | **生产主路径** | `.dsf` → `DsfExtractor` → `DsdOnly` `FfmpegAudioRenderer`（`dsd_lsbf_planar`）→ DSD 专用 Sink（PCM 降采样 / 频谱 / EQ）→ `AudioTrack` |
-| **QA Direct DSD 原型** | `.dsf` → `DsfExtractor` → `MicaDirectDsdDoP` → canonical DSD → P5 `DoPCarrierSession` → P3 `ExactCarrierFeeder` → Native `EXACT_FRAMES_ONLY` → USBFS |
+| **USB Hybrid Direct DSD 路径（历史图由 QA 原型演进）** | `.dsf` → `DsfExtractor` → `MicaDirectDsdDoP` → canonical DSD → P5 `DoPCarrierSession` → P3 `ExactCarrierFeeder` → Native `EXACT_FRAMES_ONLY` → USBFS |
 | **不支持** | `.dff` / DSDIFF：生产路由层拒绝，不启动 Exo |
-| **仍不承诺** | 生产 Direct DSD 开关、DSD pause/resume、seek/自动换轨、DSD256、Native RAW_DATA、任意 DAC 兼容性 |
+| **仍不承诺** | 任意 DAC/OEM 的 DoP/Native 兼容性、DSD256 稳定性，以及未经物理资格证明的 Native `signalExact` |
 
 生产设计取舍仍然是：**SharedPcm 不保留 DSD 原生比特流**，而是解码为 PCM 后按设备能力降到可播采样率（优先 **176.4 kHz / 24-bit**）。Direct DSD 是并行的 USB 独占输出分支，不替换内置扬声器 / 蓝牙 / 普通 SharedPcm 路径。
 

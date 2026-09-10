@@ -1,6 +1,15 @@
 # Mica 自动化流程测试设计
 
+> 现状复核：2026-09-11。该四层门禁仍为当前测试模型；Device Flow harness 已落地并进入发布前流程扩充阶段，硬件/OEM Gate 仍不可由 emulator/JVM 代替。
+
 > 状态：2026-09-04 起采用。目标不是把所有真机验收硬塞进 CI，而是补上“真实用户动作穿过 Activity / Compose / Android 框架后是否仍然成立”这一层。
+
+## 2026-09-11 实施状态
+
+- `scripts/run-android-flow-tests.ps1`、side-by-side QA application id、`flow/**` instrumentation 选择与 `micaCheck` 的 `androidTest` compile gate 已接入。
+- 发布前流程正在按真实主题/常用功能继续扩充；9 月 11 日已有独立 ADB smoke 证明扫描、实播、seek/切歌、搜索、横屏、后台与冷启动等路径，但它不是完整 Device Flow/Hardware matrix 的替代物。
+- 小窗/分屏触摸诊断已加入生产代码，后续流程应覆盖 multi-window touch delivery；未复现前不要把用户“小窗点击失效”仅归因于 Compose。
+
 
 ## 1. 为什么需要单独的流程层
 

@@ -1,10 +1,12 @@
 # USB Host 真独占：工程状态、证据、问题与生产化计划
 
+> 2026-09-11 适用性复核：本文主体记录 2026-08-16 的 P1/assumption-audit 过渡状态，已不再是当前产品状态源。当前 USB 实现以 `USB_EXCLUSIVE_HYBRID_STATUS.md` + ADR-0004 为准；本文的旧 M3/M4 RED、R1–R3 staged repair 只作历史证据，不得拿来覆盖 Hybrid 后续实机结果。
+
 > 性质：动态工程状态册，不替代架构决策记录。  
 > 架构决策：[`adr/0001-usb-host-exclusive-output.md`](adr/0001-usb-host-exclusive-output.md)、[`adr/0002-usb-exclusive-playback-protocol.md`](adr/0002-usb-exclusive-playback-protocol.md)。  
 > 总架构：[`USB_EXCLUSIVE_AUDIO_ARCHITECTURE.md`](USB_EXCLUSIVE_AUDIO_ARCHITECTURE.md)。  
 > 原始实验记录：[`../prototypes/usb-sk02-native/NOTES.md`](../prototypes/usb-sk02-native/NOTES.md)。  
-> 最后更新：2026-08-16。  
+> 最后更新：2026-09-11（主体工程快照：2026-08-16）。
 > 当前结论：**M1 纯协议 reducer/authority algebra 继续保留已验收状态（`0e05399c`；P4 外部 36/36、M1 52/52、1000 次 Retiring/write-drain 交错绿）。针对真实 M3 `RENDERER_STREAM -> TIMELINE_PERIOD` 时序暴露出的共享盲区，主控与 P4/P5/P6 已完成全 M1–M6 assumption audit，矩阵收敛为 A01–A37；P4 directive70、P5 directive31、P6 directive06 最终均 GREEN，未发现需要新 authority plane 或推翻 M1 ownership/lease/receipt algebra 的证据。架构 addendum V2 已正式接受，状态 `FROZEN_V1_CORE / ASSUMPTION_AUDIT_ADDENDUM_V2_ACCEPTED`；内容覆盖 order-independent observation join、PlaybackTopologyEpoch、duplicate-media/EventTime/Adapter provenance、generation≠usable output、authority fail-closed、PCM/Direct typed physical retirement/proof、Direct staged side-effect fencing、supersedable rebuild 和 recovery intent revision fence。Assumption audit 现已 CLOSED，进入 staged repair。P3 directive86 先执行 R0：完整 quarantine 当前 5 个 dirty 失败实验并恢复精确 committed HEAD `4c65a0a9`；随后只做 R1 observation/provenance/output-availability 修复（A01–A09/A15–A17/A30/A37），完成 clean checkpoint 后停给 P4 adversarial review。R2 才处理 PCM/Direct physical proof，R3 再处理 technical intent/rebuild/recovery。M3 physical gates 仍 RED，M4 physical 未开始，所有新硬件资格继续暂停到 R1–R3 软件 repair gates 独立转绿。**
 
 ---

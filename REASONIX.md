@@ -1,21 +1,23 @@
 # Mica — Reasonix Code Context
 
+> 现状复核：2026-09-11。当前 App 基线 **0.4.0 / code 54 / Room v29**；这里是代码导航速览，发布验收结论见 `docs/CURRENT_FEATURE_STATUS.md`。
+
 > AI / 工具用速览。**版本与依赖以 `gradle/libs.versions.toml` 为准**；领域词汇见 `CONTEXT.md`；动效与文档索引见 `docs/DOC_INDEX.md`。
 
 ## Stack
 
 - **Language:** Kotlin 2.2.21 + Jetpack Compose (Material3 BOM 2024.10.00)
-- **Android SDK:** minSdk 26, targetSdk 34, compileSdk 35; **arm64-v8a only**
-- **Build:** AGP 8.7.0, Gradle 8.9, version catalog (`gradle/libs.versions.toml`)
+- **Android SDK:** minSdk 26, targetSdk 34, compileSdk 36; packaged ABIs: **arm64-v8a + armeabi-v7a**
+- **Build:** AGP 8.9.1, Gradle 8.9, version catalog (`gradle/libs.versions.toml`)
 - **License:** Apache-2.0（仓库根 `LICENSE`）；第三方清单 `docs/OPEN_SOURCE_NOTICES.md`，与关于页同步
-- **Key deps:** Media3 **1.9.0**, Jellyfin `media3-ffmpeg-decoder` **1.9.0+1**, Room 2.6.1 (KSP), Coil 2.7.0, Navigation Compose 2.8.2, Coroutines 1.8.1, WorkManager 2.10.5, `sardine-android` 0.9 / `okhttp-digest` 3.1.1 / `smbj` 0.15.0, reorderable 2.4.3, **BlurView 3.2.0** (JitPack), **Mica vendored TagLib fork**（基于 Kyant0 1.0.6 / TagLib C++ 2.2.1）, jAudiotagger
+- **Key deps:** Media3 **1.9.0**, Jellyfin `media3-ffmpeg-decoder` **1.9.0+1**, Room 2.6.1 (KSP), Coil 2.7.0, Navigation Compose 2.8.2, Coroutines 1.8.1, WorkManager 2.10.5, Lyricon provider 0.1.70, Glance 1.2.0, `sardine-android` 0.9 / `okhttp-digest` 3.1.1 / `smbj` 0.15.0, reorderable 2.4.3, **BlurView 3.2.0** (JitPack), **Mica vendored TagLib fork**（基于 Kyant0 1.0.6 / TagLib C++ 2.2.1）, jAudiotagger
 - **Test:** JUnit 4, Robolectric 4.13, MockK, Roborazzi 1.34
 - **FFmpeg native** — `libffmpegJNI.so` 作为 Media3 decoder 扩展（`third_party/media3-ffmpeg-decoder`）随工程分发；无独立 FFmpeg CLI / `libmica_ffmpeg.so` 软件播放路径
 
 ## Layout
 
 - `app/src/main/java/com/mica/music/`
-  - `data/` — `Song`, Room（曲库 + `PlaylistStore` 歌单）, scanner, preferences、`AppUiSettings`、`PlaybackQueueMode`、`PlaybackTuning` 等共享 domain；`data/playback/` 持有 `ServicePlaybackStateStore` 与恢复快照 persistence model。`data/` 不得 import 顶层 `media/` / `playback/` implementation package
+  - `data/` — `Song`, Room v29（本地曲库/歌词/自动同步状态/歌单/远端 catalog）, scanner, preferences 与 shared domain；`data/remote/` 持有 Navidrome/OpenSubsonic、WebDAV、SMB 与远端自动同步；`data/playback/` 持有 `ServicePlaybackStateStore`。`data/` 不得 import 顶层 `media/` / `playback/` implementation package
   - `playback/` — `PlayerController`（Compose/UI facade）、`PlaybackRuntime`（非 Compose application runtime）、connection、queue/timeline/tuning/statistics coordinator、MediaController queue sync 与睡眠定时器
   - `media/` — Exo 播放管线、`MicaMediaService`、`AudioPipelineCoordinator`、`AudioOffloadCircuitBreaker`、`MicaCompositePlayer`、`ServicePlaybackEngineCoordinator`、DSF、EQ implementation（`media/eq/`）
   - `audio/` / `usb/` — 跨 data/media/playback 共享的 neutral contract/value：`AudioQualityMode`、`EqBandConstants`、`UsbStableIdentity`
@@ -25,6 +27,7 @@
   - `ui/theme/` — `MicaTheme`, 云母渐变, `MicaMaterialBackdrop` (BlurView)
   - `ui/navigation/` — `AppNavigation`, `AppNavigationMain`, `PlayerSheetOverlay`, `AppNavigationCoordinator`
   - `ui/motion/` — `MicaMotion.kt`
+  - `widget/` — Glance 桌面播放小组件（自适应 / 大封面 / 四宫格）
 - `app/src/test/java/.../player/` — `CoverFlowRailsTest`, `PlayerPageLayoutEngineTest`, …
 - `MainActivity.kt` — **双 `ComposeView`**：`BlurTarget` 包裹主内容 + 底部 overlay（迷你栏 BlurView）
 

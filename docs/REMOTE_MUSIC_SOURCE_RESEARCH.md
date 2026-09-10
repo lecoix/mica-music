@@ -1,9 +1,17 @@
 # 远程音乐源调研记录
 
-> 状态：调研中  
-> 最近更新：2026-08-30
+> 状态：**MVP 已实现并合并；本文后半保留原调研/provenance 与兼容性记录**
+> 最近更新：2026-09-11
 > 当前范围：Navidrome / WebDAV / SMB  
-> 本文记录候选开源项目、可复用范围、风险和 Mica 的预期边界；不是已批准的实施方案。USB 输出与 DSD 的交叉约束同步参考 [`USB_EXCLUSIVE_AUDIO_STATUS.md`](USB_EXCLUSIVE_AUDIO_STATUS.md)。
+> 本文同时承担当前远程曲库实现状态、历史调研/provenance 与兼容边界记录。2026-08-29 之前的“候选/预期”文字按历史语境阅读；当前实现以本页实施状态、代码与 `CURRENT_FEATURE_STATUS.md` 为准。USB 输出与 DSD 的交叉约束同步参考 [`USB_EXCLUSIVE_AUDIO_STATUS.md`](USB_EXCLUSIVE_AUDIO_STATUS.md)。
+
+## 2026-09-11 当前实现摘要
+
+- Navidrome/OpenSubsonic、WebDAV 与 SMB2/SMB3 均已进入统一 Remote catalog；SMB1 明确禁用。来源实例、配置 revision、凭据与失败隔离独立，稳定 media id/歌单不保存认证 URL 或明文凭据。
+- 上层已闭合独立排序、全局搜索、Artist/Album/Recent 联合浏览、远端多选/长按菜单、歌单封面、当前曲定位与播放统计。
+- 文件型来源使用 Range/random-access + TagLib JIT 技术元数据，sidecar/embedded artwork 与歌词按需 hydration；catalog sync 不把完整远端媒体或歌词/图片 payload 批量下载到本地。
+- WorkManager 负责 6h 网络约束周期同步，前台只请求 stale-only catch-up；单来源失败不清空旧 catalog。R8/minify 仍不是当前开发基线，不应把包体优化结果写成现行默认。
+- 真实 Android 已分别取得 SMB 与 WebDAV catalog/play/seek/metadata/artwork/lyrics 证据；这些结果仍不代表所有 NAS/WebDAV server、网络条件和 OEM 后台策略均通过。
 
 ## 2026-08-29 实施状态
 

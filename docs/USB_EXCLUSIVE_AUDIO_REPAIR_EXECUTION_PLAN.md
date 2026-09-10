@@ -1,5 +1,7 @@
 # USB Exclusive Audio — Remaining Repair Execution Plan
 
+> Current applicability — 2026-09-11: this is a historical coordinator-owned **P1 repair execution plan**. It is retained for provenance and regression reasoning; it is not the current Hybrid implementation checklist and its old tranche/Gate status must not override `USB_EXCLUSIVE_HYBRID_STATUS.md` / ADR-0004. Remove nothing from the historical slice ledger when updating current status elsewhere.
+
 > Coordinator-owned normative implementation plan
 > Date: 2026-08-17
 > Baseline for planning: P4 D91 reviewed exact `8494b0206f384fc91c03ba4d24c589bd11450921`; D106 core A20/A31 goals GREEN with one overlap-watchdog residual and one contained null-stack proof hole

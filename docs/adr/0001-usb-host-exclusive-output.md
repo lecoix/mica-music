@@ -9,6 +9,8 @@ superseded_by: 0004-usb-exclusive-hybrid.md
 
 # USB 独占采用 USB Host 独立输出
 
+> 2026-09-11 applicability review: remains **superseded by ADR-0004**. USB Host ownership and “exclusive != signal-exact” remain valid; every statement below saying Shared PCM is the only implemented/production path is historical.
+
 未来的 USB 独占输出采用 Android USB Host 路线：由独立 USB output adapter 管理设备权限、USB interface claim、格式协商、PCM/DoP 传输和断连释放，绕过系统共享 `AudioTrack` 输出。选择这条路线是因为产品目标是真正占用目标 USB audio interface，而不只是向 Android framework 请求 preferred device 或 direct playback。
 
 ## Consequences

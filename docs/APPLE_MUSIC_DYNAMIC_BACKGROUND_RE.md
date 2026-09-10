@@ -1,7 +1,9 @@
 # Apple Music Dynamic Background Reverse Engineering
 
+> Current applicability review — 2026-09-11: this remains a reverse-engineering/provenance note, not the current Mica renderer specification. Mica now ships its own `DYNAMIC_ARTWORK` path and a separate `STAR_MAP`; implementation truth is `PlayerLowerBackgroundMode` / `NowPlayingBackground`.
+
 > Status: reverse-engineering notes and implementation plan  
-> Last updated: 2026-06-27  
+> Last updated: 2026-09-11 (original RE evidence captured 2026-06-27)
 > Source APK: `AppleMusic-com.apple.android.music-4.9.3.apk`  
 > Local analysis workspace: `.scratch/apple-music-apk/`
 

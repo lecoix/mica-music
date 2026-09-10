@@ -6,6 +6,8 @@ architecture: FROZEN_V1
 
 # USB 独占播放采用单一 Playback Protocol Authority
 
+> 2026-09-11 applicability review: accepted as the frozen **P1** protocol decision/provenance, but the later Hybrid product path intentionally does **not** adopt this large playback-protocol authority. Current Hybrid architecture is ADR-0004; P1 validation is not inherited Hybrid PASS.
+
 ## Context
 
 USB 独占已经形成两套稳定但不同的 ownership：

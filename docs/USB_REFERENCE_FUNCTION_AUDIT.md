@@ -1,5 +1,7 @@
 # USB reference function audit
 
+> Current review — 2026-09-11: this ledger remains the function-level provenance/accounting source for the imported SylvaKru-derived USB transport. `EXACT/EQUIVALENT/MICA_STRICTER/...` describe implementation accounting, not universal hardware qualification; current user-facing status remains `USB_EXCLUSIVE_HYBRID_STATUS.md`.
+
 Snapshot basis: SylvaKru reference snapshot `.codex-tmp/sylvakru-usb-fork-ref-20260812` compared against the current Mica Hybrid USB implementation.
 
 Status vocabulary:

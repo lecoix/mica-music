@@ -6,7 +6,7 @@ Mica Music 本体采用 **Apache License 2.0**（仓库根 [`LICENSE`](../LICENS
 release, include the full license text and copyright notice required by each
 dependency.
 
-Last reviewed: **2026-09-02**  
+Last reviewed: **2026-09-11**
 对照：`gradle/libs.versions.toml`、`app/build.gradle.kts`、`:app:releaseRuntimeClasspath`，以及关于页 `AboutScreen`。
 
 ## Project
@@ -19,9 +19,10 @@ Last reviewed: **2026-09-02**
 
 | Component | License |
 |---|---|
-| AndroidX Core / Activity / Lifecycle / Navigation / Room / DocumentFile / Palette / Annotation | Apache License 2.0 |
+| AndroidX Core / Activity / Lifecycle / Navigation / Room / DocumentFile / Palette / Annotation / Glance **1.2.0** | Apache License 2.0 |
 | AndroidX WorkManager (`work-runtime-ktx` **2.10.5**；远程曲库自动同步) | Apache License 2.0 |
 | AndroidX Media (`media` **1.7.1**；通知/会话兼容) | Apache License 2.0 |
+| Lyricon provider **0.1.70** (`io.github.proify.lyricon:provider`; 可选结构化歌词投影；POM 声明 Apache License 2.0) | Apache License 2.0 |
 | Jetpack Compose UI / Material 3 / Material Icons | Apache License 2.0 |
 | AndroidX Media3 (`media3-exoplayer`, `media3-session`, `media3-datasource-okhttp`, …) **1.9.0** | Apache License 2.0 |
 | Jellyfin Media3 FFmpeg decoder (`org.jellyfin.media3:media3-ffmpeg-decoder` **1.9.0+1**, Maven fallback when local DSD build absent) | Apache License 2.0 |

@@ -1,5 +1,7 @@
 # HiFi 本地音乐播放器 · 设计规范 v1.3
 
+> 现状复核：2026-09-11。§2.7 / §十五已按当前枚举复核；实验 `aurora` / 固定 constellation 已迁移为 `STAR_MAP`，历史云母预设名“极光”不受影响。
+
 > Android Jetpack Compose · 云母材质（浮岛 blur）+ 氛围渐变 + 极简尖角 · 发烧友定位
 
 ---
@@ -116,6 +118,7 @@
 | 封面模糊 | `COVER_GLOW` | API 31+ 全屏模糊 + 取色；低版本渐变兜底 |
 | 动态烟云 | `DYNAMIC_LIGHT` | 低分辨率封面纹理 + GLES；**设置 UI 暂隐藏**，代码保留 |
 | 流光溢彩 | `DYNAMIC_ARTWORK` | 多层封面纹理 + shader 切歌 crossfade |
+| 星图 | `STAR_MAP` | Mica 自研 GLES 动态星图；季节天空、星座与太阳系天体，切歌移动视角；旧 `aurora` / `constellation` 存储值迁移到此模式 |
 
 **播放页封面行为**（`PlayerCoverFlowMode`，设置 → 播放页封面行为；默认 `STANDARD`）：
 
@@ -1003,7 +1006,7 @@ fun MinimalTabRow(
 | Mica TagLib fork / jAudiotagger | 元数据 | vendored（基于 Kyant0 1.0.6；TagLib C++ 2.2.1，LGPL/MPL）/ 3.0.1（LGPL 2.1） |
 | 测试 | JUnit / Robolectric / MockK / Roborazzi | 4.13.2 / 4.13 / 1.13.13 / 1.34.0 |
 
-**平台**：`minSdk 26`，`targetSdk 34`，`compileSdk 35`，**仅 arm64-v8a**。
+**平台**：`minSdk 26`，`targetSdk 34`，`compileSdk 36`；当前 App 打包 `arm64-v8a` + `armeabi-v7a`，Release workflow 另生成 universal APK。
 
 **v1.1 草案已移除或未采用的依赖**：直接 `implementation("androidx.media3:media3-exoplayer-hls")`、Compose `ui-text-google-fonts`（字体 spec 仍未落地）。
 
@@ -1028,7 +1031,7 @@ dependencies {
 | 页面 / 模块 | 状态 | 说明 |
 | --- | --- | --- |
 | 设置 · 外观 | ✅ | `SettingsCategory.APPEARANCE`：主题、强调色、云母背景（含 CUSTOM）、自定义壁纸、状态栏四档隐藏范围、迷你播放栏 |
-| 设置 · 播放页 | ✅ | `PLAYBACK`：播放页背景（5 模式，UI 暂藏动态烟云）、封面行为（6 模式）、封面显示、信息行、频谱、能力相关的沉浸/封面底边进度；拍立得可开「沉浸时标题显示歌词」；`CUSTOM_STANDARD` 详情只保留“进入播放页布局编辑”入口，点击封面暂停/播放与专辑图阴影在编辑页选中封面时设置 |
+| 设置 · 播放页 | ✅ | `PLAYBACK`：播放页背景（6 模式，UI 暂藏动态烟云）、封面行为（6 模式）、封面显示、信息行、频谱、能力相关的沉浸/封面底边进度；拍立得可开「沉浸时标题显示歌词」；`CUSTOM_STANDARD` 详情只保留“进入播放页布局编辑”入口，点击封面暂停/播放与专辑图阴影在编辑页选中封面时设置 |
 | 设置 · 歌词 | ✅ | `LYRICS`：歌词主题、对齐/字号/双语/逐字、歌词优先级、通知/信息行等歌词输出 |
 | 列表 / 专辑 / 艺术家显示设置 | ✅ | 不再是 `SettingsCategory`；歌曲排序 Sheet、专辑/艺术家浏览 Sheet 等上下文入口各自持久化显示选项 |
 | 设置 · 曲库与扫描 | ✅ | `LIBRARY`：曲库文件夹、重扫、排除目录、最短时长、深度分析、艺术家分割 |
@@ -1096,7 +1099,7 @@ dependencies {
 
 | 能力 | 位置 |
 | --- | --- |
-| 播放页背景 5 模式 | §2.7、`PlayerLowerBackgroundMode.kt` |
+| 播放页背景 6 模式（含 `STAR_MAP`） | §2.7、`PlayerLowerBackgroundMode.kt` |
 | 封面行为 6 模式 | §2.7、`PlayerCoverFlowMode.kt`（含 `CUSTOM_STANDARD`） |
 | 设置 6 大类 | `SettingsScreen.kt` → `SettingsCategory` |
 | USB 独占输出子页 | 设置 → 音频与设备；平铺显示 DAC、实际输出、显式模式、独占事实、传输状态与诊断动作；偏好值不得推断 ACTIVE |

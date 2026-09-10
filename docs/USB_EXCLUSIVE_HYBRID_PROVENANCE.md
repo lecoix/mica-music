@@ -1,5 +1,7 @@
 # USB Exclusive Hybrid provenance
 
+> Current applicability — 2026-09-11: provenance hashes and import boundaries are immutable historical evidence. Current Hybrid behavior has evolved after this capture; validation results from P1/rewrite remain design input only and never become Hybrid PASS by inheritance.
+
 Captured on 2026-08-20 before importing source into the Hybrid worktree.
 
 ## Baseline

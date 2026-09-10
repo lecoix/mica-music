@@ -1,6 +1,6 @@
 # Mica 项目文档索引
 
-> 最后整理：2026-09-06
+> 最后整理：2026-09-11
 > 范围：本仓库 **Mica Android** 主工作树文档；`.scratch/` 内工作树、历史副本与外部参考不作为本索引的现行事实来源。
 
 ---
@@ -48,8 +48,9 @@
 | [`HUAWEI_LOCKSCREEN_ARTWORK_COMPATIBILITY.md`](HUAWEI_LOCKSCREEN_ARTWORK_COMPATIBILITY.md) | OXF-AN10 MediaSession 封面触发锁屏的真机证据、现行兼容边界与未来替代方案 |
 | [`SHARED_ELEMENT_ANIMATION_NOTES.md`](SHARED_ELEMENT_ANIMATION_NOTES.md) | 迷你栏↔播放页共享封面状态机与必测场景 |
 | [`reviews/REFACTOR_PLAYBACK_ARCHITECTURE.md`](reviews/REFACTOR_PLAYBACK_ARCHITECTURE.md) | 播放架构审查（`refactor/playback-architecture` → `exoplayer-only`；含 Bugbot 第三轮 + Ponytail 第四轮） |
-| [`LIBRARY_SCAN.md`](LIBRARY_SCAN.md) | 曲库扫描架构、TagLib fork 接入、增量复用、性能实测与冷扫上界结论 |
+| [`LIBRARY_SCAN.md`](LIBRARY_SCAN.md) | 曲库 Full Scan + AUTO 共用 authority、TagLib fork、增量复用、provider safety、性能与 10k 边界 |
 | [`LIBRARY_AUTO_SYNC_P_AND_P_EXECUTION_PLAN.md`](LIBRARY_AUTO_SYNC_P_AND_P_EXECUTION_PLAN.md) | 曲库自动同步完整执行计划：P&P 增量发现 + Mica snapshot authority；ADR 契约、S0–S5 Gate、删除/队列/歌单/SAF/DEVICE/10k 性能门槛 |
+| [`REMOTE_MUSIC_SOURCE_RESEARCH.md`](REMOTE_MUSIC_SOURCE_RESEARCH.md) | 远程曲库现行实现状态 + 原始调研/provenance：Navidrome/OpenSubsonic、WebDAV、SMB、JIT metadata/artwork/lyrics 与后台同步 |
 | [`DSD_EXO_PLAYBACK.md`](DSD_EXO_PLAYBACK.md) | DSD `.dsf` 的 Exo 扩展实现、降采样链路与系统音效说明 |
 | [`USB_EXCLUSIVE_HYBRID_STATUS.md`](USB_EXCLUSIVE_HYBRID_STATUS.md) | Hybrid 已实现软件范围、验证证据、实机/长测门禁与已知风险 |
 | [`USB_REFERENCE_FUNCTION_AUDIT.md`](USB_REFERENCE_FUNCTION_AUDIT.md) | USB 独占对 SylvaKru 参考实现的逐函数映射、EXACT/EQUIVALENT/Mica 改写分类，以及 Apache-2.0 provenance/归属边界 |
@@ -64,12 +65,26 @@
 | [`adr/0003-lyrics-timing-offset.md`](adr/0003-lyrics-timing-offset.md) | 全局 + 单曲歌词偏移的语义、持久化、并发与容量契约 |
 | [`adr/0004-usb-exclusive-hybrid.md`](adr/0004-usb-exclusive-hybrid.md) | USB Exclusive Hybrid 的 owner/epoch、通用 USB Audio 选择、PCM/DoP/实验 Native 决策与未验证边界 |
 | [`adr/0005-local-music-video-playback.md`](adr/0005-local-music-video-playback.md) | 本地 MV 的音乐音频权威、单 Exo 合并时间线、Surface lease、下一首开关语义与失败回退 |
+| [`adr/0006-library-auto-sync-publication-and-discovery.md`](adr/0006-library-auto-sync-publication-and-discovery.md) | DEVICE 与 SAF/FOLDER 自动同步的单 writer/scheduler、discovery completeness、delta publication、retry/outbox 与 fail-closed 契约 |
 | [`PERFORMANCE_INVESTIGATION.md`](PERFORMANCE_INVESTIGATION.md) | 切歌卡顿/发热主线调查（hybrid4-hybrid8） |
 | [`PERFORMANCE_INVESTIGATION_02.md`](PERFORMANCE_INVESTIGATION_02.md) | 调查 **#02**：大队列复验、mirror-index-sync、按钮 visual-first、cover-load 发热 |
 | [`PARTICLE_COVER_OPENGL_MIGRATION.md`](PARTICLE_COVER_OPENGL_MIGRATION.md) | 粒子封面 **§0 产品** + WebView 退役 / GLES parity 施工单 |
 | [`APPLE_MUSIC_DYNAMIC_BACKGROUND_RE.md`](APPLE_MUSIC_DYNAMIC_BACKGROUND_RE.md) | Apple Music 动态背景逆向（`DYNAMIC_ARTWORK` 参考） |
 | [`REASONIX.md`](../REASONIX.md) | AI/工具速览（须与 `libs.versions.toml` 对齐） |
 | [`CONTEXT.md`](../CONTEXT.md) | 领域词汇权威来源 |
+
+### USB 历史架构 / provenance（保留，但勿作当前产品状态）
+
+| 文档 | 用途 |
+|---|---|
+| [`USB_COMPATIBILITY_ADVERSARIAL_CORPUS.md`](USB_COMPATIBILITY_ADVERSARIAL_CORPUS.md) | USB descriptor / clock / feedback / framing / quirk 的 adversarial corpus 设计；已有基础 regression，但系统化 corpus coverage 尚未完成 |
+| [`USB_EXCLUSIVE_AUDIO_ARCHITECTURE.md`](USB_EXCLUSIVE_AUDIO_ARCHITECTURE.md) | 2026-08 P1 frozen playback-protocol 架构记录；当前 Hybrid 不采用其大 authority plane |
+| [`USB_EXCLUSIVE_AUDIO_ASSUMPTION_AUDIT.md`](USB_EXCLUSIVE_AUDIO_ASSUMPTION_AUDIT.md) | P1 M1–M6 hidden-ordering / provenance / lifecycle assumption audit 历史证据 |
+| [`USB_EXCLUSIVE_AUDIO_REPAIR_EXECUTION_PLAN.md`](USB_EXCLUSIVE_AUDIO_REPAIR_EXECUTION_PLAN.md) | P1 repair tranche 的 coordinator 执行规范；不再是当前 Hybrid checklist |
+| [`USB_EXCLUSIVE_AUDIO_STATUS.md`](USB_EXCLUSIVE_AUDIO_STATUS.md) | P1/assumption-audit 过渡状态快照；当前状态由 Hybrid status + ADR-0004 supersede |
+| [`USB_EXCLUSIVE_HYBRID_PROVENANCE.md`](USB_EXCLUSIVE_HYBRID_PROVENANCE.md) | Hybrid 建立时的 source hash / import boundary / inherited-evidence 禁止规则 |
+| [`USB_REFERENCE_FUNCTION_AUDIT_HANDOFF_20260823.md`](USB_REFERENCE_FUNCTION_AUDIT_HANDOFF_20260823.md) | 2026-08-23 函数审计会话 handoff 快照；仅作续接历史，不可把旧 HEAD 当当前基线 |
+| [`adr/0002-usb-exclusive-playback-protocol.md`](adr/0002-usb-exclusive-playback-protocol.md) | P1 frozen protocol ADR；保留历史决策，当前产品路径以 ADR-0004 为准 |
 
 **历史快照（勿作现行 bug 清单）**：[`reviews/REFACTOR_PLAYBACK_ARCHITECTURE.md`](reviews/REFACTOR_PLAYBACK_ARCHITECTURE.md)、[`PERFORMANCE_INVESTIGATION.md`](PERFORMANCE_INVESTIGATION.md) 及 `_02` — 文首已说明 hybrid 调查背景。
 
@@ -113,6 +128,7 @@
 | [`agents/domain.md`](agents/domain.md) | `CONTEXT.md` / ADR 的消费规则与领域词汇约束 |
 | [`agents/issue-tracker.md`](agents/issue-tracker.md) | `.scratch/<feature-slug>/` issue / PRD 记录规范 |
 | [`agents/triage-labels.md`](agents/triage-labels.md) | canonical triage labels |
+| [`agents/USB_PARALLEL_WORK_COORDINATION.md`](agents/USB_PARALLEL_WORK_COORDINATION.md) | USB 多 worker 阶段的 coordinator/baseline/outbox/checkpoint 历史协同规范；重启并行 tranche 时可复用，但状态源仍是 Hybrid status / ADR-0004 |
 | `.cursor/rules/async-shared-state-consistency.mdc` | 异步共享状态：generation/requestId、统一同步 seam、每个副作用前复验 token 与确定性交错测试 |
 | `.cursor/rules/audio-quality-consent.mdc` | **音质改动须事先说明并获明确允许**（Agent 始终生效） |
 | `CONTEXT.md` → **Audio quality consent** | 同上，领域词汇 |
@@ -154,3 +170,4 @@
 | 2026-09-01 | 新增 `VOCAL_SEPARATION_RESEARCH.md`：端上人声分离调研结论为暂不实施；记录可复用基建、开源模型许可证边界（Demucs 权重非 MIT）、实时链路对 USB 独占/offload 的结构性冲突与未验证事项 |
 | 2026-09-02 | 按当前运行时依赖同步开源许可证：`OPEN_SOURCE_NOTICES`、关于页、`README`、`DESIGN_SPEC` §十三；补 Mica Apache-2.0、WorkManager/OkHttp、远程曲库三库及其 smbj 传递依赖 |
 | 2026-09-06 | 新增并收敛 `LIBRARY_AUTO_SYNC_P_AND_P_EXECUTION_PLAN.md`：PixelPlayer + Poweramp 自动曲库同步的冻结前完整实施计划、ADR 契约、S0–S5 Gate 与 10k/播放共存门槛 |
+| 2026-09-11 | 全量现状同步：0.4.0/code54、compileSdk 36、双 ABI、Room v29、DEVICE+SAF/FOLDER real-auto、远端曲库 MVP、Lyricon/Glance/星图、近期播放/歌词/UI 修复与发布前真机验收边界；历史 USB/P1/性能/研究文档补 current-applicability，ADR 统一复核 |

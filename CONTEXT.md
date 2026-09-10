@@ -1,5 +1,7 @@
 # Mica Music — 播放
 
+> 2026-09-11 复核：领域词汇已按 0.4.0/code54 当前代码校准；Room 当前为 v29，DEVICE + SAF/FOLDER AUTO 与远端曲库已进入生产代码。当前工作树中的频谱时钟与 managed artwork lazy recovery 仍是 staged 改动，不等同已发布行为。
+
 Mica 本地音乐播放器的领域语言：曲目与队列、出声路径、播放页 UI 与布局。本文只定义**叫什么**、**指什么**。
 
 ## 曲库与曲目
@@ -42,7 +44,7 @@ _Avoid_: 静态地按相邻歌词开始时间插入间奏
 _Avoid_: 从普通 LRC 的相邻开始时间推断歌词云间奏；让光团拦截歌词点击
 
 **Playlist（歌单）**：
-用户保存的静态曲目集合；选中后**装入**播放队列，本身不驱动出声。`MicaApp.playlistStore` 是进程内唯一 `PlaylistStore` owner；主页与播放页由装配层接收同一实例。持久化由 Room `playlists` / `playlist_songs`（schema v21）承载；首次启动把旧 `mica_playlists` JSON 一次性迁入，之后所有增删改先写 Room 成功再更新内存，写失败不发布内存变更。v21 的 `20→21` 迁移增加歌曲的 `musicVideoUri` 与 `musicVideoRevision`。
+用户保存的静态曲目集合；选中后**装入**播放队列，本身不驱动出声。`MicaApp.playlistStore` 是进程内唯一 `PlaylistStore` owner；主页与播放页由装配层接收同一实例。持久化由 Room `playlists` / `playlist_songs`（schema v29）承载；首次启动把旧 `mica_playlists` JSON 一次性迁入，之后所有增删改先写 Room 成功再更新内存，写失败不发布内存变更。v21 的 `20→21` 迁移历史上增加歌曲的 `musicVideoUri` 与 `musicVideoRevision`；后续 remote catalog 与 AUTO durable state 已继续推进到 v29。
 _Avoid_: 与「播放队列」混用；在 Composable 内自行构造 `PlaylistStore`
 
 **Library scan settings（曲库扫描设置）**：
@@ -78,8 +80,8 @@ _Avoid_: 在音频链或 EQ UI 内直接读 equalizer_* key
 _Avoid_: 系统 `AudioEffect`；默认开启；把音效写入 `AudioQualityMode.DSP`；在 USB 独占路径套用；把压缩器/动态 EQ 当作已实现
 
 **Album art repair coordinator（封面缓存修复协调器）**：
-根据 `AlbumArtCache.health(...)`、上次扫描来源、SAF 目录可用性和设备音频权限，决定是否启动封面缓存修复以及从设备还是文件夹重扫。它只做修复计划；`MusicLibrary.launchArtworkCacheRepairIfNeeded` 调用 `plan(...)` 后，将可执行计划交给 `LibraryScanOrchestrator.launchArtworkCacheRepair(plan)` 执行（`forceRefreshArtwork=true`、不强制刷新歌词）。
-_Avoid_: 在 `MusicLibrary` 或 `LibraryScanOrchestrator` 内继续堆封面缓存健康判断和修复来源选择
+根据 `AlbumArtCache.health(...)`、上次扫描来源、SAF 目录可用性和设备音频权限，决定是否启动封面缓存修复以及从设备还是文件夹重扫。`health(...)` 只允许做 URI / 文件存在性 / 非空等元数据级检查，**禁止在启动或曲库复用路径全量读取 managed artwork 重新算 SHA-256**；content-addressed SHA 只在写入时，以及实际 Coil/Provider 加载失败后由 `ManagedArtworkRecovery` 的低优先级单线程按 `contentKey` 合并强校验。确认缓存损坏/缺失后再从原歌曲懒重建；managed artwork 不进入 Coil 二级磁盘缓存。协调器只做整库修复计划；`MusicLibrary.launchArtworkCacheRepairIfNeeded` 调用 `plan(...)` 后，将可执行计划交给 `LibraryScanOrchestrator.launchArtworkCacheRepair(plan)` 执行（`forceRefreshArtwork=true`、不强制刷新歌词）。
+_Avoid_: 在 `MusicLibrary` 或 `LibraryScanOrchestrator` 内继续堆封面缓存健康判断和修复来源选择；把 managed artwork 的完整 SHA 校验放回启动、`health()`、扫描复用或每次 `ContentProvider.openFile()` 路径
 
 **MusicLibrary（曲库门面）**：
 Compose 可见曲库状态与稳定对外 API：`songs` / `songIds`、浏览查询、文件夹与权限、扫描触发入口。`MusicLibraryBacking` 随可见曲库快照维护 `songId → Song` 索引，`songById` 不得线性扫描曲库；大型歌单解析复用此索引。门面只组合 backing 与深模块并转发，不拥有 browse/search revision cache、歌词 hydration cache，也**不**承载 `performScan`、排序发布或 `scannedSongs` 细节。封面修复在此做 plan + delegate；权限/扫描**决策**仍由 `LibraryAccessCoordinator` 负责。播放统计仅经 `applyPlayStats` 刷新展示，不拥有 `PlayHistoryStore` 写入。

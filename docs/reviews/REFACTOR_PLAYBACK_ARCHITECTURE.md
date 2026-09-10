@@ -1,5 +1,7 @@
 # 播放架构重构分支审查
 
+> 2026-09-11 适用性复核：本文是播放架构分支的阶段审查档案。其 2026-06/08 的文件规模、分支和风险清单不是当前 HEAD 快照；2026-09-02 又完成 catalog/media/UI/lyrics/cover/playback-stack ownership 收敛，2026-09-10/11 继续修复 queue metadata 与 same-song wrap。当前导航以 `REASONIX.md` / `CONTEXT.md` 为准。
+
 > **分支**：`refactor/playback-architecture` → `exoplayer-only`（当前）
 >
 > **基线**：`main`（three-dot：`git diff main...HEAD`）

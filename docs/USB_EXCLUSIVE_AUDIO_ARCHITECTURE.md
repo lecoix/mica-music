@@ -1,5 +1,7 @@
 # USB Exclusive Audio Architecture
 
+> Current applicability — 2026-09-11: this is the **frozen P1 protocol architecture record**, not the authority chosen by the later Hybrid product path. ADR-0004 explicitly does not adopt P1’s large playback-protocol authority; use `USB_EXCLUSIVE_HYBRID_STATUS.md` + ADR-0004 for current implementation, while retaining this document as assumption/proof provenance.
+
 > Status: `FROZEN_V1_CORE / ASSUMPTION_AUDIT_ADDENDUM_V2_ACCEPTED / ADDENDUM_V3_REBUILD_PRODUCTION_ACCEPTED`
 > Frozen: 2026-08-15
 > Assumption-audit addendum opened: 2026-08-16

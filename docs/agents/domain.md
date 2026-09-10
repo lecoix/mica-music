@@ -1,5 +1,7 @@
 # Domain Docs
 
+> 2026-09-11 复核：single-context + `docs/adr/` 规则继续有效。当前至少需同时识别曲库 publication（ADR-0002/0006）、USB Hybrid（ADR-0004）、歌词 offset（ADR-0003）和本地 MV（ADR-0005），不得只读根 `CONTEXT.md` 后忽略 ADR。
+
 Engineering skills 探索 codebase 时，应如何消费这个 repo 的 domain documentation。
 
 ## Before exploring, read these

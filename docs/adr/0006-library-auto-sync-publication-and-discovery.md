@@ -1,5 +1,7 @@
 # ADR-0006: Library Auto-Sync Publication and Discovery Protocol
 
+> 2026-09-11 applicability review: accepted and now exercised by production ordinary scheduling for both DEVICE and SAF/FOLDER. Real-auto enablement, source/global kill switches, bounded retry/outbox/debt work, v29 indexes and provider recovery are implemented; compatibility evidence gaps and the user-waived 8 GB gate remain explicitly non-PASS.
+
 - Status: Accepted
 - Date: 2026-09-06
 - Owners: Mica library/data + playback integration

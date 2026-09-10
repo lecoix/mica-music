@@ -1,5 +1,7 @@
 # ADR 0003：歌词时间偏移
 
+> 2026-09-11 applicability review: still accepted. Playback page, notification/status-bar/desktop output, car presentation and Lyricon projection must consume the same effective offset semantics rather than adding surface-specific hidden lead/lag.
+
 状态：已接受（2026-08-13）
 
 ## 决策

@@ -1,7 +1,9 @@
 # USB Compatibility Adversarial Corpus
 
-> 最后更新：2026-08-14
-> 状态：设计已采纳；测试基础设施待实现
+> 2026-09-11 复核：边界/变形测试方法仍有效。当前仓库已有 20+ 个 USB-focused JVM test 覆盖 selector、identity、permission、Exact PCM、Hybrid owner/state/presentation 等，但本文定义的“系统化生成 adversarial corpus”仍未完成到可宣称全量 coverage；不要把普通单测数量等同 corpus Gate。
+
+> 最后更新：2026-09-11
+> 状态：设计已采纳；USB 基础 regression 已存在，专门的系统化 adversarial corpus coverage 仍待补齐
 > 适用范围：USB Exclusive PCM / DoP / Native DSD 的 descriptor、clock、feedback、capacity、framing、quirk 与 recovery 资格测试
 
 ## 1. 目的

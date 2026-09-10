@@ -1,5 +1,7 @@
 # 应用更新清单
 
+> 现状复核：2026-09-11。当前代码版本为 **0.4.0 / code 54**；示例 JSON 仍只是格式示例。ABI split 当前面向 arm64-v8a、armeabi-v7a 与 universal，正式签名/Release workflow 仍需发布时实跑验收。
+
 Mica 的版本页只检查一个很小的 HTTPS JSON 清单，然后把下载入口交给浏览器；APK 下载和安装不在应用内完成。
 
 ## URL 的三个角色

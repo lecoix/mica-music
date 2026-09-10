@@ -1,5 +1,7 @@
 # USB Exclusive Audio M1–M6 Assumption Audit
 
+> Current applicability — 2026-09-11: this audit closed the P1 architecture assumptions and remains valuable provenance. The current product implementation is the later Hybrid path (ADR-0004); P1 audit GREEN/RED states must not be counted as Hybrid device PASS evidence.
+
 > Status: `ASSUMPTION_AUDIT_CLOSED / A01_A37_CONSOLIDATED / REPAIR_PROGRAM_AUTHORIZED`
 > Date: 2026-08-16
 > Scope: hidden ordering, provenance, callback-existence, lifecycle-completion, output-availability and recovery assumptions across the frozen playback protocol and M2–M6 adapters/integration.

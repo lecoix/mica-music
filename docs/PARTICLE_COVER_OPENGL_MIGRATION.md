@@ -1,5 +1,7 @@
 # 粒子封面手册（产品 §0 + GLES 迁移施工）
 
+> 现状复核：2026-09-11。播放页生产路径仍为 native GLES；Three.js/WebView 只作为 legacy fallback，退役前须保留 parity/性能/低端机验收与开源 notice。
+
 > **状态**：2026-07 — 播放页现网已走 **GLES**（`UseNativeParticleCoverInPlayer = true`）；本文 §0 为产品说明，§1+ 为 WebView 退役与视觉 parity 施工。  
 > **读者**：改粒子交互、切歌动画、调参前必读。  
 > 播放页契约：[`PLAYER_PAGE_CONTRACT.md`](PLAYER_PAGE_CONTRACT.md)；领域词汇：[`CONTEXT.md`](../CONTEXT.md)。

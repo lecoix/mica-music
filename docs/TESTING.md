@@ -1,5 +1,7 @@
 # Mica 测试指南
 
+> 现状复核：2026-09-11。Device Flow harness / `androidTest` compile gate 已接入；当天发布前真机 smoke 取得大量证据但**未完成完整发布验收**，不能把单机 Android 12 结果写成 Gate D 全绿。
+
 ## Windows 终端编码
 
 Windows PowerShell 5.1 若看到中文乱码，先在当前会话启用 UTF-8：
@@ -81,7 +83,7 @@ Capacity boundary: scan-time text candidates are capped at 1,000,000 characters 
 
 ## 发布前设备验收
 
-当前真机协同与设备矩阵维护成本较高，设备验收暂时保留为人工清单，不纳入自动化门禁改造项。
+设备验收仍是最终 Gate，但其中可稳定自动化的用户流程已由 `run-android-flow-tests.ps1` / Device Flow 承担；蓝牙、USB DAC、OEM/车机、音质与完整主题矩阵仍需 AgentDock + ADB/人工物理证据。
 
 - Android 8/8.1 与 Android 14+ 各至少一台真机。
 - MP3、FLAC、ALAC、DSF 实际播放；DFF 播放应被拒绝并提示；长曲 seek 与连续切歌。
@@ -94,6 +96,10 @@ Capacity boundary: scan-time text candidates are capped at 1,000,000 characters 
 - 手势提示线周围必须由应用背景完整覆盖。
 
 设备验收失败时，即使 JVM 测试全部通过也不得发布。
+
+### 2026-09-11 单机发布前 smoke（非完整 Gate）
+
+Android 12 / Xiaomi 22081212C 上从空库扫描至 10,665 首（37 GB，`technicalFailed=0`），并实播 ALAC/FLAC/DSF，覆盖暂停态 seek、上下曲、搜索单曲队列、循环回卷、标准横屏、后台/熄屏与冷启动暂停恢复。该 APK 为 debuggable `0.4.0/code54` 且包含未提交工作树改动，不是正式签名/混淆 release。未覆盖 MP3、DFF、USB/蓝牙插拔、Android 8/14+、全部主题/歌词样式、通知/划掉 Activity 与正式升级，因此**发布 Gate 仍未关闭**。
 
 ## Exo 单链路播放验收
 
@@ -192,7 +198,7 @@ Capacity boundary: scan-time text candidates are capped at 1,000,000 characters 
 ### P1 状态写入、迁移与系统事件契约
 
 - `NotificationLyricsMedia3ContractTest.realQueueWritesKeepPlayerAndMirrorAlignedWithoutFalsePlayCounts`：真实 ExoPlayer/MediaSession/MediaController/PlayerController 连续执行三次 metadata replacement、preserve-current 重排、移动、删除当前/非当前项及删空；同时断言 Player 队列、UI 镜像、当前曲、进度和播放计数回调。
-- `RoomMigrationContractTest`：使用 `MigrationTestHelper` 和导出的 Room schema 验证历史迁移契约；当前数据库为 v21，`DatabaseMigrationTest` 另覆盖 `14→15`（重建 album browse group 纳入专辑艺术家）、`15→16`（`songs.embeddedLyricsProbeRevision`）、`16→17`（`playlists` / `playlist_songs`）、`17→18`（单曲歌词偏移）、`18→19`（comment）、`19→20`（响度字段）与 `20→21`（`musicVideoUri` / `musicVideoRevision`），迁移后通过真实 DAO 读回代表数据。
+- `RoomMigrationContractTest`：使用 `MigrationTestHelper` 和导出的 Room schema 验证历史迁移契约；当前数据库为 **v29**。`DatabaseMigrationTest` / `RemoteDatabaseMigrationTest` 对本地曲库、歌单、歌词偏移、响度/MV、remote source/catalog 等关键迁移做代表数据读回；v25 之后的 automatic-sync checkpoint/retry/outbox/index 演进还由对应 repository/orchestrator/Room 真机 Gate 约束。新增 schema 必须同时更新导出 schema、migration 注册与相应数据契约测试。
 - `SongIdentityMigrationTest`：验证旧 URI hash ID 到稳定文档 ID 的一次性迁移，以及播放列表、播放历史、播放会话和曲库浏览偏好的引用同步。
 - `MicaMediaServiceNoisyReceiverTest`：Robolectric 验证 Service 只保留 Media3 内置 noisy receiver，一次广播只暂停一次，销毁时完成注销。设备端普通 App/shell UID 不能伪造受保护的 `AUDIO_BECOMING_NOISY`；OEM 音频焦点、真实耳机拔出和连续系统事件仍属于设备矩阵。
 

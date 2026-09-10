@@ -1,3 +1,5 @@
+> 2026-09-11 复核：本页硬规则继续有效。曲库 automatic sync 已把相同 generation / publication / side-effect fencing 扩展到 DEVICE 与 SAF/FOLDER；新增异步写入不得以“已有 AUTO scheduler”为由绕开逐等待点/逐副作用复验。
+
 ## 异步共享状态与副作用一致性（硬性）
 
 凡是会把异步工作的结果写入共享状态、持久化存储、文件缓存、媒体快照或发布给观察者的流程，都必须把“代际/请求有效性”和“写入串行化”作为同一个协议处理。曲库 snapshot 还必须遵循 `CONTEXT.md` 与 `docs/adr/0002-library-snapshot-publication.md` 中的 `scanGeneration`、`storeRevision`、`storeSyncMutex` 约束。

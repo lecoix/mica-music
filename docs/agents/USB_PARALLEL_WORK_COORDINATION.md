@@ -1,5 +1,7 @@
 # USB Parallel Work Coordination
 
+> 2026-09-11 复核：这是 USB 多 worker 阶段的协同规范/历史协议。若再次启用并行 USB tranche，仍使用单 coordinator、显式 baseline/outbox/checkpoint；但当前实现状态必须从 Hybrid status/ADR-0004 读取，不能从旧 P1 lane 推断。
+
 > Status: experimental but active
 > Started: 2026-08-13
 > Scope: Mica USB Exclusive P3 / P4 / P5 implementation plus P6 reference-architecture audit

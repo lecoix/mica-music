@@ -1,11 +1,13 @@
 # USB Exclusive Hybrid status
 
-Snapshot: 2026-08-24. This document distinguishes implemented software from new Hybrid evidence.
+> Current review — 2026-09-11: this remains the primary USB implementation status document. Product label for Shared PCM is **“关闭独占”**; Exact PCM/DoP/Native DSD are explicit capability-driven modes. SK02 evidence is device/path-specific, DSD256 remains cautious, and no unqualified Native path may imply `signalExact=true`.
+
+Snapshot: 2026-08-24; implementation applicability re-reviewed 2026-09-11. This document distinguishes implemented software from Hybrid evidence.
 P1 and rewrite results are design input only and are never counted as Hybrid PASS.
 
 ## Implemented scope
 
-- Default output remains Shared PCM.
+- Default output remains Shared PCM; the product-facing label is **“关闭独占”**.
 - Selection is capability-driven and fail-closed: any single attached device with a USB Audio
   isochronous OUT endpoint is selectable, regardless of vendor/product. Multiple USB Audio output
   devices are ambiguous and rejected rather than choosing an arbitrary first device. Stable identity

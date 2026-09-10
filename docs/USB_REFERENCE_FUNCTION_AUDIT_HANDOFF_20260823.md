@@ -1,5 +1,7 @@
 ﻿# USB Reference Function Audit Handoff — 2026-08-23
 
+> Historical handoff notice — reviewed 2026-09-11: this file captures the 2026-08-23 continuation point and paths/HEAD from that session. Do not resume work from its old HEAD or treat “current” paths/status below as present-day truth; use `USB_REFERENCE_FUNCTION_AUDIT.md` and `USB_EXCLUSIVE_HYBRID_STATUS.md`.
+
 ## 0. Purpose
 
 This handoff is for a new ChatGPT session to continue the current Mica USB-exclusive work **without restarting the audit**.

@@ -4,6 +4,8 @@ status: accepted
 
 # 完整曲库 Snapshot 替换须走统一 generation / store 协议
 
+> 2026-09-11 applicability review: still accepted. ADR-0006 extends this same Room-first generation/store/publication authority to DEVICE and SAF/FOLDER automatic sync, including delta commits, staged lyrics, retry/checkpoint/outbox and cancellation-safe memory adopt.
+
 凡是能替换「完整曲库 snapshot」的操作，必须进入同一套 `libraryGeneration`（现 `scanGeneration`）与 `storeRevision` + `storeSyncMutex` 协议：先成功写入 Room（若需要），再发布内存中的歌曲列表与扫描元数据。选择这条路线是因为 cache hydrate、scan commit 与 clear 曾可并行改同一份真相，导致旧 snapshot 覆盖新结果、clear 后曲库复活，或 commit 失败后元数据与歌曲列表撕裂。
 
 ## Consequences

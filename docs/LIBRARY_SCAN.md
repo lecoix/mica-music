@@ -1,7 +1,9 @@
 # 曲库扫描架构与性能
 
-> 最后更新：2026-08-07  
-> 状态：深度元数据探测（`deepMetadataProbe=true`）+ Mica TagLib fork（`probeTrack` + `bitsPerSample`）已落地；冷扫描性能在 ~260 首规模下接近当前架构合理下界。
+> 现状复核：2026-09-11。Full Scan 仍使用本文的 scanner/probe 基础；DEVICE 与 SAF/FOLDER automatic sync 已通过 ADR-0006 接入同一 authority，并在最终提交时使用 Room v29 的 checkpoint/retry/outbox/delta publication。
+
+> 最后更新：2026-09-11
+> 状态：深度元数据探测 + Mica TagLib fork 已落地；Full Scan 与 durable AUTO 共享单 writer/publication authority。2026-09-11 Android 12 从空库 Full Scan 10,665 首 / 37 GB，`technicalFailed=0`；该单机数据不是所有 provider/8GB 设备的性能承诺。
 
 ---
 
@@ -15,6 +17,15 @@
 | **不在本文** | 播放队列同步、封面流切歌性能（见 `PERFORMANCE_INVESTIGATION*.md`）、万曲库 UI 排序极限 |
 
 设计取舍：扫描期尽量把**可复用的元数据一次读齐**（TagLib 合并读、歌词候选优先文本路径），同时保留 **ProbeResult 失败不阻断入库** 与 **generation / storeRevision 协议**（见 `docs/adr/0002-library-snapshot-publication.md`）。
+
+## 2026-09-11：Full Scan 与 AUTO 的当前边界
+
+- **Full Scan** 仍生成完整来源 snapshot，用于首次建库、用户显式重扫与 recovery oracle；扫描完成后的 Room→memory 发布继续受 `scanGeneration` / publication token / `storeRevision` / `storeSyncMutex` 保护。
+- **AUTO** 不再等于“偷偷跑 Full Scan”。`LibrarySyncScheduler` 合并 dirty signal，DEVICE 使用 MediaStore generation/object delta，SAF/FOLDER 使用 COMPLETE metadata inventory + 有界 changed-object probe；最终只提交本轮验证过的 canonical row delta、lyrics staging 与 checkpoint/retry/outbox。
+- **删除事实必须可证明**：PARTIAL/UNAVAILABLE、provider pending/transient、UNKNOWN、mass-removal quarantine、playback-deferred 或 stale token 都不能产生 destructive absence。Manual Full Scan 始终保留为 recovery authority。
+- AUTO heavy probe 当前固定 parallelism=1；SAF changed/UNKNOWN object budget 有界。provider COMPLETE 但昂贵时应用 slow-success cadence；provider 不可达则 30s/60s retry 后进入显式恢复态。
+- 完整执行证据与阈值见 [`LIBRARY_AUTO_SYNC_P_AND_P_EXECUTION_PLAN.md`](LIBRARY_AUTO_SYNC_P_AND_P_EXECUTION_PLAN.md) 与 [`adr/0006-library-auto-sync-publication-and-discovery.md`](adr/0006-library-auto-sync-publication-and-discovery.md)。
+
 
 ---
 

@@ -1,9 +1,11 @@
 
 # Mica 曲库自动同步（PixelPlayer + Poweramp）完整执行计划
 
-> 日期：2026-09-06；实施状态更新至 2026-09-09
+> 2026-09-11 closeout review：DEVICE 与 SAF/FOLDER ordinary scheduler real-auto 已开启；S5、kill switch、provider recovery、v29 durable-state boundedness 与 final inventory-retention audit 已完成。剩余项是 compatibility evidence / release matrix，不是 destructive-safety blocker；8 GB 条件仍为 user-waived，不能写成 PASS。
+
+> 日期：2026-09-06；实施状态更新至 2026-09-11
 > 状态：**S0–S5 已实施；DEVICE 与 SAF/FOLDER ordinary scheduler real-auto 已启用并通过对应真机 Gate，进入最终验收/兼容性收尾**
-> 目标基线：Mica 当前主工作树；Room schema 审阅时为 v26  
+> 目标基线：Mica 当前主工作树；Room schema 当前为 v29
 > 架构权威：`docs/adr/0002-library-snapshot-publication.md`  
 > 现有扫描事实：`docs/LIBRARY_SCAN.md`  
 > 异步共享状态硬规则：`AGENTS.md` / `.cursor/rules/async-shared-state-consistency.mdc`  
@@ -36,7 +38,7 @@
 
 # 1. 当前问题与目标
 
-## 1.1 当前行为
+## 1.1 方案起草时行为（2026-09-06 历史基线）
 
 Mica 当前曲库主链：
 
@@ -63,7 +65,7 @@ MusicLibrary
 - size / mtime / externalLyricsSignature 等指纹；
 - 10k 歌词批次有界的测试基础。
 
-当前缺少：
+起草时缺少（后续 S0–S5 已按本文逐项实施）：
 
 - 自动 dirty signal；
 - 可靠的 AUTO 调度协议；
@@ -768,7 +770,7 @@ library_followup_outbox
 library_user_exclusions
 ~~~
 
-当前 Room schema 审阅基线为 v26；实施时按实际最新 schema 顺延，本文不冻结具体 migration number。
+该段方案起草/审阅基线为 Room v26；实施随后顺延到当前 v29，本文仍不把具体 migration number 当架构常量。
 
 ---
 
@@ -3505,7 +3507,7 @@ DOC/ADR
 
 # 39. 当前下一步
 
-实施进度（更新至 2026-09-09；以下早期阶段条目保留过程证据，后续条目为当前 superseding 状态）：
+实施进度（更新至 2026-09-11；以下早期阶段条目保留过程证据，后续条目为当前 superseding 状态）：
 
 1. 文档/ADR：已完成并作为当前执行契约；
 2. **S0：已实施，publication/scheduler/lifecycle 交错测试通过；**

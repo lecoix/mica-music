@@ -1,5 +1,7 @@
 # Issue tracker: Local Markdown
 
+> 2026-09-11 复核：`.scratch/<feature-slug>/` issue/PRD 工作流继续有效；scratch 是临时协调/证据层，不应被 DOC_INDEX 当成发布文档，也不得用临时 issue 状态覆盖主仓库 living docs。
+
 这个 repo 的 issues 和 PRDs 作为 markdown 文件存放在 `.scratch/` 中。
 
 ## Conventions

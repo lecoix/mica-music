@@ -5,6 +5,8 @@ accepted: 2026-08-20
 
 # USB Exclusive Hybrid uses one fail-closed session owner
 
+> 2026-09-11 applicability review: remains the current USB product architecture. Shared PCM is product-facing “关闭独占”; Exact PCM/DoP/Native remain explicit and capability-driven, with device/path physical qualification required before claiming signal exactness or broad DSD256 stability.
+
 ## Decision
 
 Hybrid starts from `0b6e982a` and implements a second real output path without importing P1's occurrence/permit/retirement/shadow coordinators. A single control executor owns permission, open, reconfiguration, close and facts publication. Request epoch validity and facts publication form one serialized protocol. Native I/O additionally requires the current `(epoch, sessionId)` at every submit/reap/resubmit boundary.

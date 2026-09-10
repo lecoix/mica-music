@@ -1,5 +1,7 @@
 # 播放页封面行为手册（产品 + 实现）
 
+> 现状复核：2026-09-11。封面流/拍立得产品合同仍有效；renderer/geometry authority 已在 2026-09-02 架构收敛中进一步集中，新增横屏标准渐隐不改变七轨封面流 ownership。
+
 > **状态**：2026-07 现网热路径  
 > **读者**：改播放页封面交互、间距、切歌动画前必读。  
 > **范围**：**平行 / 复古封面流**（七轨 `CoverFlowRails`）、**拍立得回忆**（`PhotoStack` 叠放转场）。粒子封面见 [`PARTICLE_COVER_OPENGL_MIGRATION.md`](PARTICLE_COVER_OPENGL_MIGRATION.md)。  

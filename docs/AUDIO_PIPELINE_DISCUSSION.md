@@ -1,7 +1,9 @@
 # Exo PCM 链路：变速、频谱、格式与 USB 前瞻
 
+> 2026-09-11 适用性复核：本文是 2026-07 的设计讨论快照。其“USB 尚未实现 / 仅前瞻”表述已被 USB Exclusive Hybrid 的实际代码与 ADR-0004 supersede；当前播放/USB/频谱状态以 `CONTEXT.md`、`AUDIO_PIPELINE_REFACTOR.md`、`USB_EXCLUSIVE_HYBRID_STATUS.md` 与 `SPECTRUM_STALL_BUG.md` 为准。
+
 > **整理日期**：2026-07-07  
-> **状态**：设计讨论记录（**未落地**；部分改动仅在本地 diff 中试探）  
+> **状态**：历史设计讨论记录；PCM 主链相关结论已分阶段落地，USB 前瞻部分已由后续 Hybrid 架构 supersede
 > **可执行计划**：结论与分阶段实施已整理至 [`AUDIO_PIPELINE_REFACTOR.md`](AUDIO_PIPELINE_REFACTOR.md)（Sink Profile、P0–P6、验收表）。**实施以 REFACTOR 为准。**  
 > **关联实现**：[`DSD_EXO_PLAYBACK.md`](DSD_EXO_PLAYBACK.md)、[`MicaAudioProcessorChain.kt`](../app/src/main/java/com/mica/music/media/MicaAudioProcessorChain.kt)、[`MicaRenderersFactory.kt`](../app/src/main/java/com/mica/music/media/MicaRenderersFactory.kt)  
 > **背景**：单链路重构时绕开 Media3 默认尾链（`SilenceSkippingAudioProcessor` / `SonicAudioProcessor`）后，速度/变调改走 `AudioTrack.setPlaybackParams`，引发频谱 tap 偶发断供；本文汇总相关格式、架构与后续 USB 独占的前瞻约束。
@@ -14,7 +16,7 @@
 |----------|------------|
 | Float vs 24-bit PCM 语义与链路位置 | USB Native DSD / DoP 的具体 native 实现 |
 | Sonic / SilenceSkipping 与自定义链关系 | 已验收的 USB DAC 实机矩阵 |
-| `setEnableAudioOutputPlaybackParameters` vs Sonic 对频谱的影响 | 设置页「独占 / Hi-Res 直通」UI（[`DESIGN_SPEC.md`](../DESIGN_SPEC.md) 仍标注未实现） |
+| `setEnableAudioOutputPlaybackParameters` vs Sonic 对频谱的影响 | 当前 USB Hybrid 产品 UI/设备资格（后续实现，见 `USB_EXCLUSIVE_HYBRID_STATUS.md`） |
 | 按设备/route 探测 Hi-Res 档位的模型 | |
 | 未来 USB 独占/直通对架构的分叉要求 | |
 

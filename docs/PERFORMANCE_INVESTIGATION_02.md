@@ -1,10 +1,12 @@
 # 切歌卡顿 / 发热 — 测试问题与改进记录（#02）
 
+> 2026-09-11 适用性复核：这是 2026-06 的大队列切歌/发热复验档案。当前 App 基线是 **0.4.0/code54**；下方 0.1.8-Exo-only 仅为证据快照。后续队列 owner/metadata refresh 又有 2026-09-10/11 修复，当前状态见 `CURRENT_FEATURE_STATUS.md`。
+
 > **前序文档**：[PERFORMANCE_INVESTIGATION.md](PERFORMANCE_INVESTIGATION.md)（hybrid4–hybrid8 主线调查；队列对齐轻量切歌见 §当前结论）
 >
-> **当前分支 / 版本**：`exoplayer-only` · `0.1.8-Exo-only`（`versionCode 15`）
+> **调查分支 / 快照版本**：`exoplayer-only` · `0.1.8-Exo-only`（`versionCode 15`）
 >
-> **整理日期**：2026-06-20
+> **整理日期**：2026-09-11（原始复验：2026-06-20）
 >
 > **文档性质**：承接 #01 中「大队列手动切歌发热」修复后的第二轮实机复验；记录 **已验证生效**、**尚未解决** 与 **已规划未落地** 项。
 
@@ -44,7 +46,7 @@
 | B | seek 仍触发全量 `mirror-rebuild`（与 A 独立） | `onTimelineChanged` 不区分 playlist 变更 vs 索引 seek | `PlayerController`：`PLAYLIST_CHANGED` 或镜像未对齐才 `syncQueueMirrorFromPlayer`，否则 `syncQueueIndexFromPlayer`（`mirror-index-sync`） | `(1)(1)`：**5** 次 `mirror-rebuild`（冷启动），**151** 次 `mirror-index-sync`（~0.03–0.10ms） |
 | C | 按钮切歌比滑动更卡 | 按钮立刻 `playSong`，动画与队列/解码并行 | 按钮走 `manualNextTarget()` → `CoverFlowCarouselNavigationBridge.skipToIndex()` → `playQueueIndexAfterVisualCommit`（与滑动 commit 同路径） | `(1)(1)`：`manual next` 先于 `cover-animation-*`，`playSong` / `audio-start` 在 `cover-animation-end` 之后；`animAvg` **~8ms**（改前 80–140ms） |
 
-详见 [.scratch/manual-skip-queue-rebuild/issues/01-manual-skip-bypasses-queue-aligned-skip.md](../.scratch/manual-skip-queue-rebuild/issues/01-manual-skip-bypasses-queue-aligned-skip.md)。
+历史协同证据原位于 `.scratch/manual-skip-queue-rebuild/issues/01-manual-skip-bypasses-queue-aligned-skip.md`；该 scratch artifact 现已不在主工作树，本文表格保留当时结论，当前队列修复以 git history / `CURRENT_FEATURE_STATUS.md` 为准。
 
 ### 1.2 尚未解决（当前 P0 / P1）
 

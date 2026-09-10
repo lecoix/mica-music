@@ -1,5 +1,7 @@
 # Triage Labels
 
+> 2026-09-11 复核：canonical triage labels/roles 继续有效；标签只表达处理角色，不表示设备 Gate、发布验收或架构 ADR 已通过。
+
 Skills 使用五个 canonical triage roles。这个文件把这些 roles 映射到此 repo issue tracker 中实际使用的 label 字符串。
 
 | Label in mattpocock/skills | Label in our tracker | Meaning                                  |

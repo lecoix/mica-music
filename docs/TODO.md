@@ -1,10 +1,21 @@
 # Mica 功能清单
 
-> 最后整理：2026-08-30。以当前代码为准。领域词汇见 `[CONTEXT.md](../CONTEXT.md)`；近期功能状态见 `[CURRENT_FEATURE_STATUS.md](CURRENT_FEATURE_STATUS.md)`；文档索引见 `[DOC_INDEX.md](DOC_INDEX.md)`。
+> 最后整理：2026-09-11。以当前代码为准。领域词汇见 `[CONTEXT.md](../CONTEXT.md)`；近期功能状态见 `[CURRENT_FEATURE_STATUS.md](CURRENT_FEATURE_STATUS.md)`；文档索引见 `[DOC_INDEX.md](DOC_INDEX.md)`。
 
 ---
 
 ## 已实现
+
+### 2026-09-11 已落地主线增量
+
+- [x] **本地曲库 durable automatic sync**：DEVICE 与 SAF/FOLDER ordinary scheduler real-auto 均已开启；delta publication、checkpoint/retry/outbox、mass-deletion quarantine、provider completeness/capability、playback defer、global/source kill switch 与 10k 有界工作集按 ADR-0006/执行计划收口。
+- [x] **远程曲库 MVP**：Navidrome/OpenSubsonic + WebDAV + SMB2/3；独立排序、全局搜索、联合 Artist/Album/Recent、远端安全多选/歌单、JIT 技术元数据/封面/歌词、来源删除/凭据轮换与 WorkManager 自动同步。
+- [x] **歌词/系统集成**：Lyricon provider、LDDC 行尾翻译、桌面/状态栏歌词时钟对齐；车机歌词改为单 MediaSession + `MicaSessionPresentationPlayer`，避免第二 active session 抢媒体键。
+- [x] **桌面小组件**：Glance 自适应 / 四宫格 / 大封面三类，支持播放控制、metadata/state 更新与冷启动控制。
+- [x] **近期 UI**：搜索结果统计+多选；设置页精简/重组；迷你播放栏可关闭左右滑；可选启动自动播放；歌曲副行可选 HQ/SQ/HR；标准主题横屏封面向背景渐隐；自定义标准播放器编辑扩展。
+- [x] **星图背景**：实验 aurora/固定 constellation 已由连续球面 `STAR_MAP` 取代，加入季节天空和太阳系天体。
+- [x] **AAC/ADTS seek**：ADTS-only CBR seek workaround 已落地，不改变普通 MP4/M4A AAC seek 策略。
+
 
 - [x] 本地音乐 MV 软件链路：同目录同基本文件名 MP4、音乐唯一出声、单 Exo 合并时间线、独立默认关闭开关、标准封面 Surface lease、一次纯音频回退；真机音画与 USB/DSD 验收仍见 `CURRENT_FEATURE_STATUS.md` / ADR-0005。
 
@@ -18,7 +29,7 @@
 - [x] 播放次数记录（`PlayHistoryStore`，供「最近播放」等）
 - [x] **播放会话恢复**：`ServicePlaybackStateStore` 持久化完整队列与进度；冷启动 `PlayerController.bootstrapQueue()` 恢复当前曲与位置（默认不自动续播；`auto_play_on_launch` 可让打开应用后请求一次播放）。`PlaybackSessionStore` 仍写入 shuffle 等 App 偏好
 - [x] 文件夹浏览模式：层级浏览与**扁平浏览**均已持久化；扁平模式只列出直接包含歌曲的目录，不把仅包含子目录的父目录重复列出
-- [x] **歌单持久化迁移到 Room**：`playlists` / `playlist_songs`（当前 schema v21）；旧 `mica_playlists` JSON 首次启动一次性迁移，写库成功后才更新内存
+- [x] **歌单持久化迁移到 Room**：`playlists` / `playlist_songs`（当前 schema v29）；旧 `mica_playlists` JSON 首次启动一次性迁移，写库成功后才更新内存
 
 
 
@@ -55,12 +66,13 @@
 ### 播放页 UI
 
 - [x] 封面、歌名/歌手/专辑、Hi‑Fi 信息行、Hi‑Res 标记
-- [x] 五种**播放页背景**（设置 → 播放页背景；与封面行为并列可选）：
+- [x] 六种**播放页背景**（设置 → 播放页背景；与封面行为并列可选）：
   - **主题色**（`THEME`）：云母背景渐变
   - **封面渐变**（`ARTWORK_GRADIENT`）：取色 + 下半屏保持专辑色
   - **封面模糊**（`COVER_GLOW`）：Android 12+ 全屏模糊封面 + 取色叠层；低版本取色渐变兜底；下半屏控件 **白色**（Hi‑Fi 标签仍用主题色）
   - **动态烟云**（`DYNAMIC_LIGHT`）：低分辨率封面纹理 + GLES 动态渲染
   - **流光溢彩**（`DYNAMIC_ARTWORK`）：多层封面纹理、blur shader 与切歌 crossfade
+  - **星图**（`STAR_MAP`）：连续球面星图、季节天空、星座与太阳系天体；旧 `aurora` / `constellation` storage value 自动迁移
 - [x] 六种**播放页封面行为**（设置 → 播放页封面行为；见 `[COVER_FLOW_IMPLEMENTATION.md](COVER_FLOW_IMPLEMENTATION.md)` §0 与 `[CONTEXT.md](../CONTEXT.md)`）：
   - **标准**（`STANDARD`）：大封面 + 横向轻扫切歌
   - **自定义标准**（`CUSTOM_STANDARD`）：标准封面布局的可配置歌词页/横屏契约
@@ -111,7 +123,7 @@
 
 ### 曲库 / 数据
 
-- [ ] **完整曲库 snapshot 发布保护回归复查（2026-08-03）**：已发生过“旧 generation 保护修好后，后续新增的挂起/文件副作用又插入保护区间并绕过校验”的情况：`bb0802da` 建立 cache/scan/clear 的 generation 协议后，`b9407a1d` 在 `publishSongs()` 的 generation 检查与 `adoptPrepared()` 之间加入 `pruneAlbumArtCache()`，重新留下过期 snapshot 与过期封面清理风险。修复后必须继续审查所有 `generation` 检查之间的 `withContext`、IO、文件删除和异步发布；为每类交错补回归测试，并把完整 snapshot 发布收敛到不可绕过的统一 seam，防止新增功能再次绕过保护。
+- [x] **完整曲库 snapshot / AUTO publication authority 收口**：历史 generation 绕过已通过 `MusicLibraryBacking` publication gate、Room-first commit、`storeRevision/storeSyncMutex`、staged lyrics、delta authority 与 ADR-0006 的 token/final-gate 交错测试收口；后续新增共享副作用仍必须遵守 `AGENTS.md` 的逐副作用复验规则。
 - [ ] **大曲库启动后续优化（低优先级）**：当前 `cachedOrder=true` 后测试反馈不卡；仅当实机再次报告冷启动/回后台恢复慢，或日志出现明确瓶颈时再推进。
   - 单一 `LibraryUiSnapshot` / sealed library state 一次发布，减少 `songs`、`songIds`、fast-scroll 数据、scan flags 等多个 Compose state 连续更新。
   - 持久化多字段 `sortKey` / `section`（标题、歌手、专辑、文件夹），用于非当前排序切换时避免现场 `Collator` 排序。
@@ -169,7 +181,7 @@
 
 - [x] **主题色**：设置 → 外观「强调色」（紫韵 / 鎏金 / 青釉 / 珊瑚 / 动态取色）与「云母背景」（晨曦 / 暮色 / 午夜 / 极光 / 雾霭）；晨曦浅色独立暖雾→天光蓝、深色海军→琥珀；`MicaTheme` + `micaAppBackground()` 全应用生效
 - [x] **浅色/深色切换动画**（见「全局 · 界面动效」）
-- [x] **流光溢彩**播放页样式：`PlayerLowerBackgroundMode.DYNAMIC_ARTWORK`（见上「五种播放页背景」）
+- [x] **流光溢彩**播放页样式：`PlayerLowerBackgroundMode.DYNAMIC_ARTWORK`（见上「六种播放页背景」）
 - [ ] **信笺歌词物理平行光带（可能还有救，低优先级）**
   - 独立 Three.js 原型已经能用 `DirectionalLight` 与两块真实遮挡平面形成边界平行的光带；不要再退回手绘灰影或艺术阴影蒙版。
   - 当前从正式主题撤下：固定烘焙图无法同时适配 19.5:9、20:9 等长屏裁剪、圆角安全区、歌词列位置与朱印构图，光带还会抢过文字成为视觉主体。
@@ -202,7 +214,7 @@
 - [ ] **P2：Android Auto / 车机 MediaSession 验收**：补充真实车机或 Android Auto DHU 的连接、元数据、播放控制与重连验证。
 - [ ] **P2：OEM 车机兼容性验收**：覆盖不同厂商车机/系统控制器的媒体按键、元数据、封面与进程重启行为。
 - [x] **ReplayGain 实际应用状态**：已按 [`REPLAYGAIN_SIGNAL_STATE_PLAN.md`](REPLAYGAIN_SIGNAL_STATE_PLAN.md) 建立最终线性系数的事实来源和 owner module；保持现有算法、音量乘法与音频链行为不变
-- [ ] **USB Host 真独占 production path**：单 SK02 debug/QA 可行性原型已工程收口；下一步按 [`ADR-0001`](adr/0001-usb-host-exclusive-output.md) 和 [`USB_EXCLUSIVE_AUDIO_STATUS.md`](USB_EXCLUSIVE_AUDIO_STATUS.md) P1 新增正式 output adapter/session。当前不得解除 P6 fail-fast 或把最小 `DefaultAudioSink` 称为 USB 独占
+- [x] **USB Exclusive Hybrid 代码路径**：`UsbOutputCoordinator` + 单一 session owner 已接入 Exact PCM / DoP / Native DSD、权限/插拔/恢复与专用设置页；默认仍为“关闭独占”/Shared PCM。剩余工作是多 DAC/OEM/DSD256 与 signal-exact 物理资格矩阵，不能把单 SK02 证据外推为普适支持。
 
 
 
@@ -222,9 +234,9 @@
 - [ ] **自定义排序长期计划**：如果歌曲列表自定义顺序、艺术家自定义顺序、专辑自定义顺序都需要统一持久化，再把当前 SharedPreferences 里的歌曲自定义顺序迁移到 Room；不要复用 `songs.queueOrder`，它只表示缓存的当前可见列表顺序。建议新增 `library_meta.customSongOrderJson/customSongOrderLocked` 或独立排序表，再按需要扩展 artist/album group key 的自定义顺序。
 - [x] **标准播放页视频封面**：仅限 `PlayerCoverFlowMode.STANDARD` 的播放页大封面；开关默认关闭。文件夹扫描收集与歌曲同目录、文件名等于专辑名的 `.mp4`，原名精确匹配优先，之后按 NFKC、首尾/连续空白和 `Locale.ROOT` 大小写归一化匹配；不忽略标点或版本后缀，空/未知专辑和多候选歧义不匹配。
   - **范围**：不影响封面流、照片堆、粒子封面、迷你播放器、列表缩略图和动态背景；这些路径继续使用 `albumArtUri` 静态图。
-  - **播放**：独立短生命周期 Media3/ExoPlayer，禁用音轨并由系统 `MediaCodec` 解码视频；随音乐暂停，循环播放，仅播放页处于前台且标准主题激活时挂载，切歌/离开页面/后台/锁屏及时释放。
+  - **播放**：音乐文件始终是唯一音频来源；`MusicVideoMediaSourceFactory` 把音乐 audio-only 与 MP4 video-only 合并进同一 ExoPlayer 时间线，不创建第二个播放器。只有播放页前台、标准封面可见时才通过 Surface lease 启用视频轨。
   - **显示**：沿用当前静态封面矩形，比例不符只在渲染层居中裁切；静态图保留到视频首帧成功，不转码、不改源文件。
-  - **回退与验收**：视频不存在、无法打开、解码失败或设备不支持时回退静态封面，同 URI 在当前播放页会话不重试；匹配索引为 O(歌曲数 + MP4 数)，10,000 首曲库不解析视频。代码与 JVM 测试已完成；耗电、切歌释放、后台/锁屏切换和常见 H.264 MP4 兼容性仍需真机验收。
+  - **回退与验收**：按 `songId + musicVideoRevision` 一次熔断并原位回退纯音频，保留队列/位置/播放意图；匹配索引仍为 O(歌曲数 + MP4 数)。真实 H.264 首帧、长时漂移、耗电及 Shared/USB 各音频输出路径仍需真机验收。
 - [ ] **瘦身**（APK / 运行时占用）
   - **播放缓存**：复查 ExoPlayer / 扩展解码缓存与临时文件上限，避免大曲库长期占用膨胀
   - **依赖与资源**：ProGuard/R8、未用资源与 so；设置项说明占用
@@ -235,7 +247,7 @@
   - **治本**：View + Canvas 七轨（`[COVER_FLOW_IMPLEMENTATION.md](COVER_FLOW_IMPLEMENTATION.md)`）——无 Compose 槽位重建、Coil 缓存位图直绘、`railOffset` 单轨末帧连续。
   - **仍保留的通用优化**：模糊背景 `.size(384)` 降采样；`SongCover` `stableMemoryCacheKey`；`[MicaImageLoaders](../app/src/main/java/com/mica/music/imaging/MicaImageLoaders.kt)` 预载。
   - **验收**：平行 / 复古 × 各播放页背景下连续切歌与拖动；无闪帧、无松手跳变。
-- [x] **歌单功能正式化**：歌单已有侧栏列表 / 新建 / 详情 / 播放 / 删除、重命名、导入导出 JSON、歌曲封面与自定义封面管理；持久化已迁至 Room（当前 schema v21）。尚未实现智能歌单条件
+- [x] **歌单功能正式化**：歌单已有侧栏列表 / 新建 / 详情 / 播放 / 删除、重命名、导入导出 JSON、歌曲封面与自定义封面管理；持久化已迁至 Room（当前 schema v29）。尚未实现智能歌单条件
 - [ ] **歌曲年份信息**
   - **月日信息**
 ---
