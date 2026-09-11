@@ -98,7 +98,10 @@ Existing pure planners stay separate unless a later audit proves they are duplic
 
 ## 5. Migration stages
 
-### R0 - Behavior freeze
+> Status (2026-09-11): R0-R7 complete. Final structural regression: 35 suites / 343 tests, 0 failures / 0 errors.
+> Production `LibraryScanOrchestrator` has been retired; `LibraryOperationExecutor`, `LibraryOperationAuthority`, and `LibraryPublicationAuthority` are now the active ownership boundaries.
+
+### R0 - Behavior freeze ✅
 
 - Run the existing auto-sync/scheduler/repository/migration/queue test set.
 - Record this plan.
@@ -106,7 +109,7 @@ Existing pure planners stay separate unless a later audit proves they are duplic
 
 Gate: baseline green.
 
-### R1 - Extract auto publication authority
+### R1 - Extract auto publication authority ✅
 
 Move the AUTO publication bridge out of `LibraryScanOrchestrator` behind `AutoSyncPublicationAuthority`.
 
@@ -124,7 +127,7 @@ Must remain unchanged:
 
 Gate: publication/readiness/orchestrator tests green.
 
-### R2 - Extract DEVICE pipeline
+### R2 - Extract DEVICE pipeline ✅
 
 Move DEVICE observation -> candidate -> membership -> probe -> retry -> publication-plan construction into `DeviceAutoSyncPipeline`.
 
@@ -132,13 +135,13 @@ The pipeline returns a result value. During the first mechanical extraction it m
 
 Gate: all DEVICE shadow/readiness/canonical/retry tests green.
 
-### R3 - Extract SAF pipeline
+### R3 - Extract SAF pipeline ✅
 
 Move SAF inventory/fast-verify/canonical/debt/probe/retry/publication-plan construction into `SafAutoSyncPipeline`.
 
 Gate: all SAF shadow/readiness/provider-recovery/backoff tests green.
 
-### R4 - Remove pipeline -> scheduler callbacks
+### R4 - Remove pipeline -> scheduler callbacks ✅
 
 Introduce `AutoSyncOutcome` and `AutoSyncPostCommit` so pipelines describe:
 
@@ -152,7 +155,7 @@ Introduce `AutoSyncOutcome` and `AutoSyncPostCommit` so pipelines describe:
 
 Gate: `LibraryScanOrchestrator`/new executors contain zero direct scheduler calls from DEVICE/SAF pipeline logic.
 
-### R5 - Retire `LibraryScanOrchestrator`
+### R5 - Retire `LibraryScanOrchestrator` ✅
 
 Extract:
 
@@ -166,7 +169,7 @@ Target: dispatcher under roughly 150 lines.
 
 Gate: full scan, targeted refresh, artwork maintenance and source-switch tests green.
 
-### R6 - Split backing authority
+### R6 - Split backing authority ✅
 
 Only after R1-R5 are stable, extract from `MusicLibraryBacking`:
 
@@ -177,7 +180,7 @@ Only after R1-R5 are stable, extract from `MusicLibraryBacking`:
 
 Gate: cancellation/release/clear/source-switch atomicity tests green.
 
-### R7 - Layer cleanup
+### R7 - Layer cleanup ✅
 
 - Move retry key construction out of planner classes so `LibraryRepository` does not depend on planners.
 - Normalize package names and diagnostics categories.
@@ -213,3 +216,17 @@ If a mechanical extraction requires changing an algorithm to make the code fit, 
 - `LibraryRepository` -> retry planner dependencies: zero.
 - Scheduler remains the single launch owner.
 - No regression in existing destructive-safety, token, retry, provider recovery, publication atomicity or playback reconciliation tests.
+
+## 8. Completion checkpoint
+
+Completed on 2026-09-11 with the frozen behavior preserved.
+
+- `LibraryScanOrchestrator`: removed from production and test naming.
+- `LibraryOperationExecutor`: operation dispatcher; source-specific work is delegated to dedicated executors/pipelines.
+- `MusicLibraryBacking`: reduced from ~899 lines to ~457 lines after operation/publication authority extraction.
+- DEVICE and SAF pipelines do not call `LibrarySyncScheduler` directly; follow-up requests flow through `AutoSyncPostCommit`.
+- `LibraryRepository` no longer depends on DEVICE/SAF retry planners. Retry-key construction is centralized in `LibraryRetryKey`.
+- Publication/store revision locks are owned by `LibraryPublicationAuthority`.
+- Final auto-sync regression: 35 suites / 343 tests / 0 failures / 0 errors.
+
+A later scheduler cleanup may extract only pure wake-time calculations. Job ownership, locking, pending-state transitions, fairness, and launch ordering remain owned by `LibrarySyncScheduler`.
