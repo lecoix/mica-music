@@ -3,7 +3,7 @@ import com.mica.music.data.AlbumArtRepairPlan
 import com.mica.music.data.ScanSource
 import com.mica.music.data.Song
 import com.mica.music.data.scanner.AutoSyncVisibleDelta
-internal class LibraryScanOrchestrator(
+internal class LibraryOperationExecutor(
     private val backing: MusicLibraryBacking,
 ) {
     private val catalog get() = backing.catalog
@@ -172,3 +172,6 @@ internal class LibraryScanOrchestrator(
 
 
 }
+
+// Temporary test compatibility while readiness tests migrate to the new executor name.
+internal typealias LibraryScanOrchestrator = LibraryOperationExecutor

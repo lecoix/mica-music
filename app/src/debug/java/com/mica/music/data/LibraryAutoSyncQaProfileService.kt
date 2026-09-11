@@ -939,7 +939,7 @@ class LibraryAutoSyncQaProfileService : Service() {
                         checkpointIncluded = true,
                     )
                     val startedMs = SystemClock.elapsedRealtime()
-                    val result = backing.scanOrchestrator.publishSafAutoSyncPlanForReadiness(
+                    val result = backing.operationExecutor.publishSafAutoSyncPlanForReadiness(
                         token = token,
                         scanStartSnapshot = current,
                         plan = plan,

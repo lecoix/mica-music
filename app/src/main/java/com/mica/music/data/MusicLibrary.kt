@@ -384,18 +384,18 @@ class MusicLibrary internal constructor(
         backing.launchAlbumArtCacheMaintenance()
     }
 
-    suspend fun rescan() = backing.scanOrchestrator.rescan()
+    suspend fun rescan() = backing.operationExecutor.rescan()
 
-    suspend fun scan() = backing.scanOrchestrator.scan()
+    suspend fun scan() = backing.operationExecutor.scan()
 
     /**
      * 扫描器内部切到 IO；状态编排保留在主线程，避免跨线程写 Compose State。
      */
-    fun launchRescan() = backing.scanOrchestrator.launchRescan()
+    fun launchRescan() = backing.operationExecutor.launchRescan()
 
-    fun launchScanDeviceWide() = backing.scanOrchestrator.launchScanDeviceWide()
+    fun launchScanDeviceWide() = backing.operationExecutor.launchScanDeviceWide()
 
-    fun launchScanLibraryFolder() = backing.scanOrchestrator.launchScanLibraryFolder()
+    fun launchScanLibraryFolder() = backing.operationExecutor.launchScanLibraryFolder()
 
     /** 封面修复：协调器决策计划，扫描编排器执行。 */
     fun launchArtworkCacheRepairIfNeeded(reason: String = "startup") {
@@ -409,12 +409,12 @@ class MusicLibrary internal constructor(
             reason = reason,
         ) ?: return
         if (plan.action == AlbumArtRepairAction.NoReadableSource) return
-        backing.scanOrchestrator.launchArtworkCacheRepair(plan)
+        backing.operationExecutor.launchArtworkCacheRepair(plan)
     }
 
-    suspend fun scanDeviceWide() = backing.scanOrchestrator.scanDeviceWide()
+    suspend fun scanDeviceWide() = backing.operationExecutor.scanDeviceWide()
 
-    suspend fun scanLibraryFolder() = backing.scanOrchestrator.scanLibraryFolder()
+    suspend fun scanLibraryFolder() = backing.operationExecutor.scanLibraryFolder()
 
     /**
      * Internal diagnostics seam used only by debug/QA controls.
@@ -423,7 +423,7 @@ class MusicLibrary internal constructor(
      * dirty signals still enter exclusively through [LibrarySyncScheduler].
      */
     internal suspend fun seedSafShadowCanonicalForDiagnostics() =
-        backing.scanOrchestrator.seedSafShadowCanonicalForDiagnostics()
+        backing.operationExecutor.seedSafShadowCanonicalForDiagnostics()
 
     internal suspend fun runAutoSyncShadowForDiagnostics(
         cause: com.mica.music.data.library.LibraryOperationCause =
@@ -437,14 +437,14 @@ class MusicLibrary internal constructor(
             dirtySequenceAtStart = backing.syncScheduler.dirtySequence,
         )
         if (publishSafAuthority) {
-            backing.scanOrchestrator.executeAutoSyncForReadiness(operation)
+            backing.operationExecutor.executeAutoSyncForReadiness(operation)
         } else {
-            backing.scanOrchestrator.executeAutoSyncShadowForDiagnostics(operation)
+            backing.operationExecutor.executeAutoSyncShadowForDiagnostics(operation)
         }
     }
 
     fun launchRefreshSongMetadata(songId: String) =
-        backing.scanOrchestrator.launchRefreshSongMetadata(songId)
+        backing.operationExecutor.launchRefreshSongMetadata(songId)
 
     fun clearScanSyncSummary() {
         backing.lastScanSyncSummary = null

@@ -5003,7 +5003,7 @@ class LibraryScanOrchestratorTest {
             syncSchedulerTiming = syncSchedulerTiming,
             syncSchedulerNowMs = { testScheduler.currentTime },
         )
-        return OrchestratorHarness(backing, backing.scanOrchestrator)
+        return OrchestratorHarness(backing, backing.operationExecutor)
     }
 
     private fun deviceGenerationSnapshot(

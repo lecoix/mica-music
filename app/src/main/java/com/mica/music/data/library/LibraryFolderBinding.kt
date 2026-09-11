@@ -37,7 +37,7 @@ internal class LibraryFolderBinding(
         backing.pendingLibraryFolderUri = treeUri.toString()
         backing.pendingLibraryFolderLabel = label
         if (backing.accessState == LibraryAccessState.TEMP_UNAVAILABLE) {
-            backing.scanOrchestrator.resetSafProviderDiscoveryBackoff()
+            backing.operationExecutor.resetSafProviderDiscoveryBackoff()
             backing.launchAccessStateUpdate(LibraryAccessState.AVAILABLE)
         }
     }
@@ -130,7 +130,7 @@ internal class LibraryFolderBinding(
             activeSource == com.mica.music.data.ScanSource.FOLDER &&
                 backing.accessState == LibraryAccessState.TEMP_UNAVAILABLE
         if (recoveringSafProvider) {
-            backing.scanOrchestrator.resetSafProviderDiscoveryBackoff()
+            backing.operationExecutor.resetSafProviderDiscoveryBackoff()
         }
         val access = when {
             activeSource == com.mica.music.data.ScanSource.FOLDER -> LibraryAccessState.AVAILABLE

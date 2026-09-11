@@ -135,10 +135,10 @@ internal class MusicLibraryBacking(
     val folder = LibraryFolderBinding(this)
     val cacheLoader = LibraryCacheLoader(this)
     val lyricsHydrator = LibraryLyricsHydrator(this)
-    val scanOrchestrator = LibraryScanOrchestrator(this)
+    val operationExecutor = LibraryOperationExecutor(this)
     val syncScheduler = LibrarySyncScheduler(
         backing = this,
-        execute = scanOrchestrator::executeScheduled,
+        execute = operationExecutor::executeScheduled,
         timing = syncSchedulerTiming,
         nowMs = syncSchedulerNowMs,
     )

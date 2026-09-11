@@ -14,7 +14,7 @@ import com.mica.music.data.scanner.SafTreeMetadataSnapshot
  * This planner never writes Room/memory and deliberately allows only already post-validated object
  * results into [nextSnapshot]. Destructive membership is additionally gated by the shared mass
  * deletion guard. Retry/UNKNOWN compensation is merged into the same state mutation that will be
- * supplied to [LibraryScanOrchestrator.publishAutoSyncSnapshot].
+ * supplied to [LibraryOperationExecutor.publishAutoSyncSnapshot].
  */
 internal data class SafAutoSyncPublicationPlan(
     val nextSnapshot: List<Song>,
