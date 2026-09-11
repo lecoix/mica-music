@@ -22,7 +22,6 @@ internal object TtmlLyricsParser {
     private const val MAX_DOCUMENT_CHARS = 2_000_000
     private const val MAX_PARAGRAPHS = 5_000
     private const val MAX_CUES = 50_000
-    private const val LYRICS_TRACE = "DEBUG-LYRICS-7C31"
     private val forbiddenDeclaration = Regex("""<!\s*(?:DOCTYPE|ENTITY)\b""", RegexOption.IGNORE_CASE)
     private val romanizationRoles = setOf("x-roman", "x-romanization")
 
@@ -126,10 +125,6 @@ internal object TtmlLyricsParser {
             }.sortedBy { it.startMs }
             LyricsDocument(format = LyricsFormat.TTML, lines = lines)
         }.onFailure { error ->
-            DiagnosticLog.event(
-                LYRICS_TRACE,
-                "ttml-parser failed error=${error.javaClass.simpleName}:${error.message.orEmpty().take(160)}",
-            )
         }.getOrDefault(LyricsDocument(format = LyricsFormat.TTML))
     }
 

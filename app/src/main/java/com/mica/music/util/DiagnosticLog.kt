@@ -36,6 +36,15 @@ object DiagnosticLog {
     @Volatile
     private var appContext: Context? = null
 
+    @Volatile
+    private var detailConfig: DiagnosticDetailConfig = DiagnosticDetailConfig()
+
+    fun configureDetailedDiagnostics(config: DiagnosticDetailConfig) {
+        detailConfig = config
+    }
+
+    fun isDetailedEnabled(domain: DiagnosticDetailDomain): Boolean = detailConfig.isEnabled(domain)
+
     fun install(context: Context) {
         val applicationContext = context.applicationContext
         if (appContext != null) return
@@ -57,7 +66,21 @@ object DiagnosticLog {
         }
     }
 
+    /** Detailed event. Classified categories obey the persisted detailed-diagnostics switches. */
     fun event(category: String, message: String, throwable: Throwable? = null) {
+        if (throwable == null) {
+            val domain = diagnosticDetailDomainFor(category)
+            if (domain != null && !detailConfig.isEnabled(domain)) return
+        }
+        writeEvent(category, message, throwable)
+    }
+
+    /** Failure/recovery evidence that must remain available even when detailed diagnostics are off. */
+    fun important(category: String, message: String, throwable: Throwable? = null) {
+        writeEvent(category, message, throwable)
+    }
+
+    private fun writeEvent(category: String, message: String, throwable: Throwable?) {
         synchronized(lock) {
             val line = buildString {
                 append(timestampFormat.format(Date()))
@@ -111,7 +134,6 @@ object DiagnosticLog {
     }
 
     fun shareReport(context: Context, extraReportSection: String? = null): Boolean {
-        ScreenLockDiagnostics.onDiagnosticsExport(context)
         AudioEnvironmentDiagnostics.logEnvironment(context, "export")
         flushPendingWrites()
         val report = synchronized(lock) {

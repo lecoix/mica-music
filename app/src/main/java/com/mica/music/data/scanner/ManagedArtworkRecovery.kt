@@ -57,7 +57,7 @@ internal object ManagedArtworkRecovery {
         val bytes = AudioMetadataProbe.readEmbeddedArtworkBytes(appContext, song) ?: return false
 
         if (AlbumArtCache.contentKeyFor(bytes) != managed.contentKey) {
-            DiagnosticLog.event(
+            DiagnosticLog.important(
                 "AlbumArtCache",
                 "lazy-repair source-changed song=${managed.songId} content=${managed.contentKey.takeLast(12)}",
             )
@@ -81,16 +81,12 @@ internal object ManagedArtworkRecovery {
             val valid = AlbumArtCache.managedArtworkFileIsValid(context, uriString)
             if (valid) {
                 AlbumArtCache.clearManagedArtworkFailureState(managed.contentKey)
-                DiagnosticLog.event(
-                    "AlbumArtCache",
-                    "lazy-verify ok song=${managed.songId} content=${managed.contentKey.takeLast(12)}",
-                )
                 return false
             }
         }
 
         AlbumArtCache.markManagedArtworkCorrupt(managed.contentKey)
-        DiagnosticLog.event(
+        DiagnosticLog.important(
             "AlbumArtCache",
             "lazy-verify corrupt-or-missing song=${managed.songId} content=${managed.contentKey.takeLast(12)}",
         )

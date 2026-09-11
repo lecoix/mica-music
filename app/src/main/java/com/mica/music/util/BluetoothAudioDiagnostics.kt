@@ -41,6 +41,7 @@ object BluetoothAudioDiagnostics {
     }
 
     private fun logRoute(reason: String, extra: String = "") {
+        if (!DiagnosticLog.isDetailedEnabled(DiagnosticDetailDomain.USB_DEVICE)) return
         val manager = synchronized(lock) { audioManager } ?: return
         val outputs = manager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
             .joinToString { describeDevice(it) }
@@ -57,6 +58,7 @@ object BluetoothAudioDiagnostics {
     }
 
     private fun logDevices(event: String, devices: Array<out AudioDeviceInfo>) {
+        if (!DiagnosticLog.isDetailedEnabled(DiagnosticDetailDomain.USB_DEVICE)) return
         if (devices.isEmpty()) return
         val names = devices.joinToString { describeDevice(it) }
         DiagnosticLog.event("AudioRoute", "devices-$event: $names")

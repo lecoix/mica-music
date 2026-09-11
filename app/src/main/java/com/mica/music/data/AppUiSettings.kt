@@ -14,7 +14,6 @@ import com.mica.music.data.preferences.LibraryBrowseSettings
 import com.mica.music.data.preferences.LyricsPreferences
 import com.mica.music.data.preferences.PlaybackUiPreferences
 import com.mica.music.data.scanner.VideoCoverPosterPrefetcher
-import com.mica.music.util.DiagnosticLog
 
 /**
  * 界面偏好（主题、状态栏、强调色、云母背景等），供 [com.mica.music.MainActivity] 与设置页共享并即时刷新。
@@ -931,7 +930,6 @@ class AppUiSettings(context: Context) {
     fun updateSpectrumEnabled(enabled: Boolean) {
         spectrumEnabled = enabled
         PlaybackUiPreferences.setSpectrumEnabled(appContext, enabled)
-        DiagnosticLog.event("Spectrum", "setting enabled=$enabled")
     }
 
     fun updateAudioFocusEnabled(enabled: Boolean) {

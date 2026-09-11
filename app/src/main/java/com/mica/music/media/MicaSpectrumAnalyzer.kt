@@ -73,12 +73,10 @@ object MicaSpectrumAnalyzer {
     }
     fun setPlaybackAdvancing(value: Boolean) {
         engine.setPlaybackAdvancing(value)
-        DiagnosticLog.event("Spectrum", "playback-advancing=$value")
     }
-    fun resetBufferedPcm(reason: String) {
+    fun resetBufferedPcm() {
         engine.reset()
         directFrames = 0
-        DiagnosticLog.event("Spectrum", "buffer-reset reason=$reason")
     }
 
     // Kept for standalone processor/tap clients; production passes a sink-owned token and time.

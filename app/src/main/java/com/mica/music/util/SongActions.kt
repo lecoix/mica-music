@@ -90,12 +90,6 @@ fun openSongInTagEditor(context: Context, song: Song): Boolean {
     val mime = resolveShareMimeType(context, song, uri)
     val lyricoIntent = buildLyricoEditTagIntent(context, song.title, uri)
     val lyricoActivity = lyricoIntent.resolveActivity(context.packageManager)
-    DiagnosticLog.event(
-        "TagEditor",
-        "lyrico request song=${song.id} uri=$uri scheme=${uri.scheme} authority=${uri.authority} " +
-            "document=${isDocumentUri(context, uri)} mime=$mime persisted=${persistedPermissionSummary(context, uri)} " +
-            "grants=${permissionFlagsLabel(tagEditorUriGrantFlags(context, uri))} resolved=$lyricoActivity",
-    )
     if (lyricoActivity != null) {
         return runCatching {
             val host = context.findLyricoTagEditorHost()
@@ -104,7 +98,6 @@ fun openSongInTagEditor(context: Context, song: Song): Boolean {
                 true
             }
             check(launched)
-            DiagnosticLog.event("TagEditor", "lyrico launch ok song=${song.id} resolved=$lyricoActivity")
             true
         }.getOrElse { error ->
             DiagnosticLog.event("TagEditor", "lyrico launch failed song=${song.id} resolved=$lyricoActivity", error)
@@ -126,18 +119,10 @@ fun openSongInTagEditor(context: Context, song: Song): Boolean {
     )
     for (intent in candidates) {
         val fallbackActivity = intent.resolveActivity(context.packageManager)
-        DiagnosticLog.event(
-            "TagEditor",
-            "fallback action=${intent.action} song=${song.id} uri=$uri mime=$mime resolved=$fallbackActivity",
-        )
         if (fallbackActivity != null) {
             return runCatching {
                 val chooser = Intent.createChooser(intent, "编辑音乐标签")
                 context.startActivity(chooser.withActivityLaunchFlags(context))
-                DiagnosticLog.event(
-                    "TagEditor",
-                    "fallback launch ok action=${intent.action} song=${song.id} resolved=$fallbackActivity",
-                )
                 true
             }.getOrElse { error ->
                 DiagnosticLog.event(
@@ -149,7 +134,7 @@ fun openSongInTagEditor(context: Context, song: Song): Boolean {
             }
         }
     }
-    DiagnosticLog.event("TagEditor", "no editor available song=${song.id} uri=$uri mime=$mime")
+    DiagnosticLog.important("TagEditor", "no editor available song=${song.id} uri=$uri mime=$mime")
     return false
 }
 
@@ -244,27 +229,3 @@ private fun tagEditorUriGrantFlags(context: Context, uri: Uri): Int =
         isDocumentUri(context, uri) -> Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
         else -> Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
     }
-
-private fun persistedPermissionSummary(context: Context, uri: Uri): String {
-    val persistedPermissions = context.contentResolver.persistedUriPermissions
-    val uriText = uri.toString()
-    val matches = persistedPermissions.filter { permission ->
-        val persistedText = permission.uri.toString()
-        uriText == persistedText || uriText.startsWith("$persistedText/")
-    }
-    if (matches.isEmpty()) {
-        return "none(total=${persistedPermissions.size})"
-    }
-    return matches.joinToString(separator = ",") { permission ->
-        val modes = buildList {
-            if (permission.isReadPermission) add("read")
-            if (permission.isWritePermission) add("write")
-        }.ifEmpty { listOf("none") }.joinToString("+")
-        "${permission.uri}[$modes]"
-    }
-}
-
-private fun permissionFlagsLabel(flags: Int): String = buildList {
-    if (flags and Intent.FLAG_GRANT_READ_URI_PERMISSION != 0) add("read")
-    if (flags and Intent.FLAG_GRANT_WRITE_URI_PERMISSION != 0) add("write")
-}.ifEmpty { listOf("none") }.joinToString("+")

@@ -59,7 +59,7 @@ internal class LibraryFollowupConsumer(
                     LibraryFollowupProtocol.PLAYLIST_REMOVE_LIBRARY_MEMBERSHIP -> {
                         val songId = LibraryFollowupProtocol.playlistRemovalSongId(item.payload)
                         if (songId.isNullOrBlank()) {
-                            DiagnosticLog.event(
+                            DiagnosticLog.important(
                                 "LibraryFollowup",
                                 "invalid playlist-removal payload event=${item.eventId}",
                             )
@@ -69,7 +69,7 @@ internal class LibraryFollowupConsumer(
                         }
                     }
                     else -> {
-                        DiagnosticLog.event(
+                        DiagnosticLog.important(
                             "LibraryFollowup",
                             "unknown action=${item.action} event=${item.eventId}",
                         )

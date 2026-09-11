@@ -7,6 +7,7 @@ import com.mica.music.data.DsdSupport
 import com.mica.music.data.Song
 import com.mica.music.data.SongIdentity
 import com.mica.music.util.DiagnosticLog
+import com.mica.music.util.DiagnosticDetailDomain
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
@@ -30,12 +31,14 @@ private fun embeddedLyricsProbeRevision(
 }
 
 internal class ScanProfiler(private val source: String) {
-    private val startedAtNs = SystemClock.elapsedRealtimeNanos()
+    private val enabled = DiagnosticLog.isDetailedEnabled(DiagnosticDetailDomain.LIBRARY_SCAN)
+    private val startedAtNs = if (enabled) SystemClock.elapsedRealtimeNanos() else 0L
     private val stages = ConcurrentHashMap<String, Stage>()
     private val byteStages = ConcurrentHashMap<String, ByteStage>()
     private val reuseMisses = ConcurrentHashMap<String, AtomicInteger>()
 
     fun <T> measure(stage: String, block: () -> T): T {
+        if (!enabled) return block()
         val start = SystemClock.elapsedRealtimeNanos()
         return try {
             block()
@@ -45,6 +48,7 @@ internal class ScanProfiler(private val source: String) {
     }
 
     suspend fun <T> measureSuspend(stage: String, block: suspend () -> T): T {
+        if (!enabled) return block()
         val start = SystemClock.elapsedRealtimeNanos()
         return try {
             block()
@@ -54,22 +58,26 @@ internal class ScanProfiler(private val source: String) {
     }
 
     fun record(stage: String, elapsedNs: Long) {
+        if (!enabled) return
         val item = stages.computeIfAbsent(stage) { Stage() }
         item.count.incrementAndGet()
         item.totalNs.addAndGet(elapsedNs)
     }
 
     fun recordBytes(stage: String, byteCount: Long) {
+        if (!enabled) return
         val item = byteStages.computeIfAbsent(stage) { ByteStage() }
         item.count.incrementAndGet()
         item.totalBytes.addAndGet(byteCount.coerceAtLeast(0L))
     }
 
     fun recordReuseMiss(reason: String) {
+        if (!enabled) return
         reuseMisses.computeIfAbsent(reason) { AtomicInteger(0) }.incrementAndGet()
     }
 
     fun finish(total: Int, reused: Int, probed: Int): String {
+        if (!enabled) return ""
         val totalMs = (SystemClock.elapsedRealtimeNanos() - startedAtNs).nanosToMs()
         val stageSummary = stages.entries
             .sortedByDescending { it.value.totalNs.get() }

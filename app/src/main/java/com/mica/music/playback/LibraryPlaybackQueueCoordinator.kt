@@ -1,6 +1,5 @@
 package com.mica.music.playback
 
-import android.os.SystemClock
 import com.mica.music.LibraryQueueSyncPlan
 import com.mica.music.LibraryQueueSyncPolicy
 import com.mica.music.data.MusicLibrary
@@ -36,9 +35,7 @@ internal class LibraryPlaybackQueueCoordinator(
         library: LibraryQueueSyncInput,
         player: Target,
     ) {
-        val effectStartedMs = SystemClock.elapsedRealtime()
         val songs = library.songs
-        DiagnosticLog.event("LibraryQueue", "$reason connectIfNeeded start songs=${songs.size}")
         player.connectIfNeeded()
         val currentQueueIds = player.currentQueueIds
         when (
@@ -52,43 +49,20 @@ internal class LibraryPlaybackQueueCoordinator(
             )
         ) {
             LibraryQueueSyncPlan.SkipEmpty -> {
-                DiagnosticLog.event(
-                    "LibraryQueue",
-                    "$reason effect skipped empty hasScanned=${library.hasScanned}",
-                )
             }
             LibraryQueueSyncPlan.BootstrapOnly -> {
-                DiagnosticLog.event(
-                    "LibraryQueue",
-                    "$reason bootstrap-only start hasScanned=${library.hasScanned}",
-                )
-                val bootstrapped = player.bootstrapQueue(library.songById)
-                DiagnosticLog.event(
-                    "LibraryQueue",
-                    "$reason bootstrap-only result=$bootstrapped " +
-                        "durMs=${SystemClock.elapsedRealtime() - effectStartedMs}",
-                )
+                player.bootstrapQueue(library.songById)
             }
             is LibraryQueueSyncPlan.BootstrapOrSetQueue -> {
-                logEffectStart(reason, plan, songs.size, currentQueueIds.size)
                 val bootstrapped = player.bootstrapQueue(library.songById)
-                DiagnosticLog.event(
-                    "LibraryQueue",
-                    "$reason bootstrap result=$bootstrapped " +
-                        "durMs=${SystemClock.elapsedRealtime() - effectStartedMs}",
-                )
                 if (!bootstrapped) {
                     player.setQueue(plan.songs)
                 }
-                logEffectEnd(reason, effectStartedMs, player.queueSize)
             }
             is LibraryQueueSyncPlan.SetQueue -> {
-                logEffectStart(reason, plan, songs.size, currentQueueIds.size)
                 player.setQueue(plan.songs)
-                logEffectEnd(reason, effectStartedMs, player.queueSize)
             }
             is LibraryQueueSyncPlan.ReconcileQueue -> {
-                logEffectStart(reason, plan, songs.size, currentQueueIds.size)
                 currentQueueIds.withIndex()
                     .filter { (_, id) -> id in plan.removeIds }
                     .map { it.index }
@@ -97,12 +71,9 @@ internal class LibraryPlaybackQueueCoordinator(
                 if (plan.songs.isNotEmpty()) {
                     player.refreshQueueMetadata(plan.songs)
                 }
-                logEffectEnd(reason, effectStartedMs, player.queueSize)
             }
             is LibraryQueueSyncPlan.RefreshMetadata -> {
-                logEffectStart(reason, plan, songs.size, currentQueueIds.size)
                 player.refreshQueueMetadata(plan.songs)
-                logEffectEnd(reason, effectStartedMs, player.queueSize)
             }
         }
     }
@@ -122,26 +93,6 @@ internal class LibraryPlaybackQueueCoordinator(
         }
     }
 
-    private fun logEffectStart(
-        reason: String,
-        plan: LibraryQueueSyncPlan,
-        songsSize: Int,
-        currentQueueSize: Int,
-    ) {
-        DiagnosticLog.event(
-            "LibraryQueue",
-            "$reason effect start songs=$songsSize queue=$currentQueueSize " +
-                "previousLibrary=${plan.previousLibraryIdsSize()} " +
-                "currentQueueWasLibrary=${plan.currentQueueWasLibrary()}",
-        )
-    }
-
-    private fun logEffectEnd(reason: String, startedMs: Long, queueSize: Int) {
-        DiagnosticLog.event(
-            "LibraryQueue",
-            "$reason effect end durMs=${SystemClock.elapsedRealtime() - startedMs} queue=$queueSize",
-        )
-    }
 }
 
 internal fun MusicLibrary.toLibraryQueueSyncInput(
@@ -181,24 +132,4 @@ internal fun PlayerController.asLibraryPlaybackQueueTarget(): LibraryPlaybackQue
 
         override fun refreshQueueMetadata(songs: List<Song>) =
             this@asLibraryPlaybackQueueTarget.refreshQueueMetadata(songs)
-    }
-
-private fun LibraryQueueSyncPlan.previousLibraryIdsSize(): Int =
-    when (this) {
-        LibraryQueueSyncPlan.SkipEmpty -> 0
-        LibraryQueueSyncPlan.BootstrapOnly -> 0
-        is LibraryQueueSyncPlan.BootstrapOrSetQueue -> previousLibraryIdsSize
-        is LibraryQueueSyncPlan.SetQueue -> previousLibraryIdsSize
-        is LibraryQueueSyncPlan.ReconcileQueue -> previousLibraryIdsSize
-        is LibraryQueueSyncPlan.RefreshMetadata -> previousLibraryIdsSize
-    }
-
-private fun LibraryQueueSyncPlan.currentQueueWasLibrary(): Boolean =
-    when (this) {
-        LibraryQueueSyncPlan.SkipEmpty -> false
-        LibraryQueueSyncPlan.BootstrapOnly -> false
-        is LibraryQueueSyncPlan.BootstrapOrSetQueue -> currentQueueWasLibrary
-        is LibraryQueueSyncPlan.SetQueue -> currentQueueWasLibrary
-        is LibraryQueueSyncPlan.ReconcileQueue -> currentQueueWasLibrary
-        is LibraryQueueSyncPlan.RefreshMetadata -> currentQueueWasLibrary
     }

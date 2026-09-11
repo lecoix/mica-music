@@ -128,7 +128,7 @@ class MicaMediaService : MediaSessionService() {
     private var temporaryWidgetForegroundActive = false
     private val pendingWidgetActionTimeout = Runnable {
         if (pendingWidgetAction == null) return@Runnable
-        DiagnosticLog.event(
+        DiagnosticLog.important(
             "PlaybackWidget",
             "cold-command-timeout action=$pendingWidgetAction items=${compositePlayer?.mediaItemCount ?: 0}",
         )
@@ -183,7 +183,6 @@ class MicaMediaService : MediaSessionService() {
         })
 
         PlaybackCapabilityDiagnostics.logStartup(this)
-        PcmDeliveryExperiment.logActiveExperiments()
         spectrumAnalyzerStateOwner = SpectrumAnalyzerStateOwner(this).also { it.start() }
 
         activeOutputPath = AudioOutputPathConfig.PRODUCTION
@@ -290,11 +289,6 @@ class MicaMediaService : MediaSessionService() {
     private fun handleWidgetPlaybackAction(action: String, startId: Int) {
         startTemporaryWidgetForegroundIfNeeded()
         val player = compositePlayer
-        DiagnosticLog.event(
-            "PlaybackWidget",
-            "service-action action=$action items=${player?.mediaItemCount ?: 0} " +
-                "restoreInFlight=$sharedServiceQueueRestoreInFlight",
-        )
         if (player == null) {
             finishTemporaryWidgetForegroundIfIdle(startId)
             return
@@ -311,7 +305,6 @@ class MicaMediaService : MediaSessionService() {
             ) {
                 failPendingWidgetAction("no-restorable-queue")
             } else {
-                DiagnosticLog.event("PlaybackWidget", "cold-command-queued action=$action")
             }
             return
         }
@@ -333,11 +326,6 @@ class MicaMediaService : MediaSessionService() {
             ACTION_WIDGET_NEXT -> player.seekToNextMediaItem()
             else -> return
         }
-        DiagnosticLog.event(
-            "PlaybackWidget",
-            "service-action-applied action=$action media=${player.currentMediaItem?.mediaId?.takeLast(12).orEmpty()} " +
-                "playing=${player.playWhenReady}",
-        )
     }
 
     private fun drainPendingWidgetAction() {
@@ -347,10 +335,6 @@ class MicaMediaService : MediaSessionService() {
         if (player.mediaItemCount == 0) return
         pendingWidgetAction = null
         mainHandler.removeCallbacks(pendingWidgetActionTimeout)
-        DiagnosticLog.event(
-            "PlaybackWidget",
-            "cold-command-drain action=$action items=${player.mediaItemCount}",
-        )
         executeWidgetPlaybackAction(player, action)
         finishTemporaryWidgetForegroundIfIdle(startId)
     }
@@ -360,7 +344,7 @@ class MicaMediaService : MediaSessionService() {
         val startId = pendingWidgetStartId
         pendingWidgetAction = null
         mainHandler.removeCallbacks(pendingWidgetActionTimeout)
-        DiagnosticLog.event(
+        DiagnosticLog.important(
             "PlaybackWidget",
             "cold-command-dropped action=$action reason=$reason",
         )
@@ -406,7 +390,6 @@ class MicaMediaService : MediaSessionService() {
             )
         }.onSuccess {
             temporaryWidgetForegroundActive = true
-            DiagnosticLog.event("PlaybackWidget", "temporary-foreground-started")
         }.onFailure { error ->
             DiagnosticLog.event(
                 "PlaybackWidget",
@@ -419,12 +402,10 @@ class MicaMediaService : MediaSessionService() {
     private fun finishTemporaryWidgetForegroundIfIdle(startId: Int) {
         if (!temporaryWidgetForegroundActive) return
         if (compositePlayer?.playWhenReady == true) {
-            DiagnosticLog.event("PlaybackWidget", "temporary-foreground-handed-to-playback")
             return
         }
         stopForeground(STOP_FOREGROUND_REMOVE)
         temporaryWidgetForegroundActive = false
-        DiagnosticLog.event("PlaybackWidget", "temporary-foreground-stopped startId=$startId")
     }
 
     private fun restoreSharedServiceQueueIfNeeded(
@@ -665,7 +646,7 @@ class MicaMediaService : MediaSessionService() {
             )
         }
             .getOrElse { error ->
-                DiagnosticLog.event(
+                DiagnosticLog.important(
                     "AudioOutputPath",
                     "rebuild-failed reason=$reason target=${target.outputMode} error=${error.message}",
                 )
@@ -1124,7 +1105,7 @@ class MicaMediaService : MediaSessionService() {
                 runCatching {
                     grantUriPermission(grantPackage, artworkUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 }.onFailure { error ->
-                    DiagnosticLog.event(
+                    DiagnosticLog.important(
                         "MediaSession",
                         "artwork-grant-failed package=$grantPackage uri=$artworkUri " +
                             "error=${error.javaClass.simpleName}",
@@ -1149,7 +1130,6 @@ class MicaMediaService : MediaSessionService() {
         if (!request.enabled) {
             activeAppShuffleRequest = null
             exo.shuffleModeEnabled = false
-            DiagnosticLog.event("Shuffle", "service mode=off items=${exo.mediaItemCount}")
             return
         }
         val seed = request.seed ?: return
@@ -1163,10 +1143,6 @@ class MicaMediaService : MediaSessionService() {
         if (indices.size != physicalIds.size) return
         exo.setShuffleOrder(ShuffleOrder.DefaultShuffleOrder(indices, seed))
         exo.shuffleModeEnabled = true
-        DiagnosticLog.event(
-            "Shuffle",
-            "service mode=on seed=$seed items=${physicalIds.size} current=${exo.currentMediaItem?.mediaId}",
-        )
     }
 
     private fun updateMediaButtonPreferences() {
@@ -1363,14 +1339,14 @@ class MicaMediaService : MediaSessionService() {
             },
             scheduler = HandlerAudioOffloadWatchdogScheduler(mainHandler),
             onFallbackToPcm = {
-                DiagnosticLog.event(
+                DiagnosticLog.important(
                     "AudioOffload",
                     "stall-detected fallback=pcm mediaId=${exo.currentMediaItem?.mediaId}",
                 )
                 audioPipelineCoordinator?.onOffloadCircuitOpened()
             },
             onVerifiedFailure = {
-                DiagnosticLog.event(
+                DiagnosticLog.important(
                     "AudioOffload",
                     "pcm-recovery-verified disable-current-build=true",
                 )

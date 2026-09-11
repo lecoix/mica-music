@@ -48,7 +48,7 @@ class FloatDspSpectrumTapDecouplingTest {
         MicaSpectrumAnalyzer.setPlaybackAdvancing(false)
         MicaSpectrumAnalyzer.setAnalysisActive(true)
         MicaSpectrumAnalyzer.setEnabled(false)
-        MicaSpectrumAnalyzer.resetBufferedPcm("test-teardown")
+        MicaSpectrumAnalyzer.resetBufferedPcm()
     }
 
     @Test

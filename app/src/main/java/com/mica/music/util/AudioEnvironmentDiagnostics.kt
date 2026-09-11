@@ -53,6 +53,7 @@ object AudioEnvironmentDiagnostics {
     }
 
     fun logEnvironment(reason: String) {
+        if (!DiagnosticLog.isDetailedEnabled(DiagnosticDetailDomain.AUDIO_PIPELINE)) return
         val appCtx = appContext ?: return
         val installed = installedEffectCandidates(appCtx)
         val registered = registeredSystemEffects()

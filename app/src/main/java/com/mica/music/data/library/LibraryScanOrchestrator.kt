@@ -2212,7 +2212,6 @@ internal class LibraryScanOrchestrator(
         plan: AlbumArtRepairPlan,
         operation: ScheduledLibraryOperation? = null,
     ) {
-        DiagnosticLog.event("AlbumArtCache", "repair-start reason=${plan.reason} ${plan.health.toLogMessage()}")
         when (plan.action) {
             AlbumArtRepairAction.ScanDevice -> repairDeviceArtwork(operation)
             AlbumArtRepairAction.ScanFolder -> repairLibraryFolderArtwork(operation)
@@ -2242,7 +2241,7 @@ internal class LibraryScanOrchestrator(
         val uriString = backing.libraryFolderUri ?: return
         val treeUri = uriString.toUri()
         if (!backing.scanEnvironment.canReadTree(treeUri)) {
-            DiagnosticLog.event("AlbumArtCache", "repair-folder-skip cannot-read-tree uri=$treeUri")
+            DiagnosticLog.important("AlbumArtCache", "repair-folder-skip cannot-read-tree uri=$treeUri")
             return
         }
         performScan(
@@ -2694,7 +2693,7 @@ internal class LibraryScanOrchestrator(
                     "presentationRevision=${backing.presentationRevision}",
             )
         }
-        DiagnosticLog.event(
+        DiagnosticLog.important(
             "LibraryScan",
             "publishSongs rebase-exhausted generation=$generation attempts=$MAX_PUBLICATION_REBASE_ATTEMPTS",
         )

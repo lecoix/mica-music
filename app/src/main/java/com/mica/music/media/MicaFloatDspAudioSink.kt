@@ -6,6 +6,7 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.ForwardingAudioSink
+import com.mica.music.util.DiagnosticDetailDomain
 import com.mica.music.util.DiagnosticLog
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -47,13 +48,7 @@ internal class MicaFloatDspAudioSink(
     private var scratchBytes = ByteArray(0)
     private var scratchDirect: ByteBuffer = ByteBuffer.allocateDirect(0).order(ByteOrder.nativeOrder())
 
-    // Lightweight cadence probe (float path has no SpectrumAudioProcessor to report through).
-    private var probeWindowStartMs = 0L
-    private var probeHandleCalls = 0
-    private var probeProcessCalls = 0
-    private var probePassthroughCalls = 0
-    private var probeLastHandleMs = 0L
-    private var probeMaxGapMs = 0L
+    private var diagnosticLastHandleMs = 0L
     private var consecutiveInnerRejects = 0
 
     @Throws(AudioSink.ConfigurationException::class)
@@ -68,11 +63,7 @@ internal class MicaFloatDspAudioSink(
         if (linearPcm) {
             tap.configure(sampleRate, channelCount)
         }
-        DiagnosticLog.event(
-            "FloatDspSink",
-            "configure sr=$sampleRate ch=$channelCount enc=$androidEncoding linearPcm=$linearPcm",
-        )
-        resetProbe()
+        diagnosticLastHandleMs = 0L
         super.configure(inputFormat, specifiedBufferSize, outputChannels)
     }
 
@@ -184,15 +175,15 @@ internal class MicaFloatDspAudioSink(
         passthroughReason: String?,
         inFlightRetry: Boolean,
     ) {
+        if (!DiagnosticLog.isDetailedEnabled(DiagnosticDetailDomain.AUDIO_PIPELINE)) {
+            diagnosticLastHandleMs = 0L
+            consecutiveInnerRejects = 0
+            return
+        }
         val nowMs = System.currentTimeMillis()
-        if (probeWindowStartMs == 0L) probeWindowStartMs = nowMs
-        probeHandleCalls++
-        if (processed) probeProcessCalls++ else probePassthroughCalls++
-        if (probeLastHandleMs != 0L) {
-            val gapMs = nowMs - probeLastHandleMs
-            probeMaxGapMs = maxOf(probeMaxGapMs, gapMs)
+        if (diagnosticLastHandleMs != 0L) {
             SpectrumPcmPipelineDiagnostics.onFloatDspUpstreamGap(
-                gapMs = gapMs,
+                gapMs = nowMs - diagnosticLastHandleMs,
                 bufferBytes = bufferBytes,
                 presentationTimeUs = presentationTimeUs,
                 processed = processed,
@@ -202,29 +193,11 @@ internal class MicaFloatDspAudioSink(
             )
         }
         consecutiveInnerRejects = 0
-        probeLastHandleMs = nowMs
-        if (nowMs - probeWindowStartMs >= 1_000L) {
-            DiagnosticLog.event(
-                "FloatDspSink",
-                "handleCalls=$probeHandleCalls processed=$probeProcessCalls " +
-                    "passthrough=$probePassthroughCalls maxGapMs=$probeMaxGapMs " +
-                    "eqOn=${tap.isActive()} sr=$sampleRate ch=$channelCount enc=$androidEncoding",
-            )
-            resetProbe()
-        }
-    }
-
-    private fun resetProbe() {
-        probeWindowStartMs = 0L
-        probeHandleCalls = 0
-        probeProcessCalls = 0
-        probePassthroughCalls = 0
-        probeLastHandleMs = 0L
-        probeMaxGapMs = 0L
+        diagnosticLastHandleMs = nowMs
     }
 
     override fun flush() {
-        SpectrumPcmPipelineDiagnostics.onFloatDspFlush()
+        diagnosticLastHandleMs = 0L
         clearPendingWrites()
         consecutiveInnerRejects = 0
         super.flush()

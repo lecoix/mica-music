@@ -55,13 +55,11 @@ import com.mica.music.ui.theme.AnimatedMicaAppBackground
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.media.MicaSpectrumAnalyzer
 import com.mica.music.util.DiagnosticLog
-import com.mica.music.util.WallpaperBarSliceDiagnostics
 import com.mica.music.util.WindowInteractionDiagnostics
 import com.mica.music.ui.theme.LocalMicaBlurTarget
 import com.mica.music.ui.theme.MicaAppRoot
 import com.mica.music.ui.theme.WallpaperViewportState
 import com.mica.music.util.LyricoTagEditorHost
-import com.mica.music.util.ScreenLockDiagnostics
 import com.mica.music.ui.screens.tutorial.UsageTutorialScanInvitation
 import eightbitlab.com.blurview.BlurTarget
 import kotlinx.coroutines.Dispatchers
@@ -119,14 +117,10 @@ class MainActivity : ComponentActivity(), LyricoTagEditorHost {
 
     private val lyricoTagEditorLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
-    ) { result ->
+    ) { _ ->
         val songId = pendingLyricoSongId
         pendingLyricoSongId = null
         if (songId != null) {
-            DiagnosticLog.event(
-                "TagEditor",
-                "lyrico return song=$songId result=${result.resultCode}",
-            )
             viewModel.refreshSongMetadataAfterTagEditor(songId)
         }
     }
@@ -157,28 +151,11 @@ class MainActivity : ComponentActivity(), LyricoTagEditorHost {
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        ScreenLockDiagnostics.onWindowFocusChanged(this, hasFocus)
         if (hasFocus) applyWindowStatusBar()
     }
 
-    override fun onTopResumedActivityChanged(isTopResumedActivity: Boolean) {
-        super.onTopResumedActivityChanged(isTopResumedActivity)
-        ScreenLockDiagnostics.onTopResumedActivityChanged(this, isTopResumedActivity)
-    }
-
-    override fun onUserInteraction() {
-        super.onUserInteraction()
-        ScreenLockDiagnostics.onUserInteraction(this)
-    }
-
-    override fun onUserLeaveHint() {
-        ScreenLockDiagnostics.onUserLeaveHint(this)
-        super.onUserLeaveHint()
-    }
-
-    override fun onConfigurationChanged(newConfig: Configuration) {
+override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        ScreenLockDiagnostics.onConfigurationChanged(this)
         logWindowTouchState("configuration-changed")
     }
 
@@ -403,10 +380,6 @@ class MainActivity : ComponentActivity(), LyricoTagEditorHost {
                 if (mainCompose.importantForAccessibility != desiredAccessibility) {
                     mainCompose.importantForAccessibility = desiredAccessibility
                 }
-                WallpaperBarSliceDiagnostics.logOverlayLayout(
-                    fullScreen = overlayFullScreen,
-                    composeRoot = "player-overlay",
-                )
             }
 
             MicaAppRoot(
@@ -451,7 +424,7 @@ class MainActivity : ComponentActivity(), LyricoTagEditorHost {
                 )
             }
             if (song == null) {
-                DiagnosticLog.event(
+                DiagnosticLog.important(
                     "ExternalOpen",
                     "unreadable uri=${request.uri} mime=${request.mimeType.orEmpty()}",
                 )
@@ -463,12 +436,6 @@ class MainActivity : ComponentActivity(), LyricoTagEditorHost {
                 return@launch
             }
             transientCatalog.markRestorable(song.id, restorable)
-            DiagnosticLog.event(
-                "ExternalOpen",
-                "play song=${song.id} uri=${request.uri} mime=${song.metadata.playbackMimeType} " +
-                    "art=${!song.albumArtUri.isNullOrBlank()} " +
-                    "lyricsOrigin=${song.lyricsDocument.origin} lyricsLines=${song.lyricsDocument.lines.size}",
-            )
             viewModel.playerController.playSingleSong(song)
             navigationCoordinator.playerExpanded = true
         }

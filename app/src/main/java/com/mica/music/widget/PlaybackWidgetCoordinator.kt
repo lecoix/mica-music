@@ -93,11 +93,6 @@ internal class PlaybackWidgetCoordinator(
         )
         if (snapshot != previous) {
             WidgetPlaybackStateStore.save(appContext, snapshot)
-            DiagnosticLog.event(
-                "PlaybackWidget",
-                "state-publish media=${snapshot.mediaId.takeLast(12)} " +
-                    "playing=${snapshot.isPlaying} buffering=${snapshot.isBuffering}",
-            )
             requestWidgetUpdate(snapshot)
         }
         if (artworkKey.isNotBlank() && reusableArtwork == null) {
@@ -175,11 +170,6 @@ internal class PlaybackWidgetCoordinator(
                         target.widget.update(appContext, id)
                     }
                 }
-                DiagnosticLog.event(
-                    "PlaybackWidget",
-                    "render-requested widgets=$renderedCount media=${snapshot.mediaId.takeLast(12)} " +
-                        "playing=${snapshot.isPlaying}",
-                )
             }.onFailure { error ->
                 DiagnosticLog.event(
                     "PlaybackWidget",

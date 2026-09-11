@@ -111,53 +111,16 @@ class LibraryRepository internal constructor(
 
     suspend fun loadCached(): CachedLibrary? {
         ensureSongIdentityMigration()
-        val startedMs = SystemClock.elapsedRealtime()
-        DiagnosticLog.event("LibraryDb", "loadCached begin")
-        val metaStartedMs = SystemClock.elapsedRealtime()
         val meta = metaDao.get()
-        DiagnosticLog.event(
-            "LibraryDb",
-            "loadCached meta durMs=${SystemClock.elapsedRealtime() - metaStartedMs} found=${meta != null}",
-        )
         if (meta == null) {
-            DiagnosticLog.event("LibraryDb", "loadCached empty-meta durMs=${SystemClock.elapsedRealtime() - startedMs}")
             return null
         }
-        val queryStartedMs = SystemClock.elapsedRealtime()
         val entities = songDao.getAllSummariesOrdered()
-        DiagnosticLog.event(
-            "LibraryDb",
-            "loadCached songsQuery durMs=${SystemClock.elapsedRealtime() - queryStartedMs} rows=${entities.size}",
-        )
         if (entities.isEmpty()) {
-            DiagnosticLog.event(
-                "LibraryDb",
-                "loadCached empty-songs-active-meta durMs=${SystemClock.elapsedRealtime() - startedMs}",
-            )
         }
-        val albumArtUris = entities.count { !it.albumArtUri.isNullOrBlank() }
-        DiagnosticLog.event(
-            "LibraryDb",
-            "loadCached summaries rows=${entities.size} lyricsPayloads=0 albumArtUris=$albumArtUris",
-        )
-        val mapStartedMs = SystemClock.elapsedRealtime()
         val songs = entities.map { it.toSong() }
-        DiagnosticLog.event(
-            "LibraryDb",
-            "loadCached toSong durMs=${SystemClock.elapsedRealtime() - mapStartedMs} rows=${songs.size}",
-        )
-        val browseStartedMs = SystemClock.elapsedRealtime()
         val artistGroups = browseGroupDao.getArtists().map(BrowseGroupEntity::toBrowseGroup)
         val albumGroups = browseGroupDao.getAlbums().map(BrowseGroupEntity::toBrowseGroup)
-        DiagnosticLog.event(
-            "LibraryDb",
-            "loadCached browse durMs=${SystemClock.elapsedRealtime() - browseStartedMs} " +
-                "artists=${artistGroups.size} albums=${albumGroups.size}",
-        )
-        DiagnosticLog.event(
-            "LibraryDb",
-            "loadCached end durMs=${SystemClock.elapsedRealtime() - startedMs} rows=${songs.size}",
-        )
         return CachedLibrary(
             songs = songs,
             lastScanAtMs = meta.lastScanAtMs,

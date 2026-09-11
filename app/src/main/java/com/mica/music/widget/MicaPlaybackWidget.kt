@@ -340,14 +340,6 @@ open class MicaPlaybackWidget protected constructor(
         val playIconSize = minOf((buttonSize.value * 0.70f).dp, iconLimit)
 
 
-        DiagnosticLog.event(
-            "PlaybackWidget",
-            "artwork-layout size=${size.width.value}x${size.height.value} " +
-                "widthScale=${"%.2f".format(widthScale)} textScale=${"%.2f".format(textScale)} " +
-                "controlArea=${controlAreaHeight.value} overlay=${overlayHeight.value} " +
-                "side=${sideIconSize.value} play=${playIconSize.value} " +
-                "button=${buttonSize.value} gap=${controlGap.value}",
-        )
         ArtworkStyleSurface {
             Column(modifier = GlanceModifier.fillMaxSize()) {
                 ArtworkFill(

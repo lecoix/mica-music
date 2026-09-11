@@ -1,6 +1,5 @@
 package com.mica.music.ui.components
 
-import android.os.SystemClock
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -45,7 +44,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mica.music.data.LibraryFastScrollIndex
 import com.mica.music.ui.theme.MicaTheme
-import com.mica.music.util.DiagnosticLog
 import kotlinx.coroutines.launch
 import kotlin.math.floor
 import kotlin.math.roundToInt
@@ -73,21 +71,7 @@ fun AlphabetFastScroller(
     content: @Composable () -> Unit,
 ) {
     val sectionTargets = remember(labels, sectionTargetsOverride) {
-        sectionTargetsOverride?.also { targets ->
-            DiagnosticLog.event(
-                "LibraryUi",
-                "alphabetSectionTargets cached labels=${labels.size} sections=${targets.size}",
-            )
-        } ?: run {
-            val startedMs = SystemClock.elapsedRealtime()
-            alphabetSectionTargets(labels).also { targets ->
-                DiagnosticLog.event(
-                    "LibraryUi",
-                    "alphabetSectionTargets durMs=${SystemClock.elapsedRealtime() - startedMs} " +
-                        "labels=${labels.size} sections=${targets.size}",
-                )
-            }
-        }
+        sectionTargetsOverride ?: alphabetSectionTargets(labels)
     }
     val sectionLabels = remember(descending) { alphabetFastScrollLabels(descending) }
     val gesturesEnabled = LocalAlphabetFastScrollGesturesEnabled.current

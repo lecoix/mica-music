@@ -379,12 +379,8 @@ class MusicLibrary internal constructor(
     }
 
     /** Schedules non-blocking album-art maintenance against the committed library snapshot. */
-    fun launchAlbumArtCacheMaintenance(reason: String = "background") {
+    fun launchAlbumArtCacheMaintenance() {
         if (backing.released) return
-        DiagnosticLog.event(
-            "AlbumArtCache",
-            "maintenance scheduled reason=$reason songs=${backing.songs.size}",
-        )
         backing.launchAlbumArtCacheMaintenance()
     }
 

@@ -26,7 +26,6 @@ internal object AlbumArtRepairCoordinator {
         reason: String,
     ): AlbumArtRepairPlan? {
         val health = AlbumArtCache.health(context, songs)
-        DiagnosticLog.event("AlbumArtCache", "repair-check reason=$reason ${health.toLogMessage()}")
         if (!health.needsRepair) return null
         val action = actionFor(
             lastScanSource = lastScanSource,
@@ -34,7 +33,7 @@ internal object AlbumArtRepairCoordinator {
             hasAudioReadPermission = hasAudioReadPermission,
         )
         if (action == AlbumArtRepairAction.NoReadableSource) {
-            DiagnosticLog.event("AlbumArtCache", "repair-skip reason=$reason no-readable-source")
+            DiagnosticLog.important("AlbumArtCache", "repair-skip reason=$reason no-readable-source")
         }
         return AlbumArtRepairPlan(reason, health, action)
     }

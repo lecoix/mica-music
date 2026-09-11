@@ -3,7 +3,6 @@ package com.mica.music.data.library
 import android.Manifest
 import android.net.Uri
 import android.os.Build
-import android.os.SystemClock
 import androidx.core.net.toUri
 import com.mica.music.data.LibraryFolderStore
 import com.mica.music.data.preferences.LibraryScanSettings
@@ -152,11 +151,6 @@ internal class LibraryFolderBinding(
         backing.scanEnvironment.hasAudioReadPermission()
 
     fun clearLibrary() {
-        DiagnosticLog.event(
-            "LibraryResume",
-            "clearLibrary start songs=${backing.songs.size} hasScanned=${backing.hasScanned} " +
-                "lastScanAtMs=${backing.lastScanAtMs}",
-        )
         backing.syncScheduler.cancelAll()
         backing.scanJob?.cancel()
         backing.scanJob = null
@@ -170,15 +164,12 @@ internal class LibraryFolderBinding(
     }
 
     private suspend fun publishEmptyLibrarySnapshot() {
-        val startedMs = SystemClock.elapsedRealtime()
         val clearedState = backing.clearedPersistedState()
-        var publishedGeneration: Int? = null
         backing.replaceSnapshotAuthority(
             storeBlock = {
                 backing.libraryStore.clearAuthority(clearedState)
             },
-            publishBlock = { _, generation ->
-                publishedGeneration = generation
+            publishBlock = { _, _ ->
                 backing.restorePersistedState(clearedState)
                 backing.catalog.clearCatalog()
                 backing.hasScanned = false
@@ -188,10 +179,5 @@ internal class LibraryFolderBinding(
                 backing.lastScanSyncSummary = null
             },
         ) ?: return
-        DiagnosticLog.event(
-            "LibraryResume",
-            "clearLibrary storeClear end durMs=${SystemClock.elapsedRealtime() - startedMs} " +
-                "generation=${publishedGeneration ?: backing.scanGeneration}",
-        )
     }
 }

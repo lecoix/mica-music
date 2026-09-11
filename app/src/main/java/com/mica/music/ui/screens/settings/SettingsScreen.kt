@@ -52,16 +52,14 @@ import com.mica.music.data.ArtistSplitConfig
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.preferences.LibraryBrowseSettings
 import com.mica.music.data.preferences.AudioOffloadPreferences
+import com.mica.music.data.preferences.DetailedDiagnosticsPreferences
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.MicaTheme
 import com.mica.music.ui.theme.micaAppBackground
-import com.mica.music.util.DiagnosticLog
-import com.mica.music.util.logBackFlow
 import com.mica.music.util.openAppSettings
+import com.mica.music.util.DiagnosticLog
 import kotlinx.coroutines.launch
-
-private const val BackRootDebugTag = "DEBUG-BACK-ROOT-1A2B"
 
 @Composable
 fun SettingsScreen(
@@ -97,6 +95,7 @@ fun SettingsScreen(
     var settingsSearchOpen by remember { mutableStateOf(false) }
     var settingsSearchQuery by remember { mutableStateOf("") }
     var audioOffloadState by remember { mutableStateOf(AudioOffloadPreferences.state(context)) }
+    var detailedDiagnostics by remember { mutableStateOf(DetailedDiagnosticsPreferences.state(context)) }
     val settingsSubpageBackEnabled =
         (usbHybridSubpageOpen && !playerOverlayOpen) ||
             (remoteMusicSubpageOpen && !playerOverlayOpen) ||
@@ -126,60 +125,23 @@ fun SettingsScreen(
         settingsSearchOpen = false
         settingsSearchQuery = ""
     }
-
-    LaunchedEffect(
-        selectedCategory,
-        usbHybridSubpageOpen,
-        remoteMusicSubpageOpen,
-        externalLyricsSubpageOpen,
-        playerOverlayOpen,
-        settingsBackEnabled,
-        settingsSearchOpen,
-    ) {
-        logBackFlow(
-            "page settings category=${selectedCategory?.name ?: "none"} " +
-                "usbHybrid=$usbHybridSubpageOpen " +
-                "playerOverlayOpen=$playerOverlayOpen searchOpen=$settingsSearchOpen " +
-                "backEnabled=$settingsBackEnabled",
-        )
-        DiagnosticLog.event(
-            "BackRoot",
-            "$BackRootDebugTag settings-state category=${selectedCategory?.name ?: "none"} " +
-                "usbHybrid=$usbHybridSubpageOpen " +
-                "playerOverlayOpen=$playerOverlayOpen searchOpen=$settingsSearchOpen " +
-                "enabled=$settingsBackEnabled",
-        )
-    }
-
     BackHandler(enabled = settingsBackEnabled) {
         if (settingsSearchBackEnabled) {
             closeSettingsSearch()
             return@BackHandler
         }
         if (usbHybridSubpageOpen) {
-            logBackFlow("back-consume source=settings-usb-hybrid")
             usbHybridSubpageOpen = false
             return@BackHandler
         }
         if (remoteMusicSubpageOpen) {
-            logBackFlow("back-consume source=settings-remote-music")
             remoteMusicSubpageOpen = false
             return@BackHandler
         }
         if (externalLyricsSubpageOpen) {
-            logBackFlow("back-consume source=settings-external-lyrics")
             externalLyricsSubpageOpen = false
             return@BackHandler
         }
-        logBackFlow(
-            "back-consume source=settings-subpage category=${selectedCategory?.name ?: "none"} " +
-                "playerOverlayOpen=$playerOverlayOpen",
-        )
-        DiagnosticLog.event(
-            "BackRoot",
-            "$BackRootDebugTag settings-consume category=${selectedCategory?.name ?: "none"} " +
-                "playerOverlayOpen=$playerOverlayOpen",
-        )
         selectedCategory = consumeSettingsBack(selectedCategory)
     }
 
@@ -249,25 +211,18 @@ fun SettingsScreen(
                     if (selectedCategory == null && settingsSearchOpen) {
                         closeSettingsSearch()
                     } else if (usbHybridSubpageOpen) {
-                        logBackFlow("back-consume source=settings-topbar-usb-hybrid")
                         usbHybridSubpageOpen = false
                     } else if (remoteMusicSubpageOpen) {
-                        logBackFlow("back-consume source=settings-topbar-remote-music")
                         remoteMusicSubpageOpen = false
                     } else if (externalLyricsSubpageOpen) {
-                        logBackFlow("back-consume source=settings-topbar-external-lyrics")
                         externalLyricsSubpageOpen = false
                     } else {
                         when (resolveSettingsTopBarBackAction(selectedCategory)) {
                             SettingsTopBarBackAction.ExitSettings -> {
-                                logBackFlow("back-consume source=settings-topbar category=none")
                                 onBack()
                             }
 
                             SettingsTopBarBackAction.PopCategory -> {
-                                logBackFlow(
-                                    "back-consume source=settings-topbar category=${selectedCategory?.name}",
-                                )
                                 selectedCategory = consumeSettingsBack(selectedCategory)
                             }
                         }
@@ -363,12 +318,10 @@ fun SettingsScreen(
                         showUsageTutorial = true
                     },
                     onOpenEqualizer = {
-                        logBackFlow("nav-action open-equalizer from=settings-search")
                         closeSettingsSearch()
                         onOpenEqualizer()
                     },
                     onSelectCategory = { category ->
-                        logBackFlow("page-action settings-open-category category=${category.name}")
                         closeSettingsSearch()
                         selectedCategory = category
                     },
@@ -463,6 +416,12 @@ fun SettingsScreen(
                             onAudioOffloadChanged = { enabled ->
                                 AudioOffloadPreferences.setEnabled(context, enabled)
                                 audioOffloadState = AudioOffloadPreferences.state(context)
+                            },
+                            detailedDiagnostics = detailedDiagnostics,
+                            onDetailedDiagnosticsChanged = { updated ->
+                                detailedDiagnostics = updated
+                                DetailedDiagnosticsPreferences.setState(context, updated)
+                                DiagnosticLog.configureDetailedDiagnostics(updated)
                             },
                             onOpenMetadataDebug = onOpenMetadataDebug,
                             onOpenSpatialAudio = onOpenSpatialAudio,

@@ -18,7 +18,6 @@ import kotlinx.coroutines.CancellationException
 internal object ExternalLyricsReader {
 
     internal const val MAX_EXTERNAL_LYRICS_BYTES = 10 * 1024 * 1024
-    private const val LYRICS_TRACE = "DEBUG-LYRICS-7C31"
     private val sidecarExtensions = listOf("lrc", "ttml")
 
     fun readDirectUris(context: Context, uriStrings: List<String>): List<LyricLine>? =
@@ -26,14 +25,8 @@ internal object ExternalLyricsReader {
 
     fun readDirectDocuments(context: Context, uriStrings: List<String>): LyricsDocument? {
         if (uriStrings.isEmpty()) return null
-        DiagnosticLog.event(LYRICS_TRACE, "direct-read start uris=${uriStrings.size}")
         val candidates = uriStrings.mapNotNull { readLyricsByUri(context, it) }
         val selected = LyricsSanitizer.pickBestDocument(candidates)
-        DiagnosticLog.event(
-            LYRICS_TRACE,
-            "direct-read finish candidates=${candidates.size} selectedLines=${selected?.lines?.size ?: 0} " +
-                "selectedTokens=${selected?.lines?.sumOf { it.tokens.size } ?: 0}",
-        )
         return selected
     }
 
@@ -199,37 +192,24 @@ internal object ExternalLyricsReader {
 
     private fun readLyricsByUri(context: Context, uriString: String?): LyricsDocument? {
         if (uriString.isNullOrBlank()) {
-            DiagnosticLog.event(LYRICS_TRACE, "uri-read rejected blank-uri")
             return null
         }
         val uri = runCatching { Uri.parse(uriString) }.getOrNull()
         if (uri == null) {
-            DiagnosticLog.event(LYRICS_TRACE, "uri-read rejected invalid-uri=$uriString")
             return null
         }
         return runCatching {
             val stream = context.contentResolver.openInputStream(uri)
             if (stream == null) {
-                DiagnosticLog.event(LYRICS_TRACE, "uri-read open-null uri=$uri")
                 return@runCatching null
             }
             stream.use {
                 val bytes = readBoundedLyricsBytes(it) ?: return@runCatching null
                 val decoded = decodeLyricsBytes(bytes)
                 val parsed = parseLyricsFile(decoded)
-                DiagnosticLog.event(
-                    LYRICS_TRACE,
-                    "uri-read parsed uri=$uri bytes=${bytes.size} chars=${decoded.length} " +
-                        "format=${if (TtmlLyricsParser.looksLikeTtml(decoded)) "ttml" else "text"} " +
-                        "lines=${parsed?.lines?.size ?: 0} tokens=${parsed?.lines?.sumOf { line -> line.tokens.size } ?: 0}",
-                )
                 parsed
             }
         }.onFailure { error ->
-            DiagnosticLog.event(
-                LYRICS_TRACE,
-                "uri-read failed uri=$uri error=${error.javaClass.simpleName}:${error.message.orEmpty().take(160)}",
-            )
         }.getOrNull()
     }
 

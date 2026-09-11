@@ -1,7 +1,6 @@
 package com.mica.music
 
 import android.app.Application
-import android.os.SystemClock
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.mica.music.data.AppUiSettings
@@ -18,7 +17,6 @@ import com.mica.music.data.scanner.CoverColorPersistence
 import com.mica.music.playback.asLibraryPlaybackQueueTarget
 import com.mica.music.data.preferences.LibraryBrowseSettings
 import com.mica.music.playback.toLibraryQueueSyncInput
-import com.mica.music.util.DiagnosticLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -89,8 +87,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         viewModelScope.launch {
-            val startupStartedMs = SystemClock.elapsedRealtime()
-            DiagnosticLog.event("LibraryStartup", "loadCached start")
             val startupBrowseTarget = when (LibraryBrowseSettings.lastHomeSection(application)) {
                 "Artists" -> StartupBrowseTarget.ARTISTS
                 "Albums" -> StartupBrowseTarget.ALBUMS
@@ -102,12 +98,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             playlistStore.reloadFromStorage()
             libraryFollowupConsumer.drainToTail()
             val songs = library.songs
-            DiagnosticLog.event(
-                "LibraryStartup",
-                "loadCached returned durMs=${SystemClock.elapsedRealtime() - startupStartedMs} " +
-                    "songs=${songs.size} hasScanned=${library.hasScanned}",
-            )
-            library.launchAlbumArtCacheMaintenance("startup")
+            library.launchAlbumArtCacheMaintenance()
             if (songs.isNotEmpty()) {
                 library.launchArtworkCacheRepairIfNeeded("startup")
             }

@@ -25,6 +25,7 @@ internal object WindowInteractionDiagnostics {
         overlayFullScreen: Boolean,
         overlayView: View? = null,
     ) {
+        if (!DiagnosticLog.isDetailedEnabled(DiagnosticDetailDomain.UI_RENDERING)) return
         val config = activity.resources.configuration
         val decor = activity.window.decorView
         val overlayLayout = overlayView?.layoutParams
@@ -86,6 +87,7 @@ internal object WindowInteractionDiagnostics {
         showFullPlayer: Boolean,
         underlayOccluded: Boolean,
     ) {
+        if (!DiagnosticLog.isDetailedEnabled(DiagnosticDetailDomain.UI_RENDERING)) return
         val progressBucket = (progress * 100f).toInt()
         val key = buildString {
             append(viewportWidthDp)

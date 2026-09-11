@@ -1,10 +1,11 @@
 package com.mica.music.media
 
+import com.mica.music.util.DiagnosticDetailDomain
 import com.mica.music.util.DiagnosticLog
 
 /**
  * Immediate, threshold-based PCM pipeline events for spectrum stall diagnosis.
- * Fires rarely (only on gaps/starvation/bursts) so always writes to [DiagnosticLog].
+ * Runs only while detailed audio diagnostics are enabled; emits threshold-based gap/starvation/burst events.
  */
 internal object SpectrumPcmPipelineDiagnostics {
     private const val UpstreamGapThresholdMs = 200L
@@ -22,6 +23,7 @@ internal object SpectrumPcmPipelineDiagnostics {
         inFlightRetry: Boolean,
         consecutiveInnerRejects: Int,
     ) {
+        if (!DiagnosticLog.isDetailedEnabled(DiagnosticDetailDomain.AUDIO_PIPELINE)) return
         if (gapMs < UpstreamGapThresholdMs) return
         DiagnosticLog.event(
             "FloatDspSink",
@@ -36,6 +38,7 @@ internal object SpectrumPcmPipelineDiagnostics {
     }
 
     fun onFloatDspPassthroughWhileAnalysisExpected(reason: String) {
+        if (!DiagnosticLog.isDetailedEnabled(DiagnosticDetailDomain.AUDIO_PIPELINE)) return
         if (!MicaSpectrumAnalyzer.isAnalysisActive()) return
         DiagnosticLog.event(
             "FloatDspSink",
@@ -46,6 +49,7 @@ internal object SpectrumPcmPipelineDiagnostics {
     }
 
     fun onFloatDspInnerReject(streak: Int, mode: String, bufferBytes: Int, presentationTimeUs: Long) {
+        if (!DiagnosticLog.isDetailedEnabled(DiagnosticDetailDomain.AUDIO_PIPELINE)) return
         if (streak < InnerRejectLogThreshold) return
         DiagnosticLog.event(
             "FloatDspSink",
@@ -55,16 +59,9 @@ internal object SpectrumPcmPipelineDiagnostics {
         )
     }
 
-    fun onFloatDspFlush() {
-        DiagnosticLog.event(
-            "FloatDspSink",
-            "flush analysisActive=${MicaSpectrumAnalyzer.isAnalysisActive()} " +
-                "playbackAdvancing=${MicaSpectrumAnalyzer.isPlaybackAdvancing()} " +
-                "queuedSamples=${MicaSpectrumAnalyzer.queuedPcmSampleCount()}",
-        )
-    }
 
     fun onAnalyzerStarvation(durationMs: Long, sampleRateHz: Int) {
+        if (!DiagnosticLog.isDetailedEnabled(DiagnosticDetailDomain.AUDIO_PIPELINE)) return
         if (durationMs < AnalyzerStarvationThresholdMs) return
         DiagnosticLog.event(
             "Spectrum",
@@ -81,6 +78,7 @@ internal object SpectrumPcmPipelineDiagnostics {
         offeredSamples: Int,
         sampleRateHz: Int,
     ) {
+        if (!DiagnosticLog.isDetailedEnabled(DiagnosticDetailDomain.AUDIO_PIPELINE)) return
         val delta = queuedSamples - previousQueuedSamples
         if (queuedSamples < QueueBurstAbsoluteSamples && delta < QueueBurstDeltaSamples) return
         DiagnosticLog.event(

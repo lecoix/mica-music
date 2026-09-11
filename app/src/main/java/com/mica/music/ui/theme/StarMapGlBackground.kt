@@ -189,7 +189,7 @@ private class StarMapRenderThread(
     override fun run() {
         try {
             if (!initEgl()) {
-                DiagnosticLog.event("StarMapGl", "egl-init-failed")
+                DiagnosticLog.important("StarMapGl", "egl-init-failed")
                 return
             }
             renderer.onSurfaceCreated()
@@ -220,7 +220,7 @@ private class StarMapRenderThread(
 
                 val transitionActive = renderer.render()
                 if (!EGL14.eglSwapBuffers(eglDisplay, eglSurface)) {
-                    DiagnosticLog.event(
+                    DiagnosticLog.important(
                         "StarMapGl",
                         "egl-swap-failed error=${EGL14.eglGetError()}",
                     )
@@ -240,7 +240,7 @@ private class StarMapRenderThread(
                 }
             }
         } catch (throwable: Throwable) {
-            DiagnosticLog.event("StarMapGl", "renderer-stopped", throwable)
+            DiagnosticLog.important("StarMapGl", "renderer-stopped", throwable)
         } finally {
             renderer.release()
             releaseEgl()
@@ -498,7 +498,6 @@ private object StarMapCatalogCache {
     }
 
     private fun load(assetManager: AssetManager): StarMapCatalog {
-        val started = SystemClock.elapsedRealtime()
         return runCatching {
             val starRoot = JSONObject(assetManager.readUtf8Text("star_map/stars.6.json"))
             val starFeatures = starRoot.getJSONArray("features")
@@ -586,15 +585,9 @@ private object StarMapCatalogCache {
                 lines = lines,
                 constellations = constellations,
             ).also {
-                DiagnosticLog.event(
-                    "StarMapGl",
-                    "catalog-loaded stars=${it.stars.size} lines=${it.lines.size} " +
-                        "constellations=${it.constellations.size} " +
-                        "ms=${SystemClock.elapsedRealtime() - started}",
-                )
             }
         }.getOrElse { throwable ->
-            DiagnosticLog.event("StarMapGl", "catalog-load-failed", throwable)
+            DiagnosticLog.important("StarMapGl", "catalog-load-failed", throwable)
             StarMapCatalog(emptyList(), emptyList(), emptyList())
         }
     }
@@ -1082,7 +1075,6 @@ private object StarMapSceneProjector {
         width: Int,
         height: Int,
     ): StarMapProjectionCandidates {
-        val started = SystemClock.elapsedRealtime()
         val aspect = (width.toFloat() / height.coerceAtLeast(1).toFloat())
             .coerceAtLeast(0.30f)
         val verticalTangent =
@@ -1160,13 +1152,6 @@ private object StarMapSceneProjector {
             primarySkeletonDirections = primarySkeletonDirections,
             neighborSkeletonDirections = neighborSkeletonDirections,
         ).also {
-            DiagnosticLog.event(
-                "StarMapGl",
-                "transition-candidates stars=${it.stars.size}/${catalog.stars.size} " +
-                    "lines=${it.lines.size}/${catalog.lines.size} " +
-                    "samples=$TransitionCandidateSamples " +
-                    "ms=${SystemClock.elapsedRealtime() - started}",
-            )
         }
     }
 
@@ -1424,11 +1409,6 @@ private class StarMapRenderer(
         solarAlphaLocation = GLES20.glGetUniformLocation(solarProgram, "uGlobalAlpha")
 
         startMs = SystemClock.uptimeMillis()
-        DiagnosticLog.event(
-            "StarMapGl",
-            "surface-created vendor=${GLES20.glGetString(GLES20.GL_VENDOR)} " +
-                "renderer=${GLES20.glGetString(GLES20.GL_RENDERER)}",
-        )
     }
 
     fun onSurfaceChanged(newWidth: Int, newHeight: Int) {
@@ -1477,13 +1457,6 @@ private class StarMapRenderer(
             previousAccent = nextAccent.copyOf()
             currentAccent = nextAccent
             transitionStartMs = nowMs - StarMapTransitionMs
-            DiagnosticLog.event(
-                "StarMapGl",
-                "scene key=${request.key.takeLast(12)} " +
-                    "target=${request.featuredSolarBodyId?.name ?: request.primaryConstellationId} " +
-                    "context=${request.primaryConstellationId} " +
-                    "seasonalDistance=${request.seasonalDistanceDeg.toInt()}deg mode=spherical-camera",
-            )
             return
         }
 
@@ -1498,15 +1471,6 @@ private class StarMapRenderer(
         currentAccent = nextAccent
         transitionStartMs = nowMs
 
-        DiagnosticLog.event(
-            "StarMapGl",
-            "camera-move key=${request.key.takeLast(12)} " +
-                "from=${fromPrimaryConstellationId} " +
-                "target=${request.featuredSolarBodyId?.name ?: request.primaryConstellationId} " +
-                "context=${request.primaryConstellationId} " +
-                "seasonalDistance=${request.seasonalDistanceDeg.toInt()}deg " +
-                "mode=quaternion-slerp",
-        )
     }
 
     fun render(): Boolean {
@@ -1578,11 +1542,6 @@ private class StarMapRenderer(
             val visibleKey = solarBodies.joinToString(",") { it.id.name }
             if (visibleKey != lastVisibleSolarBodies) {
                 lastVisibleSolarBodies = visibleKey
-                DiagnosticLog.event(
-                    "StarMapGl",
-                    "solar-visible bodies=${visibleKey.ifBlank { "none" }} " +
-                        "featured=${request.featuredSolarBodyId?.name ?: "none"}",
-                )
             }
         }
 
@@ -1671,10 +1630,6 @@ private class StarMapRenderer(
             solarSystemBucket = bucket
             solarSystemStates = SolarSystemEphemeris.compute(epochMillis)
             cachedStaticSolarBodies = null
-            DiagnosticLog.event(
-                "StarMapGl",
-                "solar-ephemeris bodies=${solarSystemStates.size} bucket=$bucket",
-            )
         }
         return solarSystemStates
     }

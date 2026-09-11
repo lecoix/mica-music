@@ -327,7 +327,7 @@ class PlaylistStore(context: Context) {
                         repository.replaceAll(legacy.getOrThrow())
                         preferences.edit().putBoolean(KEY_ROOM_MIGRATION_COMPLETE, true).commit()
                     } else {
-                        DiagnosticLog.event(
+                        DiagnosticLog.important(
                             "PlaylistStore",
                             "legacy-migration-failed error=${legacy.exceptionOrNull()?.javaClass?.simpleName}",
                         )
@@ -353,7 +353,7 @@ class PlaylistStore(context: Context) {
     ): Boolean = runCatching {
         runBlocking(Dispatchers.IO) { repository.block() }
     }.onFailure { error ->
-        DiagnosticLog.event(
+        DiagnosticLog.important(
             "PlaylistStore",
             "write-failed operation=$operation error=${error.javaClass.simpleName}",
         )

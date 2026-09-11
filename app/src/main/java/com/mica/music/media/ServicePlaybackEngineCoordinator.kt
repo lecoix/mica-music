@@ -29,7 +29,7 @@ internal class ServicePlaybackEngineCoordinator(
         player.removeListener(this)
         player.playbackCoordinator = null
         MicaSpectrumAnalyzer.setPlaybackAdvancing(false)
-        MicaSpectrumAnalyzer.resetBufferedPcm("service-release")
+        MicaSpectrumAnalyzer.resetBufferedPcm()
         onPlaybackFailure = null
         onPlaybackBoundary = null
         onMusicVideoFallback = null
@@ -78,11 +78,6 @@ internal class ServicePlaybackEngineCoordinator(
 
         val alignedIndex = alignedPendingNavigationIndex(override)
         if (alignedIndex != null) {
-            DiagnosticLog.event(
-                "QueueSync",
-                "pending-navigation reused-service-playlist items=${override.queue.items.size} " +
-                    "index=$alignedIndex song=${override.targetSongId ?: "none"}",
-            )
             startExistingAt(alignedIndex, positionMs.coerceAtLeast(0L), player.playWhenReady)
             return
         }
@@ -209,7 +204,7 @@ internal class ServicePlaybackEngineCoordinator(
         newPosition: Player.PositionInfo,
         reason: Int,
     ) {
-        MicaSpectrumAnalyzer.resetBufferedPcm("position-discontinuity=$reason")
+        MicaSpectrumAnalyzer.resetBufferedPcm()
         if (reason != Player.DISCONTINUITY_REASON_AUTO_TRANSITION) return
         onPlaybackBoundary?.invoke(
             ConfirmedPlaybackBoundary(
@@ -255,20 +250,11 @@ internal class ServicePlaybackEngineCoordinator(
                 )
                 return
             }
-            is PlaybackRouteDecision.Supported -> {
-                DiagnosticLog.event(
-                    "PlaybackEngine",
-                    "route=${route.reason} song=${song.id}",
-                )
-            }
+            is PlaybackRouteDecision.Supported -> Unit
         }
-        val request = requestState.begin(
+        requestState.begin(
             song,
             positionMs,
-        )
-        DiagnosticLog.event(
-            "PlaybackEngine",
-            "start request=${request.id} source=${request.sourceRevision}",
         )
         logDeliveryProbe(song)
         player.startExoPlayback(items, index, positionMs, playWhenReady = playWhenReady)
@@ -291,10 +277,6 @@ internal class ServicePlaybackEngineCoordinator(
                 )
             }
             is PlaybackRouteDecision.Supported -> {
-                DiagnosticLog.event(
-                    "PlaybackEngine",
-                    "auto-transition route=${route.reason} song=${song.id}",
-                )
                 requestState.begin(song, position)
                 logDeliveryProbe(song)
             }
@@ -319,10 +301,6 @@ internal class ServicePlaybackEngineCoordinator(
         val playbackHealthy = player.isPlaying || player.playbackState == Player.STATE_BUFFERING
         if (duplicateRequest && playbackHealthy) {
             if (player.currentMediaItemIndex != safe) player.setPlaylistIndex(safe)
-            DiagnosticLog.event(
-                "PlaybackEngine",
-                "start-existing ignored duplicate index=$safe song=${song.id} request=${active.id}",
-            )
             return
         }
         when (val route = PlaybackRouter.decide(song)) {
@@ -342,20 +320,11 @@ internal class ServicePlaybackEngineCoordinator(
                 )
                 return
             }
-            is PlaybackRouteDecision.Supported -> {
-                DiagnosticLog.event(
-                    "PlaybackEngine",
-                    "route=${route.reason} song=${song.id} existing-playlist=true",
-                )
-            }
+            is PlaybackRouteDecision.Supported -> Unit
         }
-        val request = requestState.begin(
+        requestState.begin(
             song,
             position,
-        )
-        DiagnosticLog.event(
-            "PlaybackEngine",
-            "start-existing request=${request.id} index=$safe source=${request.sourceRevision}",
         )
         logDeliveryProbe(song)
         player.startExistingItem(safe, position, playWhenReady)
@@ -406,11 +375,6 @@ internal class ServicePlaybackEngineCoordinator(
             if (player.currentMediaItemIndex != safe) {
                 player.setPlaylistIndex(safe)
             }
-            DiagnosticLog.event(
-                "PlaybackEngine",
-                "startAt ignored duplicate requested=$index resolved=$safe " +
-                    "song=${song.id} request=${active.id}",
-            )
             return
         }
         if (isDuplicateRequest && player.playWhenReady && !playbackHealthy) {
@@ -420,12 +384,6 @@ internal class ServicePlaybackEngineCoordinator(
                     "resolved=$safe song=${song.id} request=${active.id}",
             )
         }
-        DiagnosticLog.event(
-            "PlaybackEngine",
-            "startAt requested=$index resolved=$safe song=${song.id} " +
-                "preferred=${preferredMediaId ?: "none"} queueRevision=${queue.revision} " +
-                "items=${queue.items.size}",
-        )
         start(song, safe, position, playWhenReady = playWhenReady, queue = queue)
     }
 

@@ -1,6 +1,5 @@
 package com.mica.music.data.library
 
-import android.os.SystemClock
 import com.mica.music.data.AlbumBrowseSortField
 import com.mica.music.data.ArtistBrowseSortField
 import com.mica.music.data.ArtistNames
@@ -35,28 +34,15 @@ internal class LibraryCacheLoader(
 
     suspend fun loadCachedLibrary(target: StartupBrowseTarget): CachedBrowsePresentations? {
         if (backing.released || backing.hasScanned || backing.isScanning) {
-            DiagnosticLog.event(
-                "LibraryLoad",
-                "loadCached skipped released=${backing.released} hasScanned=${backing.hasScanned} " +
-                    "isScanning=${backing.isScanning}",
-            )
             return null
         }
         // Claim a publication generation so a concurrent scan/clear can invalidate this hydrate.
         val generation = ++backing.scanGeneration
-        val startedMs = SystemClock.elapsedRealtime()
-        DiagnosticLog.event("LibraryLoad", "loadCached begin generation=$generation")
         backing.isLoadingCachedLibrary = true
         try {
-            val dbStartedMs = SystemClock.elapsedRealtime()
             val (persistedState, cached) = withContext(backing.ioDispatcher) {
                 backing.libraryStore.loadLibraryState() to backing.libraryStore.loadCached()
             }
-            DiagnosticLog.event(
-                "LibraryLoad",
-                "loadCached db durMs=${SystemClock.elapsedRealtime() - dbStartedMs} songs=${cached?.songs?.size ?: 0} " +
-                    "intent=${persistedState?.intent}",
-            )
             if (persistedState?.intent == LibraryIntentState.CLEARED_BY_USER) {
                 backing.withPublicationGenerationIfCurrent(generation) {
                     backing.restorePersistedState(persistedState)
@@ -65,10 +51,6 @@ internal class LibraryCacheLoader(
                     backing.totalSizeMb = 0
                     backing.lastScanAtMs = null
                 }
-                DiagnosticLog.event(
-                    "LibraryLoad",
-                    "loadCached suppressed by CLEARED_BY_USER durMs=${SystemClock.elapsedRealtime() - startedMs}",
-                )
                 return null
             }
             if (cached == null) {
@@ -77,7 +59,6 @@ internal class LibraryCacheLoader(
                         backing.restorePersistedState(state)
                     }
                 }
-                DiagnosticLog.event("LibraryLoad", "loadCached empty durMs=${SystemClock.elapsedRealtime() - startedMs}")
                 return null
             }
             val effectiveState = persistedState ?: legacyActiveState(cached)
@@ -191,19 +172,6 @@ internal class LibraryCacheLoader(
             if (!sortCanUseStoredOrder || cached.fastScrollSectionTargets == null) {
                 catalog.persistPresentationAsync()
             }
-            DiagnosticLog.event(
-                "LibraryLoad",
-                "loadCached end durMs=${SystemClock.elapsedRealtime() - startedMs} " +
-                    "songs=${backing.songs.size} sizeMb=${backing.totalSizeMb} source=${backing.lastScanSource} " +
-                    "cachedOrder=$sortCanUseStoredOrder generation=$generation",
-            )
-            DiagnosticLog.event(
-                "LibraryLoad",
-                "loadCached browseCache=${if (browseCacheValid) "hit" else "miss"} target=$target " +
-                    "artistSnapshot=$artistSnapshotHit albumSnapshot=$albumSnapshotHit " +
-                    "artists=${cachedBrowse?.artists?.groups?.size ?: 0} " +
-                    "albums=${cachedBrowse?.albums?.groups?.size ?: 0}",
-            )
             return cachedBrowse
         } finally {
             backing.isLoadingCachedLibrary = false

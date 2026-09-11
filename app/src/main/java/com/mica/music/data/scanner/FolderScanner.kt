@@ -37,7 +37,6 @@ import kotlin.coroutines.resumeWithException
 internal object FolderScanner {
 
     private const val PROBE_PARALLELISM = MediaStoreScanner.PROBE_PARALLELISM
-    private const val LYRICS_TRACE = "DEBUG-LYRICS-7C31"
 
     /**
      * One process-wide lane for automatic SAF metadata queries.
@@ -374,12 +373,6 @@ internal object FolderScanner {
             lyricsKey(entry.folderPath, entry.name.substringBeforeLast('.').trim())
         }
         val matchedLyrics = lyricFiles.filter { lyricsKey(it.folderPath, it.baseName) in audioKeys }
-        DiagnosticLog.event(
-            LYRICS_TRACE,
-            "folder-index audio=${files.size} sidecars=${lyricFiles.size} " +
-                "matched=${matchedLyrics.size} query=$loadedByQuery; " +
-                "sidecarEntries=${lyricFiles.take(20).joinToString(" | ") { "${it.folderPath}/${it.baseName} uri=${it.uri}" }}",
-        )
         val drafts = mutableListOf<TrackDraft>()
         val scannedAt = System.currentTimeMillis()
         for (entry in files) {
@@ -404,11 +397,6 @@ internal object FolderScanner {
             val typedExternalLyricsRefs = externalLyricsRefs.toExternalLyricsRefs()
             val externalLyricsUris = typedExternalLyricsRefs.externalLyricsUris()
             if (externalLyricsUris.isNotEmpty()) {
-                DiagnosticLog.event(
-                    LYRICS_TRACE,
-                    "folder-pair audio=${entry.folderPath}/$name sidecars=${externalLyricsUris.size} " +
-                        "uris=${externalLyricsUris.joinToString()}",
-                )
             }
             val size = entry.sizeBytes
             val modifiedMs = entry.lastModifiedMs.coerceAtLeast(0L)

@@ -137,7 +137,7 @@ internal class ServicePlaybackStateCoordinator(
         val restore = ServicePlaybackRestoreResolver.resolve(snapshot, songIds)
         if (restore == null) {
             store.clear()
-            DiagnosticLog.event("PlaybackRestore", "saved song missing; discarded service snapshot")
+            DiagnosticLog.important("PlaybackRestore", "saved song missing; discarded service snapshot")
             return false
         }
         player.repeatMode = restore.repeatMode

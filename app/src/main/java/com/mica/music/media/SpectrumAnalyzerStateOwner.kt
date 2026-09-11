@@ -4,7 +4,6 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.mica.music.data.preferences.MicaSettingsStore
 import com.mica.music.data.preferences.PlaybackUiPreferences
-import com.mica.music.util.DiagnosticLog
 
 internal class SpectrumAnalyzerStateOwner(context: Context) {
     private val appContext = context.applicationContext
@@ -39,9 +38,5 @@ internal class SpectrumAnalyzerStateOwner(context: Context) {
     private fun apply(notifyPipeline: Boolean) {
         currentEnabled = PlaybackUiPreferences.spectrumTapEnabled(appContext)
         MicaSpectrumAnalyzer.setEnabled(currentEnabled, notifyPipeline = notifyPipeline)
-        DiagnosticLog.event(
-            "Spectrum",
-            "preference-applied enabled=$currentEnabled notifyPipeline=$notifyPipeline",
-        )
     }
 }

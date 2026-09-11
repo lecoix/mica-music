@@ -125,7 +125,6 @@ internal class LibraryCatalogPublisher(
         }
 
     fun applyCurrentSort(diagnosticReason: String? = null) {
-        val startedMs = SystemClock.elapsedRealtime()
         val presentation = LibraryPresentationBuilder.prepare(
             scannedSongs,
             backing.sortField,
@@ -134,14 +133,6 @@ internal class LibraryCatalogPublisher(
         )
         publishVisibleSongs(presentation.visible, presentation.fastScrollIndex)
         persistCustomOrderIfNeeded(presentation.visible)
-        if (diagnosticReason != null) {
-            DiagnosticLog.event(
-                "LibraryLoad",
-                "$diagnosticReason sort+publish durMs=${SystemClock.elapsedRealtime() - startedMs} " +
-                    "raw=${scannedSongs.size} visible=${backing.songs.size} " +
-                    "sort=${backing.sortField}/${backing.sortDirection}",
-            )
-        }
     }
 
     fun persistSongsAsync() {

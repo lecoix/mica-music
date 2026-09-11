@@ -83,11 +83,6 @@ internal class PlaybackQueueMirrorCoordinator(
             val mirrored = build.songs
             if (mirrored == null || build.signature == lastOrderSignature) {
                 syncIndex()
-                log(
-                    "mirror-rebuild-skipped",
-                    mirrorStartedNs,
-                    "playerItems=${items.size} reason=same-order",
-                )
                 return@launch
             }
             if (mirrored.isEmpty() || mirrored.size != items.size) {
@@ -101,11 +96,6 @@ internal class PlaybackQueueMirrorCoordinator(
             applyMirrored(mirrored, player.currentMediaItemIndex)
             lastOrderSignature = build.signature
             syncIndex()
-            log(
-                "mirror-rebuild",
-                mirrorStartedNs,
-                "playerItems=${items.size} resolved=${mirrored.size} mode=debounced",
-            )
         }
     }
 

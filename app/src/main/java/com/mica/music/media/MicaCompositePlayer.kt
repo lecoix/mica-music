@@ -1,6 +1,5 @@
 package com.mica.music.media
 
-import android.os.SystemClock
 import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackParameters
@@ -8,7 +7,6 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import com.mica.music.util.DiagnosticLog
-import java.util.Locale
 
 data class PlaybackQueueSnapshot(
     val items: List<MediaItem>,
@@ -46,7 +44,7 @@ class MicaCompositePlayer(
 
     private fun rejectRetiredCommand(command: String): Boolean {
         if (!retiredForReplacement) return false
-        DiagnosticLog.event(
+        DiagnosticLog.important(
             "PlaybackStack",
             "retired-command-dropped player=${System.identityHashCode(this)} command=$command",
         )
@@ -120,19 +118,10 @@ class MicaCompositePlayer(
         if (switchingItem && exoPlayer.playbackState != Player.STATE_IDLE) {
             exoPlayer.stop()
         }
-        val prevItems = mediaItemCount
-        val setStartedNs = SystemClock.elapsedRealtimeNanos()
         beforePlaybackStart()
         exoPlayer.setMediaItems(mediaItems, safeIndex, startPositionMs.coerceAtLeast(0L))
         exoPlayer.prepare()
         exoPlayer.playWhenReady = playWhenReady
-        val setMs = (SystemClock.elapsedRealtimeNanos() - setStartedNs) / 1_000_000.0
-        DiagnosticLog.event(
-            "QueueSync",
-            "exo-setMediaItems durMs=${String.format(Locale.US, "%.2f", setMs)} " +
-                "items=${mediaItems.size} index=$safeIndex switching=$switchingItem " +
-                "prevItems=$prevItems",
-        )
     }
 
     /** Switches within the existing Exo playlist without rebuilding its timeline. */
@@ -149,10 +138,6 @@ class MicaCompositePlayer(
         exoPlayer.seekTo(safeIndex, positionMs.coerceAtLeast(0L))
         if (exoPlayer.playbackState == Player.STATE_IDLE) exoPlayer.prepare()
         exoPlayer.playWhenReady = playWhenReady
-        DiagnosticLog.event(
-            "QueueSync",
-            "exo-seek-existing index=$safeIndex items=${exoPlayer.mediaItemCount}",
-        )
     }
 
     /** Selects an unsupported item already present in Exo without rebuilding the playlist. */

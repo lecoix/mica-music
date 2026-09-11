@@ -1,11 +1,9 @@
 package com.mica.music.data.library
 
-import android.os.SystemClock
 import com.mica.music.data.DEFAULT_LYRICS_SLOT_PRIORITY
 import com.mica.music.data.LyricsSlot
 import com.mica.music.data.SharedLyricsMemoryCache
 import com.mica.music.data.Song
-import com.mica.music.util.DiagnosticLog
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -21,15 +19,8 @@ internal class LibraryLyricsHydrator(
         val priorityRevision = priority.joinToString(separator = ",", transform = LyricsSlot::name)
         val cacheRevision = "${song.lyricsCacheRevision}:$priorityRevision"
         SharedLyricsMemoryCache.get(song.id, cacheRevision, backing.lyricsDataVersion)?.let {
-            DiagnosticLog.event(
-                "LyricsCache",
-                "hit song=${song.id.takeLast(12)} lines=${it.lines.size} " +
-                    "sizeBytes=${SharedLyricsMemoryCache.sizeBytes()} " +
-                    "entries=${SharedLyricsMemoryCache.entryCount()}",
-            )
             return song.copy(lyricsDocument = it, lyricsLoaded = true)
         }
-        val startedMs = SystemClock.elapsedRealtime()
         val lyrics = withContext(backing.ioDispatcher) {
             SharedLyricsMemoryCache.load(
                 song.id,
@@ -41,14 +32,6 @@ internal class LibraryLyricsHydrator(
                     song.id,
                     song.lyricsCacheRevision,
                     priority,
-                )
-            }.also {
-                DiagnosticLog.event(
-                    "LyricsCache",
-                    "miss song=${song.id.takeLast(12)} lines=${it.lines.size} " +
-                        "durMs=${SystemClock.elapsedRealtime() - startedMs} " +
-                        "sizeBytes=${SharedLyricsMemoryCache.sizeBytes()} " +
-                        "entries=${SharedLyricsMemoryCache.entryCount()}",
                 )
             }
         }

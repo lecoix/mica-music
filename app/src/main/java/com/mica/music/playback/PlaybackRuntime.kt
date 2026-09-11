@@ -25,7 +25,6 @@ import com.mica.music.data.preferences.PlaybackUiPreferences
 import com.mica.music.media.SongMediaItemCodec
 import com.mica.music.media.MusicVideoPlaybackPolicyCodec
 import com.mica.music.util.DiagnosticLog
-import com.mica.music.util.ScreenLockDiagnostics
 import com.mica.music.util.TrackSwitchPerformance
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -413,7 +412,6 @@ internal class PlaybackRuntime(
     private fun publishPlaybackStates() = publishSnapshot()
     private fun publishSurfaceState() = publishSnapshot()
     private fun publishProgressState() = publishSnapshot()
-    private fun publishQueueState() = publishSnapshot()
 
     private fun publishSnapshot() {
         val activeController = controller
@@ -517,11 +515,6 @@ internal class PlaybackRuntime(
                 automatic = true,
             ),
         )
-        logPlayCountProbe(
-            "service-boundary arm=$armed oldSong=${boundary.oldSongId.shortSongIdOrNone()} " +
-                "newSong=${boundary.newSongId.shortSongIdOrNone()} oldPositionMs=${boundary.oldPositionMs} " +
-                "newPositionMs=${boundary.newPositionMs}",
-        )
         val sameSongRewind = armed &&
             boundary.oldSongId != null &&
             boundary.oldSongId == boundary.newSongId &&
@@ -564,13 +557,6 @@ internal class PlaybackRuntime(
                         postUserMessage("MV 无法播放，已继续播放音乐")
                     }
                 val mirrorAligned = isQueueMirrorAligned(c)
-                logPlayCountProbe(
-                    "timeline reason=${timelineChangeReasonForLog(reason)} " +
-                        "playerSong=${c.currentMediaItem?.mediaId.shortSongIdOrNone()} " +
-                        "current=${currentSong?.id.shortSongIdOrNone()} playerIndex=${c.currentMediaItemIndex} " +
-                        "playerItems=${c.mediaItemCount} queueSize=${songQueue.size} mirrorAligned=$mirrorAligned " +
-                        "pending=${playbackStatistics.pendingSongId?.shortSongId() ?: "none"}",
-                )
                 if (!mirrorAligned) {
                     scheduleQueueMirrorFromPlayer(c)
                     return
@@ -588,13 +574,6 @@ internal class PlaybackRuntime(
                 val transitionSongId = mediaItem?.mediaId
                 val pendingBefore = playbackStatistics.pendingSongId
                 if (!syncIndexFromPlayer(c)) {
-                    logPlayCountProbe(
-                        "transition-skip reason=${mediaTransitionReasonForLog(reason)} " +
-                            "transitionSong=${transitionSongId.shortSongIdOrNone()} " +
-                            "playerSong=${c.currentMediaItem?.mediaId.shortSongIdOrNone()} " +
-                            "previous=${previousSongId.shortSongIdOrNone()} pendingBefore=${pendingBefore.shortSongIdOrNone()} " +
-                            "cause=sync-index-rejected",
-                    )
                     return
                 }
                 playbackStatistics.observePlayback(c.currentMediaItem?.mediaId, c.isPlaying)
@@ -616,14 +595,6 @@ internal class PlaybackRuntime(
                     playbackError = unsupportedMessage
                 } else playbackError = null
                 playbackStatistics.onTransition(transitionSongId, reason.toPlaybackMediaTransition())
-                logPlayCountProbe(
-                    "transition reason=${mediaTransitionReasonForLog(reason)} transitionSong=${transitionSongId.shortSongIdOrNone()} " +
-                        "playerSong=${c.currentMediaItem?.mediaId.shortSongIdOrNone()} previous=${previousSongId.shortSongIdOrNone()} " +
-                        "new=${newSongId.shortSongIdOrNone()} changed=$currentSongChanged statsPrevious=${previousStatsSongId.shortSongIdOrNone()} " +
-                        "reset=$shouldResetPosition isPlaying=${c.isPlaying} playerIndex=${c.currentMediaItemIndex} " +
-                        "playerItems=${c.mediaItemCount} queueIndex=$currentIndex queueSize=${songQueue.size} " +
-                        "pendingBefore=${pendingBefore.shortSongIdOrNone()} pendingAfter=${playbackStatistics.pendingSongId.shortSongIdOrNone()}",
-                )
                 timelineCoordinator.updatePlayerDuration(c.duration)
                 syncEffectivePlaybackTuning(reason = "transition")
                 publishPlaybackStates()
@@ -664,21 +635,11 @@ internal class PlaybackRuntime(
                 if (!isCurrentConnection()) return
                 playbackStatistics.observePlayback(c.currentMediaItem?.mediaId, playing)
                 isPlaying = playing
-                if (playbackStatistics.pendingSongId != null) {
-                    logPlayCountProbe(
-                        "is-playing-changed playing=$playing playerSong=${c.currentMediaItem?.mediaId.shortSongIdOrNone()} " +
-                            "pending=${playbackStatistics.pendingSongId.shortSongIdOrNone()}",
-                    )
-                }
                 if (playing) {
                     val activeSongId = c.currentMediaItem?.mediaId
                     val selectionConfirmed = pendingMediaSelection.confirm(activeSongId)
                     if (selectionConfirmed && activeSongId != null) {
-                        val armed = playbackStatistics.confirmRequestedPlayback(activeSongId)
-                        logPlayCountProbe(
-                            "selection-confirm arm=$armed playerSong=${activeSongId.shortSongId()} " +
-                                "pending=${playbackStatistics.pendingSongId.shortSongIdOrNone()}",
-                        )
+                        playbackStatistics.confirmRequestedPlayback(activeSongId)
                     }
                     releasePendingRestorePosition(activeSongId)
                     if (playbackError != null) {
@@ -696,13 +657,7 @@ internal class PlaybackRuntime(
             override fun onEvents(player: Player, events: Player.Events) {
                 if (!isCurrentConnection()) return
                 syncPlaybackState()
-                val armed = playbackStatistics.finishEventBatch()
-                if (armed || playbackStatistics.pendingSongId != null) {
-                    logPlayCountProbe(
-                        "event-batch arm=$armed playerSong=${c.currentMediaItem?.mediaId.shortSongIdOrNone()} " +
-                            "pending=${playbackStatistics.pendingSongId.shortSongIdOrNone()} isPlaying=${c.isPlaying}",
-                    )
-                }
+                playbackStatistics.finishEventBatch()
                 publishPlayCountIfStarted(c, c.isPlaying)
             }
 
@@ -741,10 +696,6 @@ internal class PlaybackRuntime(
                 if (automatic) {
                     timelineCoordinator.markPositionDiscontinuity()
                     val songId = newPosition.mediaItem?.mediaId ?: c.currentMediaItem?.mediaId
-                    logPlayCountProbe(
-                        "playback-boundary reason=auto-transition song=${songId.shortSongIdOrNone()} " +
-                            "oldPositionMs=${oldPosition.positionMs} newPositionMs=${newPosition.positionMs} isPlaying=${c.isPlaying}",
-                    )
                     notifyPlaybackProgress(newPosition.positionMs.toInt().coerceAtLeast(0), allowBackward = true)
                 } else if (reason == Player.DISCONTINUITY_REASON_SEEK || reason == Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT) {
                     clearPendingSeek("discontinuity")
@@ -846,10 +797,6 @@ internal class PlaybackRuntime(
         if (c.playWhenReady || c.isPlaying) return
         playbackError = null
         releasePendingRestorePosition(c.currentMediaItem?.mediaId)
-        DiagnosticLog.event(
-            "Player",
-            "auto-play-on-launch song=${c.currentMediaItem?.mediaId}",
-        )
         if (c.playbackState == Player.STATE_ENDED) {
             c.seekTo(c.currentMediaItemIndex.coerceAtLeast(0), 0L)
         }
@@ -924,21 +871,12 @@ internal class PlaybackRuntime(
         val pendingSongId = playbackStatistics.pendingSongId ?: return
         val playerSongId = player.currentMediaItem?.mediaId
         if (!playing) {
-            logPlayCountProbe(
-                "publish-skip reason=not-playing playerSong=${playerSongId.shortSongIdOrNone()} pending=${pendingSongId.shortSongId()}",
-            )
             return
         }
         if (pendingSongId != playerSongId) {
-            logPlayCountProbe(
-                "publish-skip reason=song-mismatch playerSong=${playerSongId.shortSongIdOrNone()} pending=${pendingSongId.shortSongId()}",
-            )
             return
         }
         val publishedSongId = playbackStatistics.publishPlayStartedIfReady(playerSongId, playing) ?: return
-        logPlayCountProbe(
-            "publish-consume song=${publishedSongId.shortSongId()} playerIndex=${player.currentMediaItemIndex} playerItems=${player.mediaItemCount}",
-        )
         playStartedSink(publishedSongId)
     }
 
@@ -967,18 +905,12 @@ internal class PlaybackRuntime(
 
     private fun syncQueueMirrorFromPlayer(c: Player, resolver: (String) -> Song? = songResolver::resolve) {
         if (c.mediaItemCount <= 0) return
-        val mirrorStartedNs = SystemClock.elapsedRealtimeNanos()
         val result = queueCoordinator.rebuildMirrorNow(
             player = c,
             resolver = resolver,
             onApplied = ::publishPlaybackStates,
         )
         if (result.applied && c is MediaController) syncIndexFromPlayer(c)
-        logQueueSyncMs(
-            action = "mirror-rebuild",
-            startedNs = mirrorStartedNs,
-            details = "playerItems=${result.itemsCount} resolved=${result.resolvedCount} mode=immediate",
-        )
     }
 
     private fun scheduleQueueMirrorFromPlayer(c: MediaController) {
@@ -993,13 +925,7 @@ internal class PlaybackRuntime(
     }
 
     private fun syncQueueIndexFromPlayer(c: MediaController) {
-        val startedNs = SystemClock.elapsedRealtimeNanos()
         syncIndexFromPlayer(c)
-        logQueueSyncMs(
-            action = "mirror-index-sync",
-            startedNs = startedNs,
-            details = "playerItems=${c.mediaItemCount} items=${songQueue.size} index=$currentIndex",
-        )
     }
 
     private fun isQueueMirrorAligned(c: Player): Boolean {
@@ -1121,8 +1047,6 @@ internal class PlaybackRuntime(
         if (newQueue.isEmpty() && songQueue.isEmpty()) return
         pendingQueuePlaySongId = null
         pendingSingleSongId?.let { pendingId -> if (newQueue.none { it.id == pendingId }) pendingSingleSongId = null }
-        val startedMs = SystemClock.elapsedRealtime()
-        val previousQueueSize = songQueue.size
         val preserveId = preserveSongIdForQueue()
         val sameOrderAndIds = songQueue.isNotEmpty() && newQueue.size == songQueue.size &&
             newQueue.indices.all { i -> newQueue[i].id == songQueue[i].id }
@@ -1133,7 +1057,6 @@ internal class PlaybackRuntime(
                 old.metadata.playbackMimeType == neu.metadata.playbackMimeType
         }
         if (playbackUnchanged) {
-            val metadataDiff = summarizePlaybackUnchangedQueueDiff(songQueue, newQueue, currentIndex)
             val changedIndices = MediaControllerQueueSync.metadataChangedIndices(songQueue, newQueue)
             if (songQueue != newQueue) {
                 commitSongQueue(newQueue)
@@ -1148,11 +1071,6 @@ internal class PlaybackRuntime(
                 }
                 syncPlaybackState()
             }
-            DiagnosticLog.event(
-                "LibraryQueue",
-                "setQueue playbackUnchanged durMs=${SystemClock.elapsedRealtime() - startedMs} previous=$previousQueueSize " +
-                    "new=${newQueue.size} controllerItems=${c?.mediaItemCount ?: 0} $metadataDiff",
-            )
             return
         }
         val previousIndex = currentIndex
@@ -1161,11 +1079,6 @@ internal class PlaybackRuntime(
         if (sameOrderAndIds) {
             val c = controller
             if (c == null) pendingQueue = orderedQueue else applyQueue(c, orderedQueue, true, preserveId)
-            DiagnosticLog.event(
-                "LibraryQueue",
-                "setQueue sameOrderApply durMs=${SystemClock.elapsedRealtime() - startedMs} previous=$previousQueueSize " +
-                    "new=${newQueue.size} controllerItems=${c?.mediaItemCount ?: 0}",
-            )
             return
         }
         val c = controller
@@ -1174,18 +1087,9 @@ internal class PlaybackRuntime(
             if (orderedQueue.isEmpty()) queueCoordinator.replaceCurrentIndex(0)
             else applyPreserveIndexForQueue(orderedQueue, preserveId, previousIndex)
             publishPlaybackStates()
-            DiagnosticLog.event(
-                "LibraryQueue",
-                "setQueue pendingController durMs=${SystemClock.elapsedRealtime() - startedMs} previous=$previousQueueSize new=${newQueue.size}",
-            )
             return
         }
         applyQueue(c, orderedQueue, true, preserveId)
-        DiagnosticLog.event(
-            "LibraryQueue",
-            "setQueue applyQueue durMs=${SystemClock.elapsedRealtime() - startedMs} previous=$previousQueueSize " +
-                "new=${newQueue.size} controllerItems=${c.mediaItemCount}",
-        )
     }
 
     fun playQueueSong(newQueue: List<Song>, songId: String) {
@@ -1204,10 +1108,6 @@ internal class PlaybackRuntime(
             if (targetIndex >= 0) {
                 pendingQueue = null
                 pendingQueuePlaySongId = null
-                DiagnosticLog.event(
-                    "QueueSync",
-                    "play-queue-song same-source fast-path items=${songQueue.size} target=$targetIndex songId=$songId",
-                )
                 playSong(targetIndex)
                 return
             }
@@ -1230,27 +1130,14 @@ internal class PlaybackRuntime(
     }
 
     fun refreshQueueMetadata(latestSongs: List<Song>) {
-        val startedMs = SystemClock.elapsedRealtime()
         if (songQueue.isEmpty() || latestSongs.isEmpty()) {
-            DiagnosticLog.event(
-                "LibraryQueue",
-                "refreshQueueMetadata skipped durMs=${SystemClock.elapsedRealtime() - startedMs} queue=${songQueue.size} latest=${latestSongs.size}",
-            )
             return
         }
         val latestById = latestSongs.associateBy { it.id }
         val refreshed = songQueue.map { queued -> latestById[queued.id] ?: queued }
         if (refreshed == songQueue) {
-            DiagnosticLog.event(
-                "LibraryQueue",
-                "refreshQueueMetadata unchanged durMs=${SystemClock.elapsedRealtime() - startedMs} queue=${songQueue.size} latest=${latestSongs.size}",
-            )
             return
         }
-        DiagnosticLog.event(
-            "LibraryQueue",
-            "refreshQueueMetadata changed durMs=${SystemClock.elapsedRealtime() - startedMs} queue=${songQueue.size} latest=${latestSongs.size}",
-        )
         setQueue(refreshed)
     }
 
@@ -1426,10 +1313,6 @@ internal class PlaybackRuntime(
         val active = controller
         if (active == null) pendingQueue = updatedList
         else syncQueueToService(active, updatedIndex, active.currentPosition.coerceAtLeast(0L), true)
-        DiagnosticLog.event(
-            "Player",
-            "insertPlayNext song=${song.id} insertAt=$insertedAt playIndex=$updatedIndex; ${playbackSnapshot()}",
-        )
         publishPlaybackStates()
         postUserMessage("已加入下一首播放")
     }
@@ -1446,9 +1329,7 @@ internal class PlaybackRuntime(
         val newCurrent = currentIndex
         activeController?.let { c ->
             if (canMoveIncrementally) {
-                val moveStartedNs = SystemClock.elapsedRealtimeNanos()
                 c.moveMediaItem(fromIndex, toIndex)
-                logQueueSyncMs("controller-moveMediaItem", moveStartedNs, "from=$fromIndex to=$toIndex items=${list.size}")
             } else syncQueueToService(c, newCurrent, c.currentPosition.coerceAtLeast(0L), true)
         } ?: run { pendingQueue = list }
         publishPlaybackStates()
@@ -1510,11 +1391,6 @@ internal class PlaybackRuntime(
         if (safe != previousIndex) {
             TrackSwitchPerformance.begin(previousIndex, safe, song.id, songQueue.size)
         }
-        DiagnosticLog.event(
-            "Player",
-            "playSong requested=$index resolved=$safe; song=${song.id} ${song.title}; format=${song.metadata.formatLabel}; " +
-                "path=${song.filePath}; ${playbackSnapshot()}",
-        )
         val requestedStartMs = timelineCoordinator.consumeRestoreStartPosition(song.id)
         queueCoordinator.replaceCurrentIndex(safe)
         clearPendingSeek()
@@ -1551,7 +1427,6 @@ internal class PlaybackRuntime(
             return
         }
         if (forceQueuePayload) {
-            val mapStartedNs = SystemClock.elapsedRealtimeNanos()
             val queueItems = songQueue.map { it.toMediaItem(appCtx) }
             PendingPlaybackNavigation.prepare(songId, queueItems)
             syncQueueToService(
@@ -1560,11 +1435,6 @@ internal class PlaybackRuntime(
                 positionMs.toLong(),
                 false,
                 queueItems,
-            )
-            logQueueSyncMs(
-                "play-queue-song",
-                mapStartedNs,
-                "songId=$songId items=${queueItems.size} target=$index",
             )
             val serviceIndex = resolveControllerIndexForSongId(expectedController, songId) ?: index
             TrackSwitchPerformance.mark("audio-start", "index=$serviceIndex songId=$songId")
@@ -1587,22 +1457,11 @@ internal class PlaybackRuntime(
         val serviceIndex = when (navigationPlan) {
             is PlaybackQueueNavigationPlan.SeekAligned -> {
                 PendingPlaybackNavigation.clear()
-                DiagnosticLog.event(
-                    "QueueSync",
-                    "controller-sync-skipped manual-nav items=${songQueue.size} serviceItems=${expectedController.mediaItemCount} " +
-                        "target=${navigationPlan.serviceIndex}",
-                )
                 navigationPlan.serviceIndex
             }
             is PlaybackQueueNavigationPlan.CarryQueuePayload -> {
-                val mapStartedNs = SystemClock.elapsedRealtimeNanos()
                 val queueItems = songQueue.map { it.toMediaItem(appCtx) }
                 PendingPlaybackNavigation.prepare(songId, queueItems)
-                logQueueSyncMs(
-                    "play-switch-nav",
-                    mapStartedNs,
-                    "songId=$songId items=${queueItems.size} serviceItems=${expectedController.mediaItemCount}",
-                )
                 navigationPlan.serviceIndex
             }
             is PlaybackQueueNavigationPlan.SyncQueue -> {
@@ -1641,11 +1500,6 @@ internal class PlaybackRuntime(
         when (plan) {
             is PlaybackQueueSyncPlan.ReplaceMediaItems -> {
                 MediaControllerQueueSync.executeSyncPlan(c, plan)
-                DiagnosticLog.event(
-                    "QueueSync",
-                    "controller-refresh-queue-metadata changed=${plan.replacements.size} " +
-                        "queue=${songQueue.size} serviceItems=${c.mediaItemCount}",
-                )
             }
             is PlaybackQueueSyncPlan.Skip -> {
                 if (changedIndices.isNotEmpty()) {
@@ -1659,7 +1513,7 @@ internal class PlaybackRuntime(
             }
             is PlaybackQueueSyncPlan.SetMediaItems,
             is PlaybackQueueSyncPlan.MoveMediaItems,
-            -> DiagnosticLog.event(
+            -> DiagnosticLog.important(
                 "QueueSync",
                 "controller-refresh-queue-metadata rejected unexpected-plan=${plan.javaClass.simpleName} " +
                     "changed=${changedIndices.size} queue=${songQueue.size} serviceItems=${c.mediaItemCount}",
@@ -1688,12 +1542,6 @@ internal class PlaybackRuntime(
             c.isCommandAvailable(Player.COMMAND_CHANGE_MEDIA_ITEMS)
         ) {
             c.replaceMediaItem(serviceIndex, logicalSong.toMediaItem(appCtx))
-            DiagnosticLog.event(
-                "QueueSync",
-                "controller-refresh-current-metadata index=" + serviceIndex +
-                    " song=" + safeSongId + " queue=" + songQueue.size +
-                    " serviceItems=" + c.mediaItemCount,
-            )
         }
         return serviceIndex
     }
@@ -1712,7 +1560,6 @@ internal class PlaybackRuntime(
         preserveCurrentPlayback: Boolean,
         prebuiltItems: List<MediaItem>? = null,
     ) {
-        val syncStartedNs = SystemClock.elapsedRealtimeNanos()
         val plan = MediaControllerQueueSync.planSync(
             player = c,
             queue = songQueue,
@@ -1724,25 +1571,9 @@ internal class PlaybackRuntime(
         ) ?: return
         val result = plan.result
         if (plan is PlaybackQueueSyncPlan.Skip) {
-            DiagnosticLog.event(
-                "QueueSync",
-                "controller-sync-skipped items=${result.itemsCount} serviceItems=${c.mediaItemCount} target=${result.startIndex}",
-            )
             return
         }
         MediaControllerQueueSync.executeSyncPlan(c, plan)
-        val syncAction = when (plan) {
-            is PlaybackQueueSyncPlan.MoveMediaItems -> "controller-moveMediaItems"
-            is PlaybackQueueSyncPlan.ReplaceMediaItems -> "controller-replaceMediaItems"
-            is PlaybackQueueSyncPlan.SetMediaItems -> "controller-setMediaItems"
-            is PlaybackQueueSyncPlan.Skip -> "controller-skip"
-        }
-        logQueueSyncMs(
-            syncAction,
-            syncStartedNs,
-            "items=${result.itemsCount} startIndex=${result.startIndex} preserve=${result.preserveCurrentPlayback} " +
-                "aligned=${result.queueAligned} targetMismatch=${result.targetMismatch} reusedMap=${result.reusedMap}",
-        )
     }
 
     private fun logQueueSyncMs(action: String, startedNs: Long, details: String) {
@@ -1833,20 +1664,12 @@ internal class PlaybackRuntime(
                 PlaybackShuffleSessionCommand.encode(enabled = false, seed = null),
             )
             c.shuffleModeEnabled = false
-            DiagnosticLog.event(
-                "Shuffle",
-                "controller mode=off items=${c.mediaItemCount} current=${c.currentMediaItem?.mediaId}",
-            )
             return
         }
         val safeSeed = seed ?: return
         c.sendCustomCommand(
             PlaybackShuffleSessionCommand.command,
             PlaybackShuffleSessionCommand.encode(enabled = true, seed = safeSeed),
-        )
-        DiagnosticLog.event(
-            "Shuffle",
-            "controller mode=on seed=$safeSeed items=${c.mediaItemCount} current=${c.currentMediaItem?.mediaId}",
         )
     }
 
@@ -1880,9 +1703,6 @@ internal class PlaybackRuntime(
         playbackError = null
         if (songQueue.isEmpty()) return null
         val target = resolveNextIndex(forManualSkip = true)
-        val snapshot = playbackSnapshot()
-        DiagnosticLog.event("Player", "manual next target=$target; $snapshot")
-        ScreenLockDiagnostics.onPlaybackManualNext(context, target, snapshot)
         if (target == currentIndex) return null
         TrackSwitchPerformance.armTrigger("button-next")
         trackSkipDirection = TrackSkipDirection.TO_NEXT
@@ -1893,12 +1713,10 @@ internal class PlaybackRuntime(
         playbackError = null
         if (songQueue.isEmpty()) return null
         if (positionMs > 3_000) {
-            DiagnosticLog.event("Player", "previous restarted current song; ${playbackSnapshot()}")
             seekToMs(0)
             return null
         }
         val target = resolvePreviousIndex()
-        DiagnosticLog.event("Player", "manual previous target=$target; ${playbackSnapshot()}")
         if (target == currentIndex) return null
         TrackSwitchPerformance.armTrigger("button-prev")
         trackSkipDirection = TrackSkipDirection.TO_PREVIOUS
@@ -1913,10 +1731,6 @@ internal class PlaybackRuntime(
         manualPreviousTarget()?.let(::playSong)
     }
 
-    private fun playbackSnapshot(): String =
-        "index=$currentIndex/${songQueue.size}; current=${currentSong?.id}; mode=$playbackQueueMode; " +
-            "playing=$isPlaying; buffering=$isBuffering; positionMs=$positionMs"
-
     fun seekToMs(targetMs: Int) {
         val maxMs = maxDurationMs()
         val safe = if (maxMs > 0) targetMs.coerceIn(0, maxMs) else targetMs.coerceAtLeast(0)
@@ -1927,10 +1741,6 @@ internal class PlaybackRuntime(
             syncPosition()
             return
         }
-        DiagnosticLog.event(
-            "Player",
-            "seek song=${currentSong?.id} targetMs=$safe index=$currentIndex ${seekDiagnosticFields(activeController)}",
-        )
         releasePendingRestorePosition(currentSong?.id)
         armPendingSeek(safe)
         setPositionMsClamped(safe)
@@ -1973,20 +1783,6 @@ internal class PlaybackRuntime(
     }
 }
 
-private const val PLAY_COUNT_PROBE = "DEBUG-PLAYCOUNT-9D2A"
-
-internal fun logPlayCountProbe(message: String) {
-    DiagnosticLog.event("PlayCountProbe", "$PLAY_COUNT_PROBE $message")
-}
-
-internal fun mediaTransitionReasonForLog(reason: Int): String =
-    when (reason) {
-        Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT -> "repeat"
-        Player.MEDIA_ITEM_TRANSITION_REASON_AUTO -> "auto"
-        Player.MEDIA_ITEM_TRANSITION_REASON_SEEK -> "seek"
-        Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED -> "playlist-changed"
-        else -> "unknown-$reason"
-    }
 
 internal fun Int.toPlaybackMediaTransition(): PlaybackMediaTransition =
     when (this) {
@@ -1996,46 +1792,11 @@ internal fun Int.toPlaybackMediaTransition(): PlaybackMediaTransition =
         else -> PlaybackMediaTransition.Other
     }
 
-internal fun timelineChangeReasonForLog(reason: Int): String =
-    when (reason) {
-        Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED -> "playlist-changed"
-        Player.TIMELINE_CHANGE_REASON_SOURCE_UPDATE -> "source-update"
-        else -> "unknown-$reason"
-    }
-
 internal fun String.shortSongId(): String =
     takeLast(12)
 
 internal fun String?.shortSongIdOrNone(): String =
     this?.shortSongId() ?: "none"
-
-internal fun summarizePlaybackUnchangedQueueDiff(
-    oldQueue: List<Song>,
-    newQueue: List<Song>,
-    currentIndex: Int,
-): String {
-    if (oldQueue == newQueue) return "diag=playback-unchanged-song-diff songDiff=none"
-    var changedCount = 0
-    var firstChangedIndex = -1
-    for (index in oldQueue.indices) {
-        if (oldQueue[index] != newQueue[index]) {
-            changedCount++
-            if (firstChangedIndex < 0) firstChangedIndex = index
-        }
-    }
-    val safeCurrent = currentIndex.takeIf { it in oldQueue.indices && it in newQueue.indices }
-    val currentFields = safeCurrent?.let { index ->
-        SongChangeDiagnostics.summarizeChangedFields(oldQueue[index], newQueue[index])
-    } ?: "n/a"
-    val firstFields = firstChangedIndex.takeIf { it >= 0 }?.let { index ->
-        SongChangeDiagnostics.summarizeChangedFields(oldQueue[index], newQueue[index])
-    } ?: "n/a"
-    val firstSongId = firstChangedIndex.takeIf { it >= 0 }
-        ?.let { newQueue[it].id.takeLast(12) }
-        ?: "none"
-    return "diag=playback-unchanged-song-diff songDiff=nonPlayback changedSongs=$changedCount firstIndex=$firstChangedIndex " +
-        "firstSong=$firstSongId firstFields=$firstFields currentFields=$currentFields"
-}
 
 internal fun Song.toMediaItem(): MediaItem =
     if (isRemote) com.mica.music.media.RemoteMediaItemCodec.encode(this)

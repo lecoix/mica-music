@@ -14,7 +14,7 @@ object LibraryFolderStore {
     fun persistTreeAccess(context: Context, treeUri: Uri) {
         val resolver = context.contentResolver
         val requestedFlags = treeAccessFlags()
-        val persistedFlags = runCatching {
+        runCatching {
             resolver.takePersistableUriPermission(treeUri, requestedFlags)
             requestedFlags
         }.getOrElse { error ->
@@ -26,10 +26,6 @@ object LibraryFolderStore {
             resolver.takePersistableUriPermission(treeUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
             Intent.FLAG_GRANT_READ_URI_PERMISSION
         }
-        DiagnosticLog.event(
-            "LibraryFolder",
-            "persist uri=$treeUri flags=${permissionFlagsLabel(persistedFlags)}",
-        )
     }
 
     fun releaseTreeAccess(context: Context, treeUri: Uri) {
@@ -44,16 +40,10 @@ object LibraryFolderStore {
             }
             ?: 0
         if (flags == 0) {
-            DiagnosticLog.event("LibraryFolder", "release skipped no persisted grant uri=$treeUri")
             return
         }
         runCatching {
             resolver.releasePersistableUriPermission(treeUri, flags)
-        }.onSuccess {
-            DiagnosticLog.event(
-                "LibraryFolder",
-                "release uri=$treeUri flags=${permissionFlagsLabel(flags)}",
-            )
         }.onFailure { error ->
             DiagnosticLog.event(
                 "LibraryFolder",

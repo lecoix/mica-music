@@ -1,6 +1,5 @@
 package com.mica.music.ui.components
 
-import android.os.SystemClock
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -65,7 +64,6 @@ import com.mica.music.ui.zoom.compensatedTextMeasureWidth
 import com.mica.music.ui.zoom.pinchZoomGesture
 import com.mica.music.ui.zoom.rememberPinchZoomGridAnchorCoordinator
 import com.mica.music.ui.zoom.rememberPinchZoomState
-import com.mica.music.util.DiagnosticLog
 import kotlinx.coroutines.flow.collectLatest
 import kotlin.math.abs
 
@@ -288,15 +286,7 @@ internal fun rememberSongListFastScrollIndex(
     field: SongSortField?,
 ): FastScrollIndex? = remember(songs, field) {
     if (field == null) return@remember null
-    val startedMs = SystemClock.elapsedRealtime()
-    val index = LibraryFastScrollIndex.forSongs(songs, field)
-    DiagnosticLog.event(
-        "LibraryUi",
-        "songList fastScrollIndex durMs=${SystemClock.elapsedRealtime() - startedMs} " +
-            "songs=${songs.size} field=$field labels=${index?.labels?.size ?: 0} " +
-            "sections=${index?.sectionTargets?.size ?: 0}",
-    )
-    index
+    LibraryFastScrollIndex.forSongs(songs, field)
 }
 
 internal enum class SongZoomPreset(

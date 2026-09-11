@@ -1,6 +1,5 @@
 package com.mica.music.data.library
 
-import android.os.SystemClock
 import androidx.compose.runtime.mutableLongStateOf
 import com.mica.music.data.AlbumBrowseKey
 import com.mica.music.data.AlbumBrowseSortField
@@ -19,7 +18,6 @@ import com.mica.music.data.SongSortField
 import com.mica.music.data.SortDirection
 import com.mica.music.data.cacheKey
 import com.mica.music.data.preferences.LibraryBrowseSettings
-import com.mica.music.util.DiagnosticLog
 import java.util.LinkedHashMap
 import java.util.Locale
 import kotlinx.coroutines.withContext
@@ -169,7 +167,6 @@ internal class LibraryBrowseCoordinator(
             return
         }
 
-        val startedMs = SystemClock.elapsedRealtime()
         val canReusePersistedGroups = persistedBrowseRevision == sourceRevision &&
             persistedBrowseSplitRevision == splitRevision &&
             persistedArtistGroups != null &&
@@ -251,12 +248,6 @@ internal class LibraryBrowseCoordinator(
             }
         } == true
         if (!published) return
-        DiagnosticLog.event(
-            "LibraryLoad",
-            "prewarmBrowseGroups durMs=${SystemClock.elapsedRealtime() - startedMs} " +
-                "songs=${source.size} artists=${prewarmed.first.groups.size} albums=${prewarmed.second.groups.size} " +
-                "artistSort=$artistField/$artistDirection albumSort=$albumField/$albumDirection",
-        )
     }
 
     fun adoptCachedBrowse(cachedBrowse: CachedBrowsePresentations) {

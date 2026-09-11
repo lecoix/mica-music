@@ -28,8 +28,8 @@ import com.mica.music.data.playback.ServicePlaybackStateStore
 import com.mica.music.ui.overlay.AndroidExternalLyricsOverlayControl
 import com.mica.music.util.BluetoothAudioDiagnostics
 import com.mica.music.util.DiagnosticLog
+import com.mica.music.data.preferences.DetailedDiagnosticsPreferences
 import com.mica.music.util.AudioEnvironmentDiagnostics
-import com.mica.music.util.ScreenLockDiagnostics
 import com.mica.music.util.SpatialAudioMonitor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -126,8 +126,8 @@ class MicaApp : Application() {
         com.mica.music.data.preferences.UsageTutorialPreferences.initialize(this)
         ScanCacheManager.runStartupCacheCleanup(this)
         SpatialAudioMonitor.install(this)
+        DiagnosticLog.configureDetailedDiagnostics(DetailedDiagnosticsPreferences.state(this))
         DiagnosticLog.install(this)
-        ScreenLockDiagnostics.install(this)
         BluetoothAudioDiagnostics.install(this)
         AudioEnvironmentDiagnostics.install(this)
         MicaImageLoaders.init(this)
@@ -140,15 +140,5 @@ class MicaApp : Application() {
             ?.let { transientPlaybackCatalog.replaceAll(it, restorable = true) }
         // Bind stats persistence before any MediaSession playback can publish sessions.
         playbackStatistics
-    }
-
-    override fun onTrimMemory(level: Int) {
-        ScreenLockDiagnostics.onTrimMemory(this, level)
-        super.onTrimMemory(level)
-    }
-
-    override fun onLowMemory() {
-        ScreenLockDiagnostics.onLowMemory(this)
-        super.onLowMemory()
     }
 }

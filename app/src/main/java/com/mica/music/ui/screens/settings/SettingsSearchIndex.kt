@@ -201,6 +201,7 @@ internal object SettingsSearchIndex {
 
         setting("diagnostics.metadata", "元数据调试", "ID3", "Vorbis", "解析器", category = SettingsCategory.DIAGNOSTICS, section = SettingsIndexSections.DIAGNOSTICS),
         setting("diagnostics.audio-offload", "音频硬件卸载（Offload）", "offload", "硬件解码", "DSP", "PCM", "省电", "失速", "mp3", category = SettingsCategory.DIAGNOSTICS, section = SettingsIndexSections.DIAGNOSTICS),
+        setting("diagnostics.detailed", "详细诊断", "日志", "排障", "扫描", "播放", "音频", "USB", "渲染", "小窗", category = SettingsCategory.DIAGNOSTICS, section = SettingsIndexSections.DIAGNOSTICS),
         setting("diagnostics.spatial-audio", "系统空间音频", "Spatializer", "输出", category = SettingsCategory.DIAGNOSTICS, section = SettingsIndexSections.DIAGNOSTICS),
         setting("diagnostics.app-settings", "系统权限与应用信息", "权限", "通知", "应用信息", category = SettingsCategory.DIAGNOSTICS, section = SettingsIndexSections.DIAGNOSTICS),
 

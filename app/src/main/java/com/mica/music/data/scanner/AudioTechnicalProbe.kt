@@ -4,10 +4,8 @@ import android.content.Context
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
-import android.os.ParcelFileDescriptor
 import com.mica.music.util.DiagnosticLog
 import java.io.ByteArrayOutputStream
-import java.io.FileInputStream
 
 /**
  * 从文件头读取无损/特殊格式的技术参数（位深、容器修正）。
@@ -193,25 +191,6 @@ internal object AudioTechnicalProbe {
         } finally {
             runCatching { retriever.release() }
         }
-    }
-}
-
-/** TagLib 同次 [ParcelFileDescriptor] 打开后读取文件头；比 SAF [android.content.ContentResolver.openInputStream] 更快。 */
-internal fun readHeadFromPfd(pfd: ParcelFileDescriptor, maxBytes: Int): ByteArray? =
-    runCatching {
-        FileInputStream(pfd.fileDescriptor).use { input ->
-            input.channel.position(0)
-            input.readUpToCompat(maxBytes).takeIf { it.isNotEmpty() }
-        }
-    }.getOrNull()
-
-internal fun technicalHeadByteLimit(displayName: String?, mimeType: String): Int? {
-    val ext = displayName?.substringAfterLast('.', "")?.lowercase().orEmpty()
-    val mime = mimeType.lowercase()
-    return when {
-        ext == "flac" || mime.contains("flac") -> 64 * 1024
-        ext in setOf("wav", "wave") || mime.contains("wav") -> 16 * 1024
-        else -> null
     }
 }
 
