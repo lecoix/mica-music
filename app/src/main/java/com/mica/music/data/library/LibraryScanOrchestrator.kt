@@ -73,6 +73,10 @@ internal class LibraryScanOrchestrator(
         backing = backing,
         fullScanExecutor = fullScanExecutor,
     )
+    private val artworkRepairExecutor = ArtworkRepairExecutor(
+        backing = backing,
+        scanEngine = scanEngine,
+    )
 
     suspend fun rescan() = rescan(null)
 
@@ -121,7 +125,7 @@ internal class LibraryScanOrchestrator(
             is LibraryOperationRequest.TargetedRefresh ->
                 targetedMetadataRefreshExecutor.refresh(request.songIds, operation)
             is LibraryOperationRequest.ArtworkRepair ->
-                repairArtworkCache(request.plan, operation)
+                artworkRepairExecutor.repair(request.plan, operation)
             is LibraryOperationRequest.AutoSync ->
                 executeAutoSync(
                     operation,
@@ -347,59 +351,6 @@ internal class LibraryScanOrchestrator(
     }
 
 
-    private suspend fun repairArtworkCache(
-        plan: AlbumArtRepairPlan,
-        operation: ScheduledLibraryOperation? = null,
-    ) {
-        when (plan.action) {
-            AlbumArtRepairAction.ScanDevice -> repairDeviceArtwork(operation)
-            AlbumArtRepairAction.ScanFolder -> repairLibraryFolderArtwork(operation)
-            AlbumArtRepairAction.NoReadableSource -> Unit
-        }
-    }
-
-    private suspend fun repairDeviceArtwork(operation: ScheduledLibraryOperation?) {
-        scanEngine.performScan(
-            source = ScanSource.DEVICE,
-            requestedForceRefreshLyrics = false,
-            userVisible = false,
-            operation = operation,
-        ) {
-                onProgress, cachedSongs, onLyricsBatch, policy ->
-            backing.libraryScanner.scanDevice(
-                cachedSongs = cachedSongs,
-                onProgress = onProgress,
-                forceRefreshLyrics = policy.forceRefreshLyrics,
-                forceRefreshArtwork = true,
-                onLyricsBatch = onLyricsBatch,
-            )
-        }
-    }
-
-    private suspend fun repairLibraryFolderArtwork(operation: ScheduledLibraryOperation?) {
-        val uriString = backing.libraryFolderUri ?: return
-        val treeUri = uriString.toUri()
-        if (!backing.scanEnvironment.canReadTree(treeUri)) {
-            DiagnosticLog.important("AlbumArtCache", "repair-folder-skip cannot-read-tree uri=$treeUri")
-            return
-        }
-        scanEngine.performScan(
-            source = ScanSource.FOLDER,
-            requestedForceRefreshLyrics = false,
-            userVisible = false,
-            operation = operation,
-        ) {
-                onProgress, cachedSongs, onLyricsBatch, policy ->
-            backing.libraryScanner.scanFolder(
-                treeUri = treeUri,
-                cachedSongs = cachedSongs,
-                onProgress = onProgress,
-                forceRefreshLyrics = policy.forceRefreshLyrics,
-                forceRefreshArtwork = true,
-                onLyricsBatch = onLyricsBatch,
-            )
-        }
-    }
 
 
 }
