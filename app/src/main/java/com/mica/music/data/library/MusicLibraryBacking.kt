@@ -63,6 +63,9 @@ internal class MusicLibraryBacking(
     @Volatile
     internal var lastAutoPublicationTiming: AutoPublicationTiming? = null
         private set
+    internal fun recordAutoPublicationTiming(timing: AutoPublicationTiming) {
+        lastAutoPublicationTiming = timing
+    }
     val ioScope = CoroutineScope(SupervisorJob() + ioDispatcher)
     val scanScope = CoroutineScope(SupervisorJob() + mainDispatcher)
     var scanJob: Job? = null
@@ -81,9 +84,8 @@ internal class MusicLibraryBacking(
     val operationExecutionMutex = Mutex()
     /** Serializes short authority publications and catalog-derived mutations. */
     val publicationMutex = Mutex()
-    private val storeSyncMutex = Mutex()
+    internal val storeSyncMutex = Mutex()
     private val lifecycleLock = Any()
-    private val latestStoreRevision = AtomicLong(0L)
     @Volatile
     private var playbackIoSnapshotProvider: () -> LibraryPlaybackIoSnapshot =
         { LibraryPlaybackIoSnapshot.Idle }
@@ -130,6 +132,7 @@ internal class MusicLibraryBacking(
     var songFastScrollSectionTargets by mutableStateOf<Map<String, Int>?>(null)
 
     val operationAuthority = LibraryOperationAuthority(this)
+    val publicationAuthority = LibraryPublicationAuthority(this)
     val catalog = LibraryCatalogPublisher(this)
     val browse = LibraryBrowseCoordinator(this)
     val folder = LibraryFolderBinding(this)
@@ -293,75 +296,30 @@ internal class MusicLibraryBacking(
         }
     }
 
-    private fun nextStoreRevision(): Long = latestStoreRevision.incrementAndGet()
+    private fun nextStoreRevision(): Long =
+        publicationAuthority.nextStoreRevision()
 
     private fun isLatestStoreRevision(revision: Long): Boolean =
-        revision == latestStoreRevision.get()
+        publicationAuthority.isLatestStoreRevision(revision)
 
-    /**
-     * Serializes a complete-snapshot store mutation while the supplied library generation is
-     * still eligible. This intentionally preserves the existing scan/clear semantics: callers
-     * decide whether to publish memory after the Room transaction succeeds.
-     */
     suspend fun <T : Any> snapshotStoreWriteIfCurrent(
         generation: Int,
         block: suspend () -> T,
-    ): T? {
-        val storeRevision = nextStoreRevision()
-        return storeSyncMutex.withLock {
-            if (!isActiveGeneration(generation)) return@withLock null
-            if (!isLatestStoreRevision(storeRevision)) return@withLock null
-            withContext(ioDispatcher) { block() }
-        }
-    }
+    ): T? = publicationAuthority.snapshotStoreWriteIfCurrent(generation, block)
 
-    /**
-     * Final complete-snapshot publication seam.
-     *
-     * Cancellation is observed while waiting for [publicationMutex]. Once final validation passes,
-     * the Room mutation and in-memory adopt run as one short non-cancellable publication section.
-     * Business invalidation that happens after this point is ordered after this publication.
-     */
     suspend fun <T : Any> commitSnapshotAndPublishIfCurrent(
         token: LibraryOperationToken,
         expectedCatalogRevision: Long? = null,
         expectedPresentationRevision: Long? = null,
         storeBlock: suspend () -> T,
         publishBlock: (T) -> Unit,
-    ): T? {
-        val callerJob = currentCoroutineContext()[Job]
-        return withContext(NonCancellable) {
-            publicationMutex.withLock {
-                if (callerJob?.isActive == false) return@withLock null
-                if (!isCurrentOperationToken(token)) return@withLock null
-                if (
-                    expectedCatalogRevision != null &&
-                    catalogRevision != expectedCatalogRevision
-                ) {
-                    return@withLock null
-                }
-                if (
-                    expectedPresentationRevision != null &&
-                    presentationRevision != expectedPresentationRevision
-                ) {
-                    return@withLock null
-                }
-
-                val storeRevision = nextStoreRevision()
-                storeSyncMutex.withLock {
-                    if (!isLatestStoreRevision(storeRevision)) {
-                        null
-                    } else {
-                        val result = withContext(ioDispatcher) { storeBlock() }
-                        // Do not re-check Job/generation here: final validation already linearized
-                        // this short commit section ahead of later cancellation/invalidation.
-                        publishBlock(result)
-                        result
-                    }
-                }
-            }
-        }
-    }
+    ): T? = publicationAuthority.commitSnapshotAndPublishIfCurrent(
+        token = token,
+        expectedCatalogRevision = expectedCatalogRevision,
+        expectedPresentationRevision = expectedPresentationRevision,
+        storeBlock = storeBlock,
+        publishBlock = publishBlock,
+    )
 
     suspend fun <T : Any> commitAutoSyncSnapshotAndPublishIfCurrent(
         token: LibraryOperationToken,
@@ -370,73 +328,14 @@ internal class MusicLibraryBacking(
         changeSetForRevision: (Long) -> LibraryChangeSet,
         storeBlock: suspend (LibraryChangeSet) -> T,
         publishBlock: (T, LibraryChangeSet) -> Unit,
-    ): T? {
-        require(token.mode == LibraryOperationMode.AUTO_SYNC) {
-            "Visible AUTO publication requires an AUTO_SYNC operation token"
-        }
-        val waitStartedNs = SystemClock.elapsedRealtimeNanos()
-        val callerJob = currentCoroutineContext()[Job]
-        return withContext(NonCancellable) {
-            publicationMutex.withLock {
-                val gateAcquiredNs = SystemClock.elapsedRealtimeNanos()
-                if (callerJob?.isActive == false) return@withLock null
-                if (!isCurrentOperationToken(token)) return@withLock null
-                if (expectedCatalogRevision != null && catalogRevision != expectedCatalogRevision) {
-                    return@withLock null
-                }
-                if (
-                    expectedPresentationRevision != null &&
-                    presentationRevision != expectedPresentationRevision
-                ) {
-                    return@withLock null
-                }
-
-                val revision = libraryChangeRevision + 1L
-                val changeSet = changeSetForRevision(revision)
-                require(changeSet.libraryRevision == revision)
-                require(changeSet.cause == token.cause)
-                require(
-                    changeSet.addedIds.isNotEmpty() ||
-                        changeSet.updatedIds.isNotEmpty() ||
-                        changeSet.membershipChanges.isNotEmpty(),
-                ) {
-                    "No-change AUTO operations must use checkpoint-only publication"
-                }
-                require(
-                    changeSet.membershipChanges.all { it.sourceIdentity == token.sourceIdentity },
-                ) {
-                    "AUTO membership evidence must belong to the operation source"
-                }
-
-                val storeRevision = nextStoreRevision()
-                storeSyncMutex.withLock {
-                    if (!isLatestStoreRevision(storeRevision)) {
-                        null
-                    } else {
-                        val storeStartedNs = SystemClock.elapsedRealtimeNanos()
-                        val result = withContext(ioDispatcher) { storeBlock(changeSet) }
-                        val storeFinishedNs = SystemClock.elapsedRealtimeNanos()
-                        val memoryAdoptStartedNs = storeFinishedNs
-                        publishBlock(result, changeSet)
-                        libraryChangeRevision = revision
-                        lastLibraryChangeSet = changeSet
-                        val finishedNs = SystemClock.elapsedRealtimeNanos()
-                        val timing = AutoPublicationTiming(
-                            waitMs = nanosToMillis(gateAcquiredNs - waitStartedNs),
-                            holdMs = nanosToMillis(finishedNs - gateAcquiredNs),
-                            storeMs = nanosToMillis(storeFinishedNs - storeStartedNs),
-                            memoryAdoptMs = nanosToMillis(finishedNs - memoryAdoptStartedNs),
-                        )
-                        lastAutoPublicationTiming = timing
-                        result
-                    }
-                }
-            }
-        }
-    }
-
-    private fun nanosToMillis(nanos: Long): Double = nanos.coerceAtLeast(0L) / 1_000_000.0
-
+    ): T? = publicationAuthority.commitAutoSyncSnapshotAndPublishIfCurrent(
+        token = token,
+        expectedCatalogRevision = expectedCatalogRevision,
+        expectedPresentationRevision = expectedPresentationRevision,
+        changeSetForRevision = changeSetForRevision,
+        storeBlock = storeBlock,
+        publishBlock = publishBlock,
+    )
     suspend fun <T> withPublicationGenerationIfCurrent(
         generation: Int,
         block: () -> T,
