@@ -590,9 +590,8 @@ class LibraryAutoSyncQaReceiver : BroadcastReceiver() {
                 MediaStore.Audio.Media.IS_PENDING,
                 MediaStore.Audio.Media.OWNER_PACKAGE_NAME,
             ),
-            "${MediaStore.Audio.Media.DISPLAY_NAME}=? AND " +
-                "${MediaStore.Audio.Media.RELATIVE_PATH}=?",
-            arrayOf(displayName, relativePath),
+            "${MediaStore.Audio.Media.RELATIVE_PATH}=?",
+            arrayOf(relativePath),
             null,
         )?.use { cursor ->
             val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
@@ -602,13 +601,16 @@ class LibraryAutoSyncQaReceiver : BroadcastReceiver() {
             val ownerCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.OWNER_PACKAGE_NAME)
             while (cursor.moveToNext()) {
                 val id = cursor.getLong(idCol)
-                rows += DeviceGateMediaRow(
-                    uri = ContentUris.withAppendedId(collection, id),
-                    sizeBytes = cursor.getLong(sizeCol),
-                    dateModifiedMs = cursor.getLong(modifiedCol) * 1000L,
-                    isPending = cursor.getInt(pendingCol) != 0,
-                    ownerPackageName = cursor.getString(ownerCol),
-                )
+                val ownerPackageName = cursor.getString(ownerCol)
+                if (ownerPackageName == context.packageName) {
+                    rows += DeviceGateMediaRow(
+                        uri = ContentUris.withAppendedId(collection, id),
+                        sizeBytes = cursor.getLong(sizeCol),
+                        dateModifiedMs = cursor.getLong(modifiedCol) * 1000L,
+                        isPending = cursor.getInt(pendingCol) != 0,
+                        ownerPackageName = ownerPackageName,
+                    )
+                }
             }
         }
         require(rows.size <= 1) {
