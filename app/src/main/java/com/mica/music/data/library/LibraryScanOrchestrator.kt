@@ -69,6 +69,10 @@ internal class LibraryScanOrchestrator(
         backing = backing,
         scanEngine = scanEngine,
     )
+    private val targetedMetadataRefreshExecutor = TargetedMetadataRefreshExecutor(
+        backing = backing,
+        fullScanExecutor = fullScanExecutor,
+    )
 
     suspend fun rescan() = rescan(null)
 
@@ -115,7 +119,7 @@ internal class LibraryScanOrchestrator(
             LibraryOperationRequest.ScanDeviceWide -> fullScanExecutor.scanDeviceWide(operation = operation)
             LibraryOperationRequest.ScanLibraryFolder -> fullScanExecutor.scanLibraryFolder(operation = operation)
             is LibraryOperationRequest.TargetedRefresh ->
-                refreshSongMetadata(request.songIds, operation)
+                targetedMetadataRefreshExecutor.refresh(request.songIds, operation)
             is LibraryOperationRequest.ArtworkRepair ->
                 repairArtworkCache(request.plan, operation)
             is LibraryOperationRequest.AutoSync ->
@@ -339,31 +343,7 @@ internal class LibraryScanOrchestrator(
     }
 
     suspend fun refreshSongMetadata(songId: String) {
-        refreshSongMetadata(setOf(songId), operation = null)
-    }
-
-    private suspend fun refreshSongMetadata(
-        songIds: Set<String>,
-        operation: ScheduledLibraryOperation?,
-    ) {
-        val targets = songIds.filterTo(linkedSetOf()) { id ->
-            id.isNotBlank() && backing.songById(id) != null
-        }
-        if (targets.isEmpty()) return
-        when (backing.lastScanSource) {
-            ScanSource.FOLDER -> if (folder.hasLibraryFolder()) {
-                fullScanExecutor.scanLibraryFolder(
-                    forceRefreshSongIds = targets,
-                    operation = operation,
-                )
-            }
-            ScanSource.DEVICE -> if (folder.hasAudioReadPermission()) {
-                fullScanExecutor.scanDeviceWide(
-                    forceRefreshSongIds = targets,
-                    operation = operation,
-                )
-            }
-        }
+        targetedMetadataRefreshExecutor.refresh(setOf(songId))
     }
 
 
