@@ -1,6 +1,9 @@
 package com.mica.music.data.library
 
 import android.os.SystemClock
+import com.mica.music.data.scanner.AutoSyncPublicationDecision
+import com.mica.music.data.scanner.AutoSyncVisibleDelta
+import com.mica.music.data.scanner.publicationDecision
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -135,6 +138,130 @@ internal class LibraryPublicationAuthority(
                     }
                 }
             }
+        }
+    }
+
+    suspend fun <T> withPublicationGenerationIfCurrent(
+        generation: Int,
+        block: () -> T,
+    ): T? {
+        val callerJob = currentCoroutineContext()[Job]
+        return withContext(NonCancellable) {
+            backing.publicationMutex.withLock {
+                if (callerJob?.isActive == false || !backing.isActiveGeneration(generation)) null else block()
+            }
+        }
+    }
+
+    suspend fun <T> withCurrentOperationIfCurrent(
+        token: LibraryOperationToken,
+        block: () -> T,
+    ): T? {
+        val callerJob = currentCoroutineContext()[Job]
+        return withContext(NonCancellable) {
+            backing.publicationMutex.withLock {
+                if (callerJob?.isActive == false || !backing.isCurrentOperationToken(token)) null else block()
+            }
+        }
+    }
+
+    suspend fun <T> withCurrentCatalogPublication(
+        expectedCatalogRevision: Long,
+        block: suspend () -> T,
+    ): T? = backing.publicationMutex.withLock {
+        if (backing.released || backing.catalogRevision != expectedCatalogRevision) return@withLock null
+        block()
+    }
+
+    suspend fun storeWriteIfCurrentCatalog(
+        expectedCatalogRevision: Long,
+        isCurrent: () -> Boolean,
+        block: suspend () -> Unit,
+    ): Boolean = backing.publicationMutex.withLock {
+        val storeRevision = nextStoreRevision()
+        backing.storeSyncMutex.withLock {
+            if (backing.released || backing.catalogRevision != expectedCatalogRevision || !isCurrent() || !isLatestStoreRevision(storeRevision)) return@withLock false
+            withContext(backing.ioDispatcher) { block() }
+            !backing.released && backing.catalogRevision == expectedCatalogRevision && isCurrent() && isLatestStoreRevision(storeRevision)
+        }
+    }
+
+    suspend fun storeWriteIfCurrentGeneration(
+        expectedGeneration: Int,
+        isCurrent: () -> Boolean = { true },
+        block: suspend () -> Unit,
+    ): Boolean = backing.publicationMutex.withLock {
+        val storeRevision = nextStoreRevision()
+        backing.storeSyncMutex.withLock {
+            if (!backing.isActiveGeneration(expectedGeneration) || !isCurrent() || !isLatestStoreRevision(storeRevision)) return@withLock false
+            withContext(backing.ioDispatcher) { block() }
+            backing.isActiveGeneration(expectedGeneration) && isCurrent() && isLatestStoreRevision(storeRevision)
+        }
+    }
+
+    suspend fun storeWriteIfCurrentObjectState(
+        isCurrent: () -> Boolean,
+        block: suspend () -> Unit,
+    ): Boolean = backing.publicationMutex.withLock {
+        val storeRevision = nextStoreRevision()
+        backing.storeSyncMutex.withLock {
+            if (backing.released || backing.releaseRequested || !isCurrent() || !isLatestStoreRevision(storeRevision)) return@withLock false
+            withContext(backing.ioDispatcher) { block() }
+            !backing.released && !backing.releaseRequested && isCurrent() && isLatestStoreRevision(storeRevision)
+        }
+    }
+
+    suspend fun commitAutoSyncStateIfCurrent(
+        token: LibraryOperationToken,
+        mutation: LibraryAutoSyncStateMutation,
+    ): Boolean {
+        require(mutation.sourceIdentity == token.sourceIdentity)
+        val callerJob = currentCoroutineContext()[Job]
+        return withContext(NonCancellable) {
+            backing.publicationMutex.withLock {
+                if (callerJob?.isActive == false || !backing.isCurrentOperationToken(token)) return@withLock false
+                val storeRevision = nextStoreRevision()
+                backing.storeSyncMutex.withLock {
+                    if (!isLatestStoreRevision(storeRevision)) false else {
+                        withContext(backing.ioDispatcher) { backing.libraryStore.applyAutoSyncState(mutation) }
+                        true
+                    }
+                }
+            }
+        }
+    }
+
+    suspend fun commitAutoSyncCheckpointOnlyIfCurrent(
+        token: LibraryOperationToken,
+        visibleDelta: AutoSyncVisibleDelta,
+        mutation: LibraryAutoSyncStateMutation,
+    ): Boolean {
+        require(token.mode == LibraryOperationMode.AUTO_SYNC) { "Checkpoint-only auto state writes require an AUTO_SYNC operation token" }
+        require(visibleDelta.publicationDecision() == AutoSyncPublicationDecision.CHECKPOINT_ONLY) { "Visible AUTO changes must use snapshot publication" }
+        return commitAutoSyncStateIfCurrent(token, mutation)
+    }
+
+    suspend fun storeWriteIfCurrentOperation(
+        token: LibraryOperationToken,
+        block: suspend () -> Unit,
+    ): Boolean {
+        val storeRevision = nextStoreRevision()
+        return backing.storeSyncMutex.withLock {
+            if (!backing.isCurrentOperationToken(token) || !isLatestStoreRevision(storeRevision)) return@withLock false
+            withContext(backing.ioDispatcher) { block() }
+            backing.isCurrentOperationToken(token) && isLatestStoreRevision(storeRevision)
+        }
+    }
+
+    suspend fun storeWriteIfCurrent(
+        generation: Int,
+        block: suspend () -> Unit,
+    ): Boolean {
+        val storeRevision = nextStoreRevision()
+        return backing.storeSyncMutex.withLock {
+            if (!backing.isActiveGeneration(generation) || !isLatestStoreRevision(storeRevision)) return@withLock false
+            withContext(backing.ioDispatcher) { block() }
+            backing.isActiveGeneration(generation) && isLatestStoreRevision(storeRevision)
         }
     }
 

@@ -339,39 +339,12 @@ internal class MusicLibraryBacking(
     suspend fun <T> withPublicationGenerationIfCurrent(
         generation: Int,
         block: () -> T,
-    ): T? {
-        val callerJob = currentCoroutineContext()[Job]
-        return withContext(NonCancellable) {
-            publicationMutex.withLock {
-                if (callerJob?.isActive == false || !isActiveGeneration(generation)) {
-                    null
-                } else {
-                    block()
-                }
-            }
-        }
-    }
+    ): T? = publicationAuthority.withPublicationGenerationIfCurrent(generation, block)
 
-    /**
-     * Runs synchronous AUTO bookkeeping only while the complete operation token is current.
-     * Generation, source activation and config are validated while [publicationMutex] prevents a
-     * clear or source switch from linearizing around the bookkeeping update.
-     */
     suspend fun <T> withCurrentOperationIfCurrent(
         token: LibraryOperationToken,
         block: () -> T,
-    ): T? {
-        val callerJob = currentCoroutineContext()[Job]
-        return withContext(NonCancellable) {
-            publicationMutex.withLock {
-                if (callerJob?.isActive == false || !isCurrentOperationToken(token)) {
-                    null
-                } else {
-                    block()
-                }
-            }
-        }
-    }
+    ): T? = publicationAuthority.withCurrentOperationIfCurrent(token, block)
 
     /**
      * Replaces the current complete-snapshot authority (for example user clear) while ordered
@@ -432,99 +405,35 @@ internal class MusicLibraryBacking(
         }
     }
 
-    /**
-     * Runs a catalog-dependent publication while no complete scan can adopt a newer snapshot.
-     * Partial derived state must use this seam before publishing to memory or the store.
-     */
     suspend fun <T> withCurrentCatalogPublication(
         expectedCatalogRevision: Long,
         block: suspend () -> T,
-    ): T? = publicationMutex.withLock {
-        if (released || catalogRevision != expectedCatalogRevision) return@withLock null
-        block()
-    }
+    ): T? = publicationAuthority.withCurrentCatalogPublication(expectedCatalogRevision, block)
 
-    /**
-     * Writes derived state for the current catalog under the store revision protocol.
-     * The store transaction itself owns [publicationMutex]; callers may reacquire that seam
-     * afterward for a short in-memory publication guarded by the same catalog revision.
-     */
     suspend fun storeWriteIfCurrentCatalog(
         expectedCatalogRevision: Long,
         isCurrent: () -> Boolean,
         block: suspend () -> Unit,
-    ): Boolean = publicationMutex.withLock {
-        val storeRevision = nextStoreRevision()
-        storeSyncMutex.withLock {
-            if (
-                released ||
-                catalogRevision != expectedCatalogRevision ||
-                !isCurrent() ||
-                !isLatestStoreRevision(storeRevision)
-            ) {
-                return@withLock false
-            }
-            withContext(ioDispatcher) { block() }
-            !released &&
-                catalogRevision == expectedCatalogRevision &&
-                isCurrent() &&
-                isLatestStoreRevision(storeRevision)
-        }
-    }
+    ): Boolean = publicationAuthority.storeWriteIfCurrentCatalog(
+        expectedCatalogRevision = expectedCatalogRevision,
+        isCurrent = isCurrent,
+        block = block,
+    )
 
-    /**
-     * Serializes an asynchronous store mutation derived from the current in-memory catalog.
-     * Lock order is always publicationMutex -> storeSyncMutex so a complete snapshot cannot
-     * commit Room and publish memory around a stale local write.
-     */
     suspend fun storeWriteIfCurrentGeneration(
         expectedGeneration: Int,
         isCurrent: () -> Boolean = { true },
         block: suspend () -> Unit,
-    ): Boolean = publicationMutex.withLock {
-        val storeRevision = nextStoreRevision()
-        storeSyncMutex.withLock {
-            if (
-                !isActiveGeneration(expectedGeneration) ||
-                !isCurrent() ||
-                !isLatestStoreRevision(storeRevision)
-            ) {
-                return@withLock false
-            }
-            withContext(ioDispatcher) { block() }
-            isActiveGeneration(expectedGeneration) &&
-                isCurrent() &&
-                isLatestStoreRevision(storeRevision)
-        }
-    }
+    ): Boolean = publicationAuthority.storeWriteIfCurrentGeneration(
+        expectedGeneration = expectedGeneration,
+        isCurrent = isCurrent,
+        block = block,
+    )
 
-    /**
-     * Persists an object-derived value whose validity is owned by the current object state rather
-     * than by a scan generation. Unrelated AUTO/FULL generation bumps must not discard such a
-     * write after the value has already been adopted in memory; the caller predicate is rechecked
-     * under the publication gate so a real object/artwork replacement still fails closed.
-     */
     suspend fun storeWriteIfCurrentObjectState(
         isCurrent: () -> Boolean,
         block: suspend () -> Unit,
-    ): Boolean = publicationMutex.withLock {
-        val storeRevision = nextStoreRevision()
-        storeSyncMutex.withLock {
-            if (
-                released ||
-                releaseRequested ||
-                !isCurrent() ||
-                !isLatestStoreRevision(storeRevision)
-            ) {
-                return@withLock false
-            }
-            withContext(ioDispatcher) { block() }
-            !released &&
-                !releaseRequested &&
-                isCurrent() &&
-                isLatestStoreRevision(storeRevision)
-        }
-    }
+    ): Boolean = publicationAuthority.storeWriteIfCurrentObjectState(isCurrent, block)
 
     /**
      * Runs a store side effect only while the complete-snapshot generation and store revision
@@ -537,47 +446,17 @@ internal class MusicLibraryBacking(
     suspend fun commitAutoSyncStateIfCurrent(
         token: LibraryOperationToken,
         mutation: LibraryAutoSyncStateMutation,
-    ): Boolean {
-        require(mutation.sourceIdentity == token.sourceIdentity)
-        val callerJob = currentCoroutineContext()[Job]
-        return withContext(NonCancellable) {
-            publicationMutex.withLock {
-                if (callerJob?.isActive == false) return@withLock false
-                if (!isCurrentOperationToken(token)) return@withLock false
-
-                val storeRevision = nextStoreRevision()
-                storeSyncMutex.withLock {
-                    if (!isLatestStoreRevision(storeRevision)) {
-                        false
-                    } else {
-                        withContext(ioDispatcher) {
-                            libraryStore.applyAutoSyncState(mutation)
-                        }
-                        // This is a durable checkpoint/retry linearization point. Do not re-check
-                        // cancellation/generation after the Room transaction: once final
-                        // validation passed under publicationMutex, later invalidation is ordered
-                        // after this short non-cancellable commit just like visible AUTO
-                        // publication.
-                        true
-                    }
-                }
-            }
-        }
-    }
+    ): Boolean = publicationAuthority.commitAutoSyncStateIfCurrent(token, mutation)
 
     suspend fun commitAutoSyncCheckpointOnlyIfCurrent(
         token: LibraryOperationToken,
         visibleDelta: AutoSyncVisibleDelta,
         mutation: LibraryAutoSyncStateMutation,
-    ): Boolean {
-        require(token.mode == LibraryOperationMode.AUTO_SYNC) {
-            "Checkpoint-only auto state writes require an AUTO_SYNC operation token"
-        }
-        require(visibleDelta.publicationDecision() == AutoSyncPublicationDecision.CHECKPOINT_ONLY) {
-            "Visible AUTO changes must use snapshot publication"
-        }
-        return commitAutoSyncStateIfCurrent(token, mutation)
-    }
+    ): Boolean = publicationAuthority.commitAutoSyncCheckpointOnlyIfCurrent(
+        token = token,
+        visibleDelta = visibleDelta,
+        mutation = mutation,
+    )
 
     suspend fun upsertUserExclusionIfCurrentGeneration(
         expectedGeneration: Int,
@@ -604,28 +483,12 @@ internal class MusicLibraryBacking(
     suspend fun storeWriteIfCurrentOperation(
         token: LibraryOperationToken,
         block: suspend () -> Unit,
-    ): Boolean {
-        val storeRevision = nextStoreRevision()
-        return storeSyncMutex.withLock {
-            if (!isCurrentOperationToken(token)) return@withLock false
-            if (!isLatestStoreRevision(storeRevision)) return@withLock false
-            withContext(ioDispatcher) { block() }
-            isCurrentOperationToken(token) && isLatestStoreRevision(storeRevision)
-        }
-    }
+    ): Boolean = publicationAuthority.storeWriteIfCurrentOperation(token, block)
 
     suspend fun storeWriteIfCurrent(
         generation: Int,
         block: suspend () -> Unit,
-    ): Boolean {
-        val storeRevision = nextStoreRevision()
-        return storeSyncMutex.withLock {
-            if (!isActiveGeneration(generation)) return@withLock false
-            if (!isLatestStoreRevision(storeRevision)) return@withLock false
-            withContext(ioDispatcher) { block() }
-            isActiveGeneration(generation) && isLatestStoreRevision(storeRevision)
-        }
-    }
+    ): Boolean = publicationAuthority.storeWriteIfCurrent(generation, block)
 
     fun release() {
         synchronized(lifecycleLock) {
