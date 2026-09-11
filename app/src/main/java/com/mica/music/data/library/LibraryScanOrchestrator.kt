@@ -1867,7 +1867,7 @@ internal class LibraryScanOrchestrator(
         if (!backing.scanEnvironment.canReadTree(treeUri)) {
             folder.discardPendingFolderSelection()
             if (userVisible) {
-                backing.lastScanError = "鏃犳硶璁块棶鎵€閫夋枃浠跺す锛岃閲嶆柊閫夋嫨"
+                backing.lastScanError = "无法访问所选文件夹，请重新选择"
             }
             return
         }
@@ -2134,7 +2134,7 @@ internal class LibraryScanOrchestrator(
         backing.isUserVisibleScanning = userVisible
         if (userVisible) {
             backing.lastScanError = null
-            backing.scanProgressLabel = "姝ｅ湪璇诲彇姝屾洸鍒楄〃鈥?
+            backing.scanProgressLabel = "正在读取歌曲列表…"
         }
         if (sideEffects.clearTransientScanCache) {
             backing.scanEnvironment.clearTransientCache()
@@ -2166,7 +2166,7 @@ internal class LibraryScanOrchestrator(
             val result = block(
                 { done, total ->
                     if (userVisible && backing.isCurrentOperationToken(token)) {
-                        backing.scanProgressLabel = "姝ｅ湪鍒嗘瀽闊宠川銆佸皝闈笌姝岃瘝 ($done/$total)"
+                        backing.scanProgressLabel = "正在分析音质、封面与歌词 ($done/$total)"
                     }
                 },
                 cachedSongs,
@@ -2335,7 +2335,7 @@ internal class LibraryScanOrchestrator(
             if (!backing.isCurrentOperationToken(token)) return
             // Keep the previous complete snapshot; only user-visible operations surface the error.
             if (userVisible) {
-                backing.lastScanError = e.message?.takeIf { it.isNotBlank() } ?: "鏈煡閿欒"
+                backing.lastScanError = e.message?.takeIf { it.isNotBlank() } ?: "未知错误"
             }
             DiagnosticLog.event("LibraryScan", "performScan failed generation=$generation", e)
         } finally {
