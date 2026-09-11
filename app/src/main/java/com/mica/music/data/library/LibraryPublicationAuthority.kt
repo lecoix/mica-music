@@ -8,6 +8,7 @@ import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
@@ -15,6 +16,8 @@ import kotlinx.coroutines.withContext
 internal class LibraryPublicationAuthority(
     private val backing: MusicLibraryBacking,
 ) {
+    internal val publicationMutex = Mutex()
+    private val storeSyncMutex = Mutex()
     private val latestStoreRevision = AtomicLong(0L)
 
     fun nextStoreRevision(): Long = latestStoreRevision.incrementAndGet()
@@ -27,7 +30,7 @@ internal class LibraryPublicationAuthority(
         block: suspend () -> T,
     ): T? {
         val storeRevision = nextStoreRevision()
-        return backing.storeSyncMutex.withLock {
+        return storeSyncMutex.withLock {
             if (!backing.isActiveGeneration(generation)) return@withLock null
             if (!isLatestStoreRevision(storeRevision)) return@withLock null
             withContext(backing.ioDispatcher) { block() }
@@ -43,7 +46,7 @@ internal class LibraryPublicationAuthority(
     ): T? {
         val callerJob = currentCoroutineContext()[Job]
         return withContext(NonCancellable) {
-            backing.publicationMutex.withLock {
+            publicationMutex.withLock {
                 if (callerJob?.isActive == false) return@withLock null
                 if (!backing.isCurrentOperationToken(token)) return@withLock null
                 if (
@@ -56,7 +59,7 @@ internal class LibraryPublicationAuthority(
                 ) return@withLock null
 
                 val storeRevision = nextStoreRevision()
-                backing.storeSyncMutex.withLock {
+                storeSyncMutex.withLock {
                     if (!isLatestStoreRevision(storeRevision)) {
                         null
                     } else {
@@ -83,7 +86,7 @@ internal class LibraryPublicationAuthority(
         val waitStartedNs = SystemClock.elapsedRealtimeNanos()
         val callerJob = currentCoroutineContext()[Job]
         return withContext(NonCancellable) {
-            backing.publicationMutex.withLock {
+            publicationMutex.withLock {
                 val gateAcquiredNs = SystemClock.elapsedRealtimeNanos()
                 if (callerJob?.isActive == false) return@withLock null
                 if (!backing.isCurrentOperationToken(token)) return@withLock null
@@ -114,7 +117,7 @@ internal class LibraryPublicationAuthority(
                 }
 
                 val storeRevision = nextStoreRevision()
-                backing.storeSyncMutex.withLock {
+                storeSyncMutex.withLock {
                     if (!isLatestStoreRevision(storeRevision)) {
                         null
                     } else {
@@ -147,7 +150,7 @@ internal class LibraryPublicationAuthority(
     ): T? {
         val callerJob = currentCoroutineContext()[Job]
         return withContext(NonCancellable) {
-            backing.publicationMutex.withLock {
+            publicationMutex.withLock {
                 if (callerJob?.isActive == false || !backing.isActiveGeneration(generation)) null else block()
             }
         }
@@ -159,7 +162,7 @@ internal class LibraryPublicationAuthority(
     ): T? {
         val callerJob = currentCoroutineContext()[Job]
         return withContext(NonCancellable) {
-            backing.publicationMutex.withLock {
+            publicationMutex.withLock {
                 if (callerJob?.isActive == false || !backing.isCurrentOperationToken(token)) null else block()
             }
         }
@@ -168,7 +171,7 @@ internal class LibraryPublicationAuthority(
     suspend fun <T> withCurrentCatalogPublication(
         expectedCatalogRevision: Long,
         block: suspend () -> T,
-    ): T? = backing.publicationMutex.withLock {
+    ): T? = publicationMutex.withLock {
         if (backing.released || backing.catalogRevision != expectedCatalogRevision) return@withLock null
         block()
     }
@@ -177,9 +180,9 @@ internal class LibraryPublicationAuthority(
         expectedCatalogRevision: Long,
         isCurrent: () -> Boolean,
         block: suspend () -> Unit,
-    ): Boolean = backing.publicationMutex.withLock {
+    ): Boolean = publicationMutex.withLock {
         val storeRevision = nextStoreRevision()
-        backing.storeSyncMutex.withLock {
+        storeSyncMutex.withLock {
             if (backing.released || backing.catalogRevision != expectedCatalogRevision || !isCurrent() || !isLatestStoreRevision(storeRevision)) return@withLock false
             withContext(backing.ioDispatcher) { block() }
             !backing.released && backing.catalogRevision == expectedCatalogRevision && isCurrent() && isLatestStoreRevision(storeRevision)
@@ -190,9 +193,9 @@ internal class LibraryPublicationAuthority(
         expectedGeneration: Int,
         isCurrent: () -> Boolean = { true },
         block: suspend () -> Unit,
-    ): Boolean = backing.publicationMutex.withLock {
+    ): Boolean = publicationMutex.withLock {
         val storeRevision = nextStoreRevision()
-        backing.storeSyncMutex.withLock {
+        storeSyncMutex.withLock {
             if (!backing.isActiveGeneration(expectedGeneration) || !isCurrent() || !isLatestStoreRevision(storeRevision)) return@withLock false
             withContext(backing.ioDispatcher) { block() }
             backing.isActiveGeneration(expectedGeneration) && isCurrent() && isLatestStoreRevision(storeRevision)
@@ -202,9 +205,9 @@ internal class LibraryPublicationAuthority(
     suspend fun storeWriteIfCurrentObjectState(
         isCurrent: () -> Boolean,
         block: suspend () -> Unit,
-    ): Boolean = backing.publicationMutex.withLock {
+    ): Boolean = publicationMutex.withLock {
         val storeRevision = nextStoreRevision()
-        backing.storeSyncMutex.withLock {
+        storeSyncMutex.withLock {
             if (backing.released || backing.releaseRequested || !isCurrent() || !isLatestStoreRevision(storeRevision)) return@withLock false
             withContext(backing.ioDispatcher) { block() }
             !backing.released && !backing.releaseRequested && isCurrent() && isLatestStoreRevision(storeRevision)
@@ -218,10 +221,10 @@ internal class LibraryPublicationAuthority(
         require(mutation.sourceIdentity == token.sourceIdentity)
         val callerJob = currentCoroutineContext()[Job]
         return withContext(NonCancellable) {
-            backing.publicationMutex.withLock {
+            publicationMutex.withLock {
                 if (callerJob?.isActive == false || !backing.isCurrentOperationToken(token)) return@withLock false
                 val storeRevision = nextStoreRevision()
-                backing.storeSyncMutex.withLock {
+                storeSyncMutex.withLock {
                     if (!isLatestStoreRevision(storeRevision)) false else {
                         withContext(backing.ioDispatcher) { backing.libraryStore.applyAutoSyncState(mutation) }
                         true
@@ -246,7 +249,7 @@ internal class LibraryPublicationAuthority(
         block: suspend () -> Unit,
     ): Boolean {
         val storeRevision = nextStoreRevision()
-        return backing.storeSyncMutex.withLock {
+        return storeSyncMutex.withLock {
             if (!backing.isCurrentOperationToken(token) || !isLatestStoreRevision(storeRevision)) return@withLock false
             withContext(backing.ioDispatcher) { block() }
             backing.isCurrentOperationToken(token) && isLatestStoreRevision(storeRevision)
@@ -258,10 +261,65 @@ internal class LibraryPublicationAuthority(
         block: suspend () -> Unit,
     ): Boolean {
         val storeRevision = nextStoreRevision()
-        return backing.storeSyncMutex.withLock {
+        return storeSyncMutex.withLock {
             if (!backing.isActiveGeneration(generation) || !isLatestStoreRevision(storeRevision)) return@withLock false
             withContext(backing.ioDispatcher) { block() }
             backing.isActiveGeneration(generation) && isLatestStoreRevision(storeRevision)
+        }
+    }
+
+    suspend fun discardOperationStaging(stagingId: String) {
+        if (stagingId.isBlank()) return
+        withContext(NonCancellable) {
+            storeSyncMutex.withLock {
+                withContext(backing.ioDispatcher) {
+                    backing.libraryStore.discardStagedLyrics(stagingId)
+                }
+            }
+        }
+    }
+
+    suspend fun updateAccessState(state: LibraryAccessState) {
+        publicationMutex.withLock {
+            if (backing.released || backing.releaseRequested) return@withLock
+            if (backing.accessState == state) return@withLock
+            backing.accessState = state
+            backing.syncScheduler.onEligibilityChanged()
+            val snapshot = backing.persistedState()
+            val storeRevision = nextStoreRevision()
+            storeSyncMutex.withLock {
+                if (!isLatestStoreRevision(storeRevision)) return@withLock
+                withContext(backing.ioDispatcher) {
+                    backing.libraryStore.saveLibraryState(snapshot)
+                }
+            }
+        }
+    }
+
+    suspend fun <T : Any> replaceSnapshotAuthority(
+        expectedCatalogRevision: Long? = null,
+        expectedPresentationRevision: Long? = null,
+        expectedSourceIdentity: SourceIdentityKey? = null,
+        storeBlock: suspend () -> T,
+        publishBlock: (T, Int) -> Unit,
+    ): T? {
+        val callerJob = currentCoroutineContext()[Job]
+        return withContext(NonCancellable) {
+            publicationMutex.withLock {
+                if (callerJob?.isActive == false || backing.released || backing.releaseRequested) return@withLock null
+                if (expectedCatalogRevision != null && backing.catalogRevision != expectedCatalogRevision) return@withLock null
+                if (expectedPresentationRevision != null && backing.presentationRevision != expectedPresentationRevision) return@withLock null
+                if (expectedSourceIdentity != null && backing.sourceState.active?.sourceIdentity != expectedSourceIdentity) return@withLock null
+                val generation = ++backing.scanGeneration
+                val storeRevision = nextStoreRevision()
+                storeSyncMutex.withLock {
+                    if (!isLatestStoreRevision(storeRevision)) null else {
+                        val result = withContext(backing.ioDispatcher) { storeBlock() }
+                        publishBlock(result, generation)
+                        result
+                    }
+                }
+            }
         }
     }
 

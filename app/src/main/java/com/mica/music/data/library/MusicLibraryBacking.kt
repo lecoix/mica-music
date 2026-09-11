@@ -82,9 +82,6 @@ internal class MusicLibraryBacking(
     var released = false
     /** Serializes long-running library operations. Scanner/provider IO is allowed under this lock. */
     val operationExecutionMutex = Mutex()
-    /** Serializes short authority publications and catalog-derived mutations. */
-    val publicationMutex = Mutex()
-    internal val storeSyncMutex = Mutex()
     private val lifecycleLock = Any()
     @Volatile
     private var playbackIoSnapshotProvider: () -> LibraryPlaybackIoSnapshot =
@@ -131,8 +128,9 @@ internal class MusicLibraryBacking(
     var songFastScrollLabels by mutableStateOf<List<String>?>(null)
     var songFastScrollSectionTargets by mutableStateOf<Map<String, Int>?>(null)
 
-    val operationAuthority = LibraryOperationAuthority(this)
     val publicationAuthority = LibraryPublicationAuthority(this)
+    val operationAuthority = LibraryOperationAuthority(this)
+    internal val publicationMutex get() = publicationAuthority.publicationMutex
     val catalog = LibraryCatalogPublisher(this)
     val browse = LibraryBrowseCoordinator(this)
     val folder = LibraryFolderBinding(this)
@@ -231,16 +229,8 @@ internal class MusicLibraryBacking(
 
     fun operationStagingId(token: LibraryOperationToken): String =
         operationAuthority.operationStagingId(token)
-    suspend fun discardOperationStaging(stagingId: String) {
-        if (stagingId.isBlank()) return
-        withContext(NonCancellable) {
-            storeSyncMutex.withLock {
-                withContext(ioDispatcher) {
-                    libraryStore.discardStagedLyrics(stagingId)
-                }
-            }
-        }
-    }
+    suspend fun discardOperationStaging(stagingId: String) =
+        publicationAuthority.discardOperationStaging(stagingId)
 
     fun persistedStateAfterActivation(token: LibraryOperationToken): PersistedLibraryState =
         operationAuthority.persistedStateAfterActivation(token)
@@ -275,32 +265,9 @@ internal class MusicLibraryBacking(
     fun launchAccessStateUpdate(state: LibraryAccessState) {
         if (released || releaseRequested) return
         scanScope.launch {
-            updateAccessState(state)
+            publicationAuthority.updateAccessState(state)
         }
     }
-
-    private suspend fun updateAccessState(state: LibraryAccessState) {
-        publicationMutex.withLock {
-            if (released || releaseRequested) return@withLock
-            if (accessState == state) return@withLock
-            accessState = state
-            syncScheduler.onEligibilityChanged()
-            val snapshot = persistedState()
-            val storeRevision = nextStoreRevision()
-            storeSyncMutex.withLock {
-                if (!isLatestStoreRevision(storeRevision)) return@withLock
-                withContext(ioDispatcher) {
-                    libraryStore.saveLibraryState(snapshot)
-                }
-            }
-        }
-    }
-
-    private fun nextStoreRevision(): Long =
-        publicationAuthority.nextStoreRevision()
-
-    private fun isLatestStoreRevision(revision: Long): Boolean =
-        publicationAuthority.isLatestStoreRevision(revision)
 
     suspend fun <T : Any> snapshotStoreWriteIfCurrent(
         generation: Int,
@@ -346,53 +313,19 @@ internal class MusicLibraryBacking(
         block: () -> T,
     ): T? = publicationAuthority.withCurrentOperationIfCurrent(token, block)
 
-    /**
-     * Replaces the current complete-snapshot authority (for example user clear) while ordered
-     * against any in-flight final publication.
-     */
     suspend fun <T : Any> replaceSnapshotAuthority(
         expectedCatalogRevision: Long? = null,
         expectedPresentationRevision: Long? = null,
         expectedSourceIdentity: SourceIdentityKey? = null,
         storeBlock: suspend () -> T,
         publishBlock: (T, Int) -> Unit,
-    ): T? {
-        val callerJob = currentCoroutineContext()[Job]
-        return withContext(NonCancellable) {
-            publicationMutex.withLock {
-                if (callerJob?.isActive == false || released || releaseRequested) return@withLock null
-                if (
-                    expectedCatalogRevision != null &&
-                    catalogRevision != expectedCatalogRevision
-                ) {
-                    return@withLock null
-                }
-                if (
-                    expectedPresentationRevision != null &&
-                    presentationRevision != expectedPresentationRevision
-                ) {
-                    return@withLock null
-                }
-                if (
-                    expectedSourceIdentity != null &&
-                    sourceState.active?.sourceIdentity != expectedSourceIdentity
-                ) {
-                    return@withLock null
-                }
-                val generation = ++scanGeneration
-                val storeRevision = nextStoreRevision()
-                storeSyncMutex.withLock {
-                    if (!isLatestStoreRevision(storeRevision)) {
-                        null
-                    } else {
-                        val result = withContext(ioDispatcher) { storeBlock() }
-                        publishBlock(result, generation)
-                        result
-                    }
-                }
-            }
-        }
-    }
+    ): T? = publicationAuthority.replaceSnapshotAuthority(
+        expectedCatalogRevision = expectedCatalogRevision,
+        expectedPresentationRevision = expectedPresentationRevision,
+        expectedSourceIdentity = expectedSourceIdentity,
+        storeBlock = storeBlock,
+        publishBlock = publishBlock,
+    )
 
     /** Runs maintenance after any in-flight scan has settled, using the snapshot at lock time. */
     fun launchAlbumArtCacheMaintenance() {

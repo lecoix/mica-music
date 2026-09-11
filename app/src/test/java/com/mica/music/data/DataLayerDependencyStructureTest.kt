@@ -81,9 +81,9 @@ class DataLayerDependencyStructureTest {
     }
 
     @Test
-    fun libraryStoreWritePrimitivesStayOwnedByMusicLibraryBacking() {
+    fun libraryStoreWritePrimitivesStayOwnedByPublicationAuthority() {
         val dataRoot = File(findMainSourceRoot(), "com/mica/music/data")
-        val backingPath = "library/MusicLibraryBacking.kt"
+        val authorityPath = "library/LibraryPublicationAuthority.kt"
         val libraryFiles = sequenceOf(File(dataRoot, "MusicLibrary.kt")) +
             File(dataRoot, "library").walkTopDown().filter { it.isFile && it.extension == "kt" }
         val forbidden = listOf(
@@ -92,7 +92,7 @@ class DataLayerDependencyStructureTest {
             "isLatestStoreRevision(",
         )
         val violations = libraryFiles
-            .filter { it.relativeTo(dataRoot).invariantSeparatorsPath != backingPath }
+            .filter { it.relativeTo(dataRoot).invariantSeparatorsPath != authorityPath }
             .flatMap { file ->
                 file.readLines().asSequence()
                     .filter { line -> forbidden.any(line::contains) }
@@ -101,7 +101,8 @@ class DataLayerDependencyStructureTest {
             .toList()
 
         assertTrue(
-            "library store write primitives must stay inside MusicLibraryBacking:\n${violations.joinToString("\n")}",
+            "library store write primitives must stay inside LibraryPublicationAuthority:\n" +
+                violations.joinToString("\n"),
             violations.isEmpty(),
         )
     }
