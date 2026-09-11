@@ -35,7 +35,7 @@ internal object SafShadowRetryPlanner {
         val retryDeleteKeys = linkedSetOf<String>()
         resolvedOrRemovedKeys.forEach { stableKey ->
             // Canonical key deletion does not require loading the old Room row first.
-            retryDeleteKeys += retryKey(stableKey)
+            retryDeleteKeys += LibraryRetryKey.safObject(stableKey)
             existingByStableKey[stableKey].orEmpty()
                 .mapTo(retryDeleteKeys, LibraryRetryItem::retryKey)
         }
@@ -73,7 +73,7 @@ internal object SafShadowRetryPlanner {
             val delayMs = retryDelayMs(nextAttempt)
             upserts += LibraryRetryItem(
                 sourceIdentity = sourceIdentity,
-                retryKey = retryKey(stableKey),
+                retryKey = LibraryRetryKey.safObject(stableKey),
                 activationEpoch = activationEpoch,
                 stableObjectKey = stableKey,
                 observedFingerprint = fingerprint,
@@ -93,9 +93,6 @@ internal object SafShadowRetryPlanner {
             ignoredIssueCount = ignoredIssueCount,
         )
     }
-
-    internal fun retryKey(stableObjectKey: String): String =
-        LibraryRetryKey.safObject(stableObjectKey)
 
     private fun SafShadowProbeIssueKind.isRetryLedgerEligible(): Boolean =
         when (this) {

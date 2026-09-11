@@ -31,7 +31,7 @@ class SafShadowRetryPlannerTest {
 
         assertEquals(1, plan.retryUpserts.size)
         val retry = plan.retryUpserts.single()
-        assertEquals(SafShadowRetryPlanner.retryKey(observed.stableObjectKey), retry.retryKey)
+        assertEquals(LibraryRetryKey.safObject(observed.stableObjectKey), retry.retryKey)
         assertEquals(1, retry.attemptCount)
         assertEquals(31_000L, retry.nextRetryAtMs)
         assertEquals(SafShadowProbeIssueKind.PROBE_FAILED.name, retry.failureKind)
@@ -77,7 +77,7 @@ class SafShadowRetryPlannerTest {
         val changed = old.copy(lastModifiedMs = old.lastModifiedMs + 1L)
         val existing = LibraryRetryItem(
             sourceIdentity = source,
-            retryKey = SafShadowRetryPlanner.retryKey(old.stableObjectKey),
+            retryKey = LibraryRetryKey.safObject(old.stableObjectKey),
             activationEpoch = 7L,
             stableObjectKey = old.stableObjectKey,
             observedFingerprint = safObservedFingerprint(old),
@@ -132,7 +132,7 @@ class SafShadowRetryPlannerTest {
 
         assertTrue(plan.retryUpserts.isEmpty())
         assertEquals(
-            setOf("old-retry", SafShadowRetryPlanner.retryKey(observed.stableObjectKey)),
+            setOf("old-retry", LibraryRetryKey.safObject(observed.stableObjectKey)),
             plan.retryDeleteKeys,
         )
     }
@@ -181,7 +181,7 @@ class SafShadowRetryPlannerTest {
 
         assertTrue(plan.retryUpserts.isEmpty())
         assertEquals(
-            setOf("legacy-a", "legacy-b", SafShadowRetryPlanner.retryKey(stableKey)),
+            setOf("legacy-a", "legacy-b", LibraryRetryKey.safObject(stableKey)),
             plan.retryDeleteKeys,
         )
     }

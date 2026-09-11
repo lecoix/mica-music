@@ -47,7 +47,7 @@ internal object DeviceShadowRetryPlanner {
                 authoritativeRemovedStableObjectKeys
         resolvedOrRemoved.forEach { stableKey ->
             // Canonical key deletion does not require materializing the old retry row.
-            retryDeleteKeys += retryKey(stableKey)
+            retryDeleteKeys += LibraryRetryKey.deviceObject(stableKey)
             existingByStableKey[stableKey].orEmpty()
                 .mapTo(retryDeleteKeys, LibraryRetryItem::retryKey)
         }
@@ -84,7 +84,7 @@ internal object DeviceShadowRetryPlanner {
             }
             upserts += LibraryRetryItem(
                 sourceIdentity = sourceIdentity,
-                retryKey = retryKey(stableKey),
+                retryKey = LibraryRetryKey.deviceObject(stableKey),
                 activationEpoch = activationEpoch,
                 stableObjectKey = stableKey,
                 observedFingerprint = fingerprint,
@@ -116,7 +116,7 @@ internal object DeviceShadowRetryPlanner {
             previousItems.mapTo(retryDeleteKeys, LibraryRetryItem::retryKey)
             val nextAttempt = previous.attemptCount.coerceAtLeast(0) + 1
             upserts += previous.copy(
-                retryKey = retryKey(stableKey),
+                retryKey = LibraryRetryKey.deviceObject(stableKey),
                 activationEpoch = activationEpoch,
                 failureKind = failureKind,
                 attemptCount = nextAttempt,
@@ -132,9 +132,6 @@ internal object DeviceShadowRetryPlanner {
             ignoredIssueCount = ignoredIssueCount,
         )
     }
-
-    internal fun retryKey(stableObjectKey: String): String =
-        LibraryRetryKey.deviceObject(stableObjectKey)
 
     private fun DeviceShadowProbeIssueKind.isRetryLedgerEligible(): Boolean = when (this) {
         DeviceShadowProbeIssueKind.DRAFT_MISSING,

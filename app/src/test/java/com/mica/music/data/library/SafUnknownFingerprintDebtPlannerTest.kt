@@ -23,7 +23,7 @@ class SafUnknownFingerprintDebtPlannerTest {
 
         val debt = plan.retryUpserts.single()
         assertEquals(LibraryRetryKind.UNKNOWN_FINGERPRINT_VERIFY, debt.retryKind)
-        assertEquals(SafUnknownFingerprintDebtPlanner.retryKey("unknown"), debt.retryKey)
+        assertEquals(LibraryRetryKey.safUnknownFingerprint("unknown"), debt.retryKey)
         assertEquals("UNKNOWN_PENDING", debt.failureKind)
         assertEquals(1_000L, debt.nextRetryAtMs)
         assertEquals(safObservedFingerprint(unknown), debt.observedFingerprint)
@@ -311,8 +311,8 @@ class SafUnknownFingerprintDebtPlannerTest {
         assertTrue(plan.retryUpserts.isEmpty())
         assertEquals(
             setOf(
-                SafUnknownFingerprintDebtPlanner.retryKey("a"),
-                SafUnknownFingerprintDebtPlanner.retryKey("b"),
+                LibraryRetryKey.safUnknownFingerprint("a"),
+                LibraryRetryKey.safUnknownFingerprint("b"),
             ),
             plan.retryDeleteKeys,
         )
@@ -341,7 +341,7 @@ class SafUnknownFingerprintDebtPlannerTest {
         nextRetryAtMs: Long,
     ) = LibraryRetryItem(
         sourceIdentity = source,
-        retryKey = SafUnknownFingerprintDebtPlanner.retryKey(entry.stableObjectKey),
+        retryKey = LibraryRetryKey.safUnknownFingerprint(entry.stableObjectKey),
         activationEpoch = 7L,
         stableObjectKey = entry.stableObjectKey,
         observedFingerprint = safObservedFingerprint(entry),

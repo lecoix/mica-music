@@ -96,7 +96,7 @@ class SafAutoSyncPublicationPlannerTest {
         val observed = entry(current).copy(sizeBytes = current.sizeBytes + 1L)
         val snapshot = snapshot(listOf(observed))
         val verifyPlan = SafFastVerifyPlanner.plan(snapshot, listOf(current))
-        val retry = retryItem(current.id, SafShadowRetryPlanner.retryKey(current.id))
+        val retry = retryItem(current.id, LibraryRetryKey.safObject(current.id))
 
         val plan = SafAutoSyncPublicationPlanner.plan(
             sourceIdentity = source,
@@ -223,8 +223,8 @@ class SafAutoSyncPublicationPlannerTest {
         val snapshot = snapshot(listOf(entry(kept)))
         val verifyPlan = SafFastVerifyPlanner.plan(snapshot, current)
         val quarantinedKey = current.first().id
-        val objectRetryKey = SafShadowRetryPlanner.retryKey(quarantinedKey)
-        val unknownRetryKey = SafUnknownFingerprintDebtPlanner.retryKey(quarantinedKey)
+        val objectRetryKey = LibraryRetryKey.safObject(quarantinedKey)
+        val unknownRetryKey = LibraryRetryKey.safUnknownFingerprint(quarantinedKey)
 
         val plan = SafAutoSyncPublicationPlanner.plan(
             sourceIdentity = source,

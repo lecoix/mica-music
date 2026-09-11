@@ -141,8 +141,8 @@ internal object SafAutoSyncPublicationPlanner {
         val retryUpsertKeys = retryUpserts.mapTo(hashSetOf(), LibraryRetryItem::retryKey)
         val quarantinedRetryKeys = buildSet {
             quarantinedRemovedKeys.forEach { stableKey ->
-                add(SafShadowRetryPlanner.retryKey(stableKey))
-                add(SafUnknownFingerprintDebtPlanner.retryKey(stableKey))
+                add(LibraryRetryKey.safObject(stableKey))
+                add(LibraryRetryKey.safUnknownFingerprint(stableKey))
             }
         }
         val retryDeleteKeys = (retryPlan.retryDeleteKeys + unknownDebtPlan.retryDeleteKeys)

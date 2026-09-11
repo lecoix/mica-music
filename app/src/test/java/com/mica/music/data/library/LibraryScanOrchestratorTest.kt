@@ -3368,7 +3368,7 @@ class LibraryScanOrchestratorTest {
         )
         store.retryItems += LibraryRetryItem(
             sourceIdentity = SourceIdentityKey.device(),
-            retryKey = DeviceShadowRetryPlanner.retryKey(existing.id),
+            retryKey = LibraryRetryKey.deviceObject(existing.id),
             activationEpoch = 1L,
             stableObjectKey = existing.id,
             observedFingerprint = "old-revision",
@@ -3441,7 +3441,7 @@ class LibraryScanOrchestratorTest {
         )
         store.retryItems += LibraryRetryItem(
             sourceIdentity = SourceIdentityKey.device(),
-            retryKey = DeviceShadowRetryPlanner.retryKey(existing.id),
+            retryKey = LibraryRetryKey.deviceObject(existing.id),
             activationEpoch = 1L,
             stableObjectKey = existing.id,
             observedFingerprint = "old-revision",

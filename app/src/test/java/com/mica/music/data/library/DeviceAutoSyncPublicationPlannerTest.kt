@@ -97,7 +97,7 @@ class DeviceAutoSyncPublicationPlannerTest {
         val current = SongFixtures.song("ms_3")
         val retry = LibraryRetryItem(
             sourceIdentity = source,
-            retryKey = DeviceShadowRetryPlanner.retryKey(current.id),
+            retryKey = LibraryRetryKey.deviceObject(current.id),
             activationEpoch = 7L,
             stableObjectKey = current.id,
             observedFingerprint = "rev",

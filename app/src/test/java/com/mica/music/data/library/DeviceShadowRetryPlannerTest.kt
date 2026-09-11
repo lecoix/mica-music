@@ -191,7 +191,7 @@ class DeviceShadowRetryPlannerTest {
         nextRetryAtMs: Long,
     ) = LibraryRetryItem(
         sourceIdentity = source,
-        retryKey = DeviceShadowRetryPlanner.retryKey(stableKey),
+        retryKey = LibraryRetryKey.deviceObject(stableKey),
         activationEpoch = 7L,
         stableObjectKey = stableKey,
         observedFingerprint = fingerprint,

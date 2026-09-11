@@ -115,7 +115,7 @@ internal object SafUnknownFingerprintDebtPlanner {
                 ?: return@forEach
             val previousItems = existingByKey[stableKey].orEmpty()
             val previous = previousItems.maxByOrNull(LibraryRetryItem::nextRetryAtMs)
-            val canonicalRetryKey = retryKey(stableKey)
+            val canonicalRetryKey = LibraryRetryKey.safUnknownFingerprint(stableKey)
             val currentWeakObservation = safObservedFingerprint(entry)
             val strongFingerprint =
                 execution.strongValidatedFingerprintsByStableObjectKey[stableKey]
@@ -205,9 +205,6 @@ internal object SafUnknownFingerprintDebtPlanner {
             strongVerifiedCount = strongVerifiedCount,
         )
     }
-
-    internal fun retryKey(stableObjectKey: String): String =
-        LibraryRetryKey.safUnknownFingerprint(stableObjectKey)
 
     private fun safeAdd(nowMs: Long, delayMs: Long): Long =
         if (Long.MAX_VALUE - nowMs < delayMs) Long.MAX_VALUE else nowMs + delayMs

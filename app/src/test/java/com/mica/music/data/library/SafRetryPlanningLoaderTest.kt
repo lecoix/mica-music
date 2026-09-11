@@ -114,7 +114,7 @@ class SafRetryPlanningLoaderTest {
             unknownDebt(blockedByObjectRetry, nextRetryAtMs = 0L),
             LibraryRetryItem(
                 sourceIdentity = source,
-                retryKey = SafShadowRetryPlanner.retryKey(blockedByObjectRetry.stableObjectKey),
+                retryKey = LibraryRetryKey.safObject(blockedByObjectRetry.stableObjectKey),
                 activationEpoch = 7L,
                 stableObjectKey = blockedByObjectRetry.stableObjectKey,
                 observedFingerprint = safObservedFingerprint(blockedByObjectRetry),
@@ -138,17 +138,17 @@ class SafRetryPlanningLoaderTest {
         )
         assertTrue(
             working.retryItems.any {
-                it.retryKey == SafUnknownFingerprintDebtPlanner.retryKey("b")
+                it.retryKey == LibraryRetryKey.safUnknownFingerprint("b")
             },
         )
         assertTrue(
             working.retryItems.none {
-                it.retryKey == SafUnknownFingerprintDebtPlanner.retryKey("a")
+                it.retryKey == LibraryRetryKey.safUnknownFingerprint("a")
             },
         )
         assertTrue(
             working.retryItems.none {
-                it.retryKey == SafShadowRetryPlanner.retryKey("d")
+                it.retryKey == LibraryRetryKey.safObject("d")
             },
         )
     }
@@ -219,7 +219,7 @@ class SafRetryPlanningLoaderTest {
         nextRetryAtMs: Long,
     ) = LibraryRetryItem(
         sourceIdentity = source,
-        retryKey = SafUnknownFingerprintDebtPlanner.retryKey(entry.stableObjectKey),
+        retryKey = LibraryRetryKey.safUnknownFingerprint(entry.stableObjectKey),
         activationEpoch = 7L,
         stableObjectKey = entry.stableObjectKey,
         observedFingerprint = safObservedFingerprint(entry),
