@@ -84,7 +84,6 @@ internal class MusicLibraryBacking(
     private val storeSyncMutex = Mutex()
     private val lifecycleLock = Any()
     private val latestStoreRevision = AtomicLong(0L)
-    private var nextActivationEpoch = 0L
     @Volatile
     private var playbackIoSnapshotProvider: () -> LibraryPlaybackIoSnapshot =
         { LibraryPlaybackIoSnapshot.Idle }
@@ -130,6 +129,7 @@ internal class MusicLibraryBacking(
     var songFastScrollLabels by mutableStateOf<List<String>?>(null)
     var songFastScrollSectionTargets by mutableStateOf<Map<String, Int>?>(null)
 
+    val operationAuthority = LibraryOperationAuthority(this)
     val catalog = LibraryCatalogPublisher(this)
     val browse = LibraryBrowseCoordinator(this)
     val folder = LibraryFolderBinding(this)
@@ -184,67 +184,27 @@ internal class MusicLibraryBacking(
     }
 
     fun isActiveGeneration(generation: Int): Boolean =
-        !released && !releaseRequested && generation == scanGeneration
+        operationAuthority.isActiveGeneration(generation)
 
-    fun sourceIdentityFor(source: ScanSource): SourceIdentityKey? = when (source) {
-        ScanSource.DEVICE -> SourceIdentityKey.device()
-        ScanSource.FOLDER -> (pendingLibraryFolderUri ?: libraryFolderUri)
-            ?.takeIf(String::isNotBlank)
-            ?.let(SourceIdentityKey::folder)
-    }
+    fun sourceIdentityFor(source: ScanSource): SourceIdentityKey? =
+        operationAuthority.sourceIdentityFor(source)
 
     suspend fun captureShadowObservationStamp(
         expectedSource: ScanSource,
-    ): LibraryShadowObservationStamp? = publicationMutex.withLock {
-        if (released || releaseRequested) return@withLock null
-        if (intentState != LibraryIntentState.ACTIVE) return@withLock null
-        if (accessState != LibraryAccessState.AVAILABLE) return@withLock null
-        val active = sourceState.active ?: return@withLock null
-        if (active.sourceIdentity.source != expectedSource) return@withLock null
-        LibraryShadowObservationStamp(
-            libraryGeneration = scanGeneration,
-            sourceActivation = active,
-            configFingerprint = LibraryScanSettings.configFingerprint(context),
-            shadowAuthorityRevision = shadowAuthorityRevision,
-            intent = intentState,
-            access = accessState,
-        )
-    }
+    ): LibraryShadowObservationStamp? =
+        operationAuthority.captureShadowObservationStamp(expectedSource)
+
     suspend fun beginActiveAutoSyncOperationToken(
         requestSequence: Long,
         dirtySequenceAtStart: Long,
         cause: LibraryOperationCause,
         enforceAutoSyncGate: Boolean = true,
-    ): LibraryOperationToken? = publicationMutex.withLock {
-        if (released || releaseRequested) return@withLock null
-        if (intentState != LibraryIntentState.ACTIVE) return@withLock null
-        if (accessState != LibraryAccessState.AVAILABLE) return@withLock null
-        val active = sourceState.active ?: return@withLock null
-        if (enforceAutoSyncGate && !autoSyncEnabled(active.sourceIdentity.source)) {
-            DiagnosticLog.event(
-                "LibraryAutoSync",
-                "feature-gate disabled source=${active.sourceIdentity.source} " +
-                    "request=$requestSequence cause=$cause",
-            )
-            return@withLock null
-        }
-        val currentFingerprint = LibraryScanSettings.configFingerprint(context)
-        val generation = ++scanGeneration
-        configFingerprint = currentFingerprint
-        LibraryOperationToken(
-            libraryGeneration = generation,
-            requestSequence = requestSequence,
-            dirtySequenceAtStart = dirtySequenceAtStart,
-            mode = LibraryOperationMode.AUTO_SYNC,
-            cause = cause,
-            sourceIdentity = active.sourceIdentity,
-            activationEpoch = active.activationEpoch,
-            configFingerprint = currentFingerprint,
-            catalogRevisionAtStart = catalogRevision,
-            presentationRevisionAtStart = presentationRevision,
-            autoSyncGateEnforced = enforceAutoSyncGate,
-        )
-    }
+    ): LibraryOperationToken? = operationAuthority.beginActiveAutoSyncOperationToken(
+        requestSequence = requestSequence,
+        dirtySequenceAtStart = dirtySequenceAtStart,
+        cause = cause,
+        enforceAutoSyncGate = enforceAutoSyncGate,
+    )
 
     suspend fun beginOperationToken(
         source: ScanSource,
@@ -252,69 +212,22 @@ internal class MusicLibraryBacking(
         dirtySequenceAtStart: Long,
         mode: LibraryOperationMode,
         cause: LibraryOperationCause,
-    ): LibraryOperationToken? = publicationMutex.withLock {
-        if (released || releaseRequested) return@withLock null
-        val sourceIdentity = sourceIdentityFor(source) ?: return@withLock null
-        val currentFingerprint = LibraryScanSettings.configFingerprint(context)
-        val active = sourceState.active
-        val activation = if (active?.sourceIdentity == sourceIdentity) {
-            active
-        } else {
-            val pending = sourceState.pendingTransition
-                ?.takeIf { it.sourceIdentity == sourceIdentity }
-                ?: SourceActivation(
-                    sourceIdentity = sourceIdentity,
-                    activationEpoch = ++nextActivationEpoch,
-                )
-            sourceState = sourceState.copy(pendingTransition = pending)
-            pending
-        }
+    ): LibraryOperationToken? = operationAuthority.beginOperationToken(
+        source = source,
+        requestSequence = requestSequence,
+        dirtySequenceAtStart = dirtySequenceAtStart,
+        mode = mode,
+        cause = cause,
+    )
 
-        val generation = ++scanGeneration
-        configFingerprint = currentFingerprint
-        LibraryOperationToken(
-            libraryGeneration = generation,
-            requestSequence = requestSequence,
-            dirtySequenceAtStart = dirtySequenceAtStart,
-            mode = mode,
-            cause = cause,
-            sourceIdentity = sourceIdentity,
-            activationEpoch = activation.activationEpoch,
-            configFingerprint = currentFingerprint,
-            catalogRevisionAtStart = catalogRevision,
-            presentationRevisionAtStart = presentationRevision,
-        )
-    }
+    fun isCurrentOperationToken(token: LibraryOperationToken): Boolean =
+        operationAuthority.isCurrentOperationToken(token)
 
-    fun isCurrentOperationToken(token: LibraryOperationToken): Boolean {
-        if (!isActiveGeneration(token.libraryGeneration)) return false
-        if (
-            token.autoSyncGateEnforced &&
-            !autoSyncEnabled(token.sourceIdentity.source)
-        ) {
-            return false
-        }
-        if (LibraryScanSettings.configFingerprint(context) != token.configFingerprint) return false
-        val matchingActivation = sequenceOf(
-            sourceState.active,
-            sourceState.pendingTransition,
-        ).filterNotNull().any { activation ->
-            activation.sourceIdentity == token.sourceIdentity &&
-                activation.activationEpoch == token.activationEpoch
-        }
-        return matchingActivation
-    }
-
-    fun isPendingSourceOperation(token: LibraryOperationToken): Boolean {
-        val pending = sourceState.pendingTransition
-        return pending?.sourceIdentity == token.sourceIdentity &&
-            pending.activationEpoch == token.activationEpoch &&
-            sourceState.active?.sourceIdentity != token.sourceIdentity
-    }
+    fun isPendingSourceOperation(token: LibraryOperationToken): Boolean =
+        operationAuthority.isPendingSourceOperation(token)
 
     fun operationStagingId(token: LibraryOperationToken): String =
-        "op-${token.libraryGeneration}-${token.requestSequence}-${token.activationEpoch}"
-
+        operationAuthority.operationStagingId(token)
     suspend fun discardOperationStaging(stagingId: String) {
         if (stagingId.isBlank()) return
         withContext(NonCancellable) {
@@ -327,63 +240,16 @@ internal class MusicLibraryBacking(
     }
 
     fun persistedStateAfterActivation(token: LibraryOperationToken): PersistedLibraryState =
-        PersistedLibraryState(
-            intent = LibraryIntentState.ACTIVE,
-            access = LibraryAccessState.AVAILABLE,
-            sourceState = LibrarySourceState(
-                active = SourceActivation(token.sourceIdentity, token.activationEpoch),
-                pendingTransition = null,
-            ),
-            configFingerprint = token.configFingerprint,
-        )
+        operationAuthority.persistedStateAfterActivation(token)
 
-    fun clearedPersistedState(): PersistedLibraryState = PersistedLibraryState(
-        intent = LibraryIntentState.CLEARED_BY_USER,
-        access = accessState,
-        sourceState = LibrarySourceState(),
-        configFingerprint = LibraryScanSettings.configFingerprint(context),
-    )
+    fun clearedPersistedState(): PersistedLibraryState =
+        operationAuthority.clearedPersistedState()
 
-    /**
-     * Completes source activation after a final publication gate has already validated [token].
-     *
-     * The Room transaction and memory adopt are one linearized section under [publicationMutex].
-     * A lifecycle release may set releaseRequested while the Room IO is in flight; that later
-     * cancellation must not turn a committed Room snapshot into a memory split-brain. Operations
-     * that could change generation/source activation are themselves ordered behind the same gate.
-     */
-    fun activateOperationSourceAfterFinalCommit(token: LibraryOperationToken) {
-        check(scanGeneration == token.libraryGeneration) {
-            "Final publication generation changed while publication gate was held"
-        }
-        val matchingActivation = sequenceOf(
-            sourceState.active,
-            sourceState.pendingTransition,
-        ).filterNotNull().any { activation ->
-            activation.sourceIdentity == token.sourceIdentity &&
-                activation.activationEpoch == token.activationEpoch
-        }
-        check(matchingActivation) {
-            "Final publication source activation changed while publication gate was held"
-        }
-        restorePersistedState(persistedStateAfterActivation(token))
-    }
+    fun activateOperationSourceAfterFinalCommit(token: LibraryOperationToken) =
+        operationAuthority.activateOperationSourceAfterFinalCommit(token)
 
-    suspend fun abandonPendingTransition(token: LibraryOperationToken) {
-        withContext(NonCancellable) {
-            publicationMutex.withLock {
-                val pending = sourceState.pendingTransition
-                if (
-                    pending?.sourceIdentity == token.sourceIdentity &&
-                    pending.activationEpoch == token.activationEpoch &&
-                    sourceState.active?.sourceIdentity != token.sourceIdentity
-                ) {
-                    sourceState = sourceState.copy(pendingTransition = null)
-                }
-            }
-        }
-    }
-
+    suspend fun abandonPendingTransition(token: LibraryOperationToken) =
+        operationAuthority.abandonPendingTransition(token)
     fun restorePersistedState(state: PersistedLibraryState) {
         intentState = state.intent
         accessState = state.access
@@ -391,11 +257,8 @@ internal class MusicLibraryBacking(
         configFingerprint = state.configFingerprint.ifBlank {
             LibraryScanSettings.configFingerprint(context)
         }
-        nextActivationEpoch = maxOf(
-            nextActivationEpoch,
-            state.sourceState.active?.activationEpoch ?: 0L,
-            state.sourceState.pendingTransition?.activationEpoch ?: 0L,
-        )
+        operationAuthority.observeRestoredState(state)
+
         dirtySignalObserver.onActiveSourceChanged()
     }
 
