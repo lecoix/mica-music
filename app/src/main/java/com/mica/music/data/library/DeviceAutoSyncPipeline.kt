@@ -10,15 +10,14 @@ import kotlinx.coroutines.withContext
 /**
  * DEVICE-specific AUTO discovery/probe/retry pipeline.
  *
- * R2 is a mechanical ownership extraction: scheduler callbacks are intentionally preserved
- * until R4 replaces them with explicit post-commit outcomes.
+ * Scheduler follow-ups are returned as [AutoSyncPostCommit] actions; this pipeline does not own
+ * scheduler mutation.
  */
 internal class DeviceAutoSyncPipeline(
     private val backing: MusicLibraryBacking,
     private val publicationAuthority: AutoSyncPublicationAuthority,
     private val canonicalCoverage: DeviceShadowCanonicalCoverageTracker,
     private val canonicalProjection: DeviceShadowCanonicalProjectionTracker,
-    private val scheduleAutoArtworkHydration: (Set<String>) -> Unit,
 ) {
     private data class DeviceShadowDeltaAnalysis(
         val scanStartSnapshot: List<Song>,
@@ -40,6 +39,22 @@ internal class DeviceAutoSyncPipeline(
         operation: ScheduledLibraryOperation,
         token: LibraryOperationToken,
         publishAuthority: Boolean,
+    ): AutoSyncPostCommit {
+        val postCommit = AutoSyncPostCommitCollector()
+        executeInternal(
+            operation = operation,
+            token = token,
+            publishAuthority = publishAuthority,
+            postCommit = postCommit,
+        )
+        return postCommit.build()
+    }
+
+    private suspend fun executeInternal(
+        operation: ScheduledLibraryOperation,
+        token: LibraryOperationToken,
+        publishAuthority: Boolean,
+        postCommit: AutoSyncPostCommitCollector,
     ) {
         val before = backing.captureShadowObservationStamp(ScanSource.DEVICE) ?: return
         if (!before.matchesOperationToken(token)) return
@@ -351,6 +366,7 @@ internal class DeviceAutoSyncPipeline(
                 before = before,
                 observation = observation,
                 persistedCheckpoints = persistedCheckpoints,
+                postCommit = postCommit,
             )
         ) {
             return
@@ -394,13 +410,14 @@ internal class DeviceAutoSyncPipeline(
                 nowMs = retryNowMs,
                 playbackDeferredStableObjectKeys = playbackDeferredKeys,
             )
-            val retryWakeScheduled = scheduleDeviceRetryWake(
+            val retryWakeRequested = requestDeviceRetryWake(
+                postCommit = postCommit,
                 token = token,
                 publishAuthority = true,
                 delayMs = nextRetryDelayMs,
             )
 
-            scheduleAutoArtworkHydration(publicationPlan.visibleDelta.addedIds)
+            postCommit.requestArtworkHydration(publicationPlan.visibleDelta.addedIds)
 
             DiagnosticLog.event(
                 "LibraryAutoSync",
@@ -415,11 +432,11 @@ internal class DeviceAutoSyncPipeline(
                     "checkpoint=${publicationPlan.checkpointIncluded} " +
                     "cursorAccepted=$cursorAccepted " +
                     "retryDelayMs=${nextRetryDelayMs ?: -1L} " +
-                    "retryWakeScheduled=$retryWakeScheduled " +
+                    "retryWakeRequested=$retryWakeRequested " +
                     "quarantine=${publicationPlan.quarantineReason ?: "none"}",
             )
             if (observation.followUpRequired) {
-                backing.syncScheduler.markDirty(LibraryOperationCause.FOREGROUND_CATCH_UP)
+                postCommit.requestDirtyFollowUp(LibraryOperationCause.FOREGROUND_CATCH_UP)
             }
             return
         }
@@ -484,7 +501,7 @@ internal class DeviceAutoSyncPipeline(
                         "detail=${observation.detail}",
                 )
                 if (observation.followUpRequired) {
-                    backing.syncScheduler.markDirty(LibraryOperationCause.FOREGROUND_CATCH_UP)
+                    postCommit.requestDirtyFollowUp(LibraryOperationCause.FOREGROUND_CATCH_UP)
                 }
             }
             is DeviceAutoSyncShadowObservation.DeltaCandidate -> {
@@ -540,7 +557,7 @@ internal class DeviceAutoSyncPipeline(
                         "windows=${batch.windows.size}",
                 )
                 if (observation.followUpRequired) {
-                    backing.syncScheduler.markDirty(LibraryOperationCause.FOREGROUND_CATCH_UP)
+                    postCommit.requestDirtyFollowUp(LibraryOperationCause.FOREGROUND_CATCH_UP)
                 }
             }
         }
@@ -552,6 +569,7 @@ internal class DeviceAutoSyncPipeline(
         before: LibraryShadowObservationStamp,
         observation: DeviceAutoSyncShadowObservation.NoChange,
         persistedCheckpoints: List<LibrarySyncCheckpoint>,
+        postCommit: AutoSyncPostCommitCollector,
     ): Boolean {
         val nowMs = backing.scanEnvironment.currentTimeMillis()
         val currentSongs = backing.songs
@@ -574,7 +592,8 @@ internal class DeviceAutoSyncPipeline(
             }?.let { nextRetryAtMs ->
                 (nextRetryAtMs - nowMs).coerceAtLeast(0L)
             }
-            scheduleDeviceRetryWake(
+            requestDeviceRetryWake(
+                postCommit = postCommit,
                 token = token,
                 publishAuthority = true,
                 delayMs = nextDelayMs,
@@ -711,7 +730,8 @@ internal class DeviceAutoSyncPipeline(
         ) {
             nextDelayMs = DEVICE_REQUERY_RETRY_DELAY_MS
         }
-        val retryWakeScheduled = scheduleDeviceRetryWake(
+        val retryWakeRequested = requestDeviceRetryWake(
+            postCommit = postCommit,
             token = token,
             publishAuthority = true,
             delayMs = nextDelayMs,
@@ -732,23 +752,25 @@ internal class DeviceAutoSyncPipeline(
                 "retryUpserts=${publicationPlan.autoSyncStateMutation.retryUpserts.size} " +
                 "retryDeletes=${publicationPlan.autoSyncStateMutation.retryDeleteKeys.size} " +
                 "nextDelayMs=${nextDelayMs ?: -1L} " +
-                "retryWakeScheduled=$retryWakeScheduled",
+                "retryWakeRequested=$retryWakeRequested",
         )
         return true
     }
 
-    private fun scheduleDeviceRetryWake(
+    private fun requestDeviceRetryWake(
+        postCommit: AutoSyncPostCommitCollector,
         token: LibraryOperationToken,
         publishAuthority: Boolean,
         delayMs: Long?,
     ): Boolean {
         if (!publishAuthority) return false
-        return backing.syncScheduler.replaceAutoRetryWake(
+        postCommit.requestRetryWake(
             cause = LibraryOperationCause.DEVICE_RETRY_DUE,
             delayMs = delayMs,
             sourceIdentity = token.sourceIdentity,
             activationEpoch = token.activationEpoch,
         )
+        return true
     }
 
     private suspend fun nextDeviceRetryDelayFromStore(

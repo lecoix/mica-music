@@ -55,7 +55,6 @@ internal class LibraryScanOrchestrator(
         publicationAuthority = autoSyncPublicationAuthority,
         canonicalCoverage = deviceShadowCanonicalCoverage,
         canonicalProjection = deviceShadowCanonicalProjection,
-        scheduleAutoArtworkHydration = ::scheduleAutoArtworkHydration,
     )
     private val safAutoSyncPipeline = SafAutoSyncPipeline(
         backing = backing,
@@ -196,11 +195,35 @@ internal class LibraryScanOrchestrator(
         }
         if (activeSource != ScanSource.DEVICE) return
 
-        deviceAutoSyncPipeline.execute(
+        val postCommit = deviceAutoSyncPipeline.execute(
             operation = operation,
             token = token,
             publishAuthority = publishDeviceAuthority,
         )
+        applyAutoSyncPostCommit(postCommit)
+    }
+
+    private fun applyAutoSyncPostCommit(postCommit: AutoSyncPostCommit) {
+        postCommit.actions.forEach { action ->
+            when (action) {
+                is AutoSyncPostCommitAction.RetryWake ->
+                    backing.syncScheduler.replaceAutoRetryWake(
+                        cause = action.cause,
+                        delayMs = action.delayMs,
+                        sourceIdentity = action.sourceIdentity,
+                        activationEpoch = action.activationEpoch,
+                    )
+
+                is AutoSyncPostCommitAction.DirtyFollowUp ->
+                    backing.syncScheduler.markDirty(action.cause)
+
+                is AutoSyncPostCommitAction.AutoContinuation ->
+                    backing.syncScheduler.requestAutoContinuation(action.cause)
+
+                is AutoSyncPostCommitAction.ArtworkHydration ->
+                    scheduleAutoArtworkHydration(action.songIds)
+            }
+        }
     }
     private fun logSafShadowCanonicalProjection(
         requestSequence: Long,
