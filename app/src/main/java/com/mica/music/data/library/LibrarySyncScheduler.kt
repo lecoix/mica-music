@@ -6,8 +6,6 @@ import com.mica.music.util.DiagnosticLog
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlin.math.max
-import kotlin.math.min
 
 internal data class LibrarySyncSchedulerTiming(
     val debounceMs: Long = 1_500L,
@@ -141,8 +139,8 @@ internal class LibrarySyncScheduler(
         }
 
         val now = nowMs()
-        val hadCooldownBypassCause = pendingAutoCauseCounts.keys.any { !it.usesAutoSyncCooldown() }
-        val causeBypassesCooldown = !cause.usesAutoSyncCooldown()
+        val hadCooldownBypassCause = pendingAutoCauseCounts.keys.any { !AutoSyncWakePolicy.usesCooldown(it) }
+        val causeBypassesCooldown = !AutoSyncWakePolicy.usesCooldown(cause)
         pendingDirty = true
         pendingAutoCause = cause
         pendingAutoEventCount += 1
@@ -218,7 +216,7 @@ internal class LibrarySyncScheduler(
 
         val normalizedDelayMs = delayMs.coerceAtLeast(0L)
         val now = nowMs()
-        val dueAt = safeAdd(now, normalizedDelayMs)
+        val dueAt = AutoSyncWakePolicy.safeAdd(now, normalizedDelayMs)
         retryWakeAtMs = dueAt
         retryWakeSourceActivation = activeSource
         retryWakeCause = cause
@@ -387,33 +385,29 @@ internal class LibrarySyncScheduler(
     private fun computeDirtyDueAtLocked(now: Long): Long {
         val burstStart = dirtyBurstStartedAtMs ?: now.also { dirtyBurstStartedAtMs = it }
         val lastDirty = lastDirtyAtMs ?: burstStart.also { lastDirtyAtMs = it }
-        val trailingDeadline = lastDirty + timing.debounceMs
-        val starvationDeadline = burstStart + timing.maxDebounceMs
-        val debounceDeadline = min(trailingDeadline, starvationDeadline)
-        return if (pendingAutoUsesCooldownLocked()) {
-            max(nextAllowedAutoSyncAtMs, debounceDeadline)
-        } else {
-            debounceDeadline
-        }
+        return AutoSyncWakePolicy.dueAtMs(
+            timing = timing,
+            burstStartedAtMs = burstStart,
+            lastDirtyAtMs = lastDirty,
+            nextAllowedAutoSyncAtMs = nextAllowedAutoSyncAtMs,
+            usesCooldown = pendingAutoUsesCooldownLocked(),
+        )
     }
 
     private fun pendingAutoUsesCooldownLocked(): Boolean =
-        pendingAutoCauseCounts.isNotEmpty() &&
-            pendingAutoCauseCounts.keys.all { it.usesAutoSyncCooldown() }
+        AutoSyncWakePolicy.pendingUsesCooldown(pendingAutoCauseCounts.keys)
 
     private fun resolveAutoWakeReasonLocked(): AutoSyncWakeReason {
         val now = nowMs()
         val burstStart = dirtyBurstStartedAtMs ?: now
         val lastDirty = lastDirtyAtMs ?: burstStart
-        val trailingDeadline = lastDirty + timing.debounceMs
-        val starvationDeadline = burstStart + timing.maxDebounceMs
-        val debounceDeadline = min(trailingDeadline, starvationDeadline)
-        return when {
-            pendingAutoUsesCooldownLocked() && nextAllowedAutoSyncAtMs > debounceDeadline ->
-                AutoSyncWakeReason.COOLDOWN
-            starvationDeadline <= trailingDeadline -> AutoSyncWakeReason.MAX_DEBOUNCE
-            else -> AutoSyncWakeReason.TRAILING_DEBOUNCE
-        }
+        return AutoSyncWakePolicy.wakeReason(
+            timing = timing,
+            burstStartedAtMs = burstStart,
+            lastDirtyAtMs = lastDirty,
+            nextAllowedAutoSyncAtMs = nextAllowedAutoSyncAtMs,
+            usesCooldown = pendingAutoUsesCooldownLocked(),
+        )
     }
 
     private fun startAutoLocked(wakeReason: AutoSyncWakeReason) {
@@ -563,14 +557,4 @@ internal class LibrarySyncScheduler(
             else -> current
         }
 
-    private fun LibraryOperationCause.usesAutoSyncCooldown(): Boolean =
-        when (this) {
-            LibraryOperationCause.FOREGROUND_CATCH_UP,
-            LibraryOperationCause.SAF_PERIODIC_VERIFY,
-            -> true
-            else -> false
-        }
-
-    private fun safeAdd(nowMs: Long, delayMs: Long): Long =
-        if (Long.MAX_VALUE - nowMs < delayMs) Long.MAX_VALUE else nowMs + delayMs
 }
