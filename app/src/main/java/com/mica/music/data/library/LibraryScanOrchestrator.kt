@@ -62,7 +62,6 @@ internal class LibraryScanOrchestrator(
         safShadowCanonicalProjection = safShadowCanonicalProjection,
         safShadowVideoInventory = safShadowVideoInventory,
         safProviderDiscoveryBackoff = safProviderDiscoveryBackoff,
-        scheduleAutoArtworkHydration = ::scheduleAutoArtworkHydration,
     )
 
     suspend fun rescan() = rescan(null)
@@ -185,12 +184,13 @@ internal class LibraryScanOrchestrator(
     ) {
         val activeSource = token.sourceIdentity.source
         if (activeSource == ScanSource.FOLDER) {
-            safAutoSyncPipeline.execute(
+            val postCommit = safAutoSyncPipeline.execute(
                 operation = operation,
                 token = token,
                 scheduleBudgetContinuation = scheduleSafBudgetContinuation,
                 publishAuthority = publishSafAuthority,
             )
+            applyAutoSyncPostCommit(postCommit)
             return
         }
         if (activeSource != ScanSource.DEVICE) return

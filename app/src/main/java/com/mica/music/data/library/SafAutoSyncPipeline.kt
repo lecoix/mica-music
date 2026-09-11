@@ -19,13 +19,30 @@ internal class SafAutoSyncPipeline(
     private val safShadowCanonicalProjection: SafShadowCanonicalProjectionTracker,
     private val safShadowVideoInventory: SafShadowVideoInventoryTracker,
     private val safProviderDiscoveryBackoff: SafProviderDiscoveryBackoff,
-    private val scheduleAutoArtworkHydration: (Set<String>) -> Unit,
 ) {
     suspend fun execute(
         operation: ScheduledLibraryOperation,
         token: LibraryOperationToken,
         scheduleBudgetContinuation: Boolean,
         publishAuthority: Boolean,
+    ): AutoSyncPostCommit {
+        val postCommit = AutoSyncPostCommitCollector()
+        executeInternal(
+            operation = operation,
+            token = token,
+            scheduleBudgetContinuation = scheduleBudgetContinuation,
+            publishAuthority = publishAuthority,
+            postCommit = postCommit,
+        )
+        return postCommit.build()
+    }
+
+    private suspend fun executeInternal(
+        operation: ScheduledLibraryOperation,
+        token: LibraryOperationToken,
+        scheduleBudgetContinuation: Boolean,
+        publishAuthority: Boolean,
+        postCommit: AutoSyncPostCommitCollector,
     ) {
         val before = backing.captureShadowObservationStamp(ScanSource.FOLDER) ?: return
         if (!before.matchesOperationToken(token)) return
@@ -47,7 +64,7 @@ internal class SafAutoSyncPipeline(
         ) {
             SafProviderDiscoveryPermit.Allowed -> Unit
             is SafProviderDiscoveryPermit.BackedOff -> {
-                scheduleSafRetryWake(token, publishAuthority, permit.remainingMs)
+                requestSafRetryWake(postCommit, token, publishAuthority, permit.remainingMs)
                 DiagnosticLog.event(
                     "LibraryAutoSync",
                     "saf shadow discovery-backoff request=${operation.requestSequence} " +
@@ -58,7 +75,7 @@ internal class SafAutoSyncPipeline(
                 return
             }
             is SafProviderDiscoveryPermit.SlowSuccessCadence -> {
-                scheduleSafRetryWake(token, publishAuthority, permit.remainingMs)
+                requestSafRetryWake(postCommit, token, publishAuthority, permit.remainingMs)
                 DiagnosticLog.event(
                     "LibraryAutoSync",
                     "saf shadow discovery-cadence request=${operation.requestSequence} " +
@@ -111,7 +128,7 @@ internal class SafAutoSyncPipeline(
                     )
                     return
                 }
-                scheduleSafRetryWake(token, publishAuthority, failure.delayMs)
+                requestSafRetryWake(postCommit, token, publishAuthority, failure.delayMs)
                 DiagnosticLog.event(
                     "LibraryAutoSync",
                     "saf shadow unavailable request=${operation.requestSequence} " +
@@ -137,7 +154,7 @@ internal class SafAutoSyncPipeline(
                 nowMs = backing.scanEnvironment.elapsedRealtimeMillis(),
                 detail = detail,
             )
-            scheduleSafRetryWake(token, publishAuthority, failure.delayMs)
+            requestSafRetryWake(postCommit, token, publishAuthority, failure.delayMs)
             DiagnosticLog.event(
                 "LibraryAutoSync",
                 "saf shadow discovery-failed request=${operation.requestSequence} " +
@@ -326,7 +343,7 @@ internal class SafAutoSyncPipeline(
                     nowMs = backing.scanEnvironment.elapsedRealtimeMillis(),
                     detail = detail,
                 )
-                scheduleSafRetryWake(token, publishAuthority, failure.delayMs)
+                requestSafRetryWake(postCommit, token, publishAuthority, failure.delayMs)
                 DiagnosticLog.event(
                     "LibraryAutoSync",
                     "saf shadow discovery-failed request=${operation.requestSequence} " +
@@ -542,7 +559,7 @@ internal class SafAutoSyncPipeline(
         }
 
         if (publishAuthority && publicationResult != null) {
-            scheduleAutoArtworkHydration(publicationPlan.visibleDelta.addedIds)
+            postCommit.requestArtworkHydration(publicationPlan.visibleDelta.addedIds)
         }
 
         val ledgerRetryDelayMs = if (publishAuthority) {
@@ -562,12 +579,12 @@ internal class SafAutoSyncPipeline(
             providerRetryDelayMs,
             ledgerRetryDelayMs,
         )
-        val retryWakeAccepted = if (publishAuthority) {
-            scheduleSafRetryWake(token, publishAuthority = true, delayMs = nextRetryWakeDelayMs)
+        val retryWakeRequested = if (publishAuthority) {
+            requestSafRetryWake(postCommit, token, publishAuthority = true, delayMs = nextRetryWakeDelayMs)
         } else {
             false
         }
-        val retryWakeScheduled = nextRetryWakeDelayMs != null && retryWakeAccepted
+        val retryWakeScheduled = nextRetryWakeDelayMs != null && retryWakeRequested
 
         val hasNonUnknownBudgetDebt = probePlan.budgetDeferred.any { objectPlan ->
             objectPlan.reasons.any {
@@ -583,9 +600,7 @@ internal class SafAutoSyncPipeline(
                 (publishAuthority || hasNonUnknownBudgetDebt) &&
                 probePlan.shouldRequestBudgetContinuation(execution) &&
                 backing.isCurrentOperationToken(token) &&
-                backing.syncScheduler.requestAutoContinuation(
-                    LibraryOperationCause.SAF_BUDGET_CONTINUATION,
-                )
+                requestSafBudgetContinuation(postCommit)
         val issueKinds = validation.issues
             .groupingBy(SafShadowProbeIssue::kind)
             .eachCount()
@@ -661,18 +676,27 @@ internal class SafAutoSyncPipeline(
         )
     }
 
-    private fun scheduleSafRetryWake(
+    private fun requestSafRetryWake(
+        postCommit: AutoSyncPostCommitCollector,
         token: LibraryOperationToken,
         publishAuthority: Boolean,
         delayMs: Long?,
     ): Boolean {
         if (!publishAuthority) return false
-        return backing.syncScheduler.replaceAutoRetryWake(
+        postCommit.requestRetryWake(
             cause = LibraryOperationCause.SAF_RETRY_DUE,
             delayMs = delayMs,
             sourceIdentity = token.sourceIdentity,
             activationEpoch = token.activationEpoch,
         )
+        return true
+    }
+
+    private fun requestSafBudgetContinuation(
+        postCommit: AutoSyncPostCommitCollector,
+    ): Boolean {
+        postCommit.requestAutoContinuation(LibraryOperationCause.SAF_BUDGET_CONTINUATION)
+        return true
     }
 
     private fun earlierRetryDelay(
