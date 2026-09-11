@@ -5,14 +5,10 @@ import androidx.core.net.toUri
 import com.mica.music.data.AlbumArtRepairAction
 import com.mica.music.data.AlbumArtRepairPlan
 import com.mica.music.data.CURRENT_LYRICS_PARSER_VERSION
-import com.mica.music.data.LibraryAutoSyncStoreDelta
-import com.mica.music.data.LibraryAutoSyncStoreRow
 import com.mica.music.data.ScanSource
-import com.mica.music.data.ScannedSongLyrics
 import com.mica.music.data.preferences.LibraryScanSettings
 import com.mica.music.data.SharedLyricsMemoryCache
 import com.mica.music.data.Song
-import com.mica.music.data.scanner.AutoSyncPublicationDecision
 import com.mica.music.data.scanner.AutoSyncVisibleDelta
 import com.mica.music.data.scanner.DeviceAutoSyncShadowObservation
 import com.mica.music.data.scanner.DeviceDeltaCandidatePlan
@@ -31,7 +27,6 @@ import com.mica.music.data.scanner.DeviceShadowCanonicalCoverageResult
 import com.mica.music.data.scanner.providerIdentityDomainKey
 import com.mica.music.data.scanner.resolveMediaStoreDirectoryIdentity
 import com.mica.music.data.scanner.ScanResult
-import com.mica.music.data.scanner.publicationDecision
 import com.mica.music.data.scanner.SafFastVerifyPlanner
 import com.mica.music.util.DiagnosticLog
 import kotlinx.coroutines.CancellationException
@@ -70,6 +65,7 @@ internal class LibraryScanOrchestrator(
     private val safShadowCanonicalProjection = SafShadowCanonicalProjectionTracker()
     private val safShadowVideoInventory = SafShadowVideoInventoryTracker()
     private val safProviderDiscoveryBackoff = SafProviderDiscoveryBackoff()
+    private val autoSyncPublicationAuthority = AutoSyncPublicationAuthority(backing)
 
     suspend fun rescan() = rescan(null)
 
@@ -1161,131 +1157,23 @@ internal class LibraryScanOrchestrator(
         safShadowVideoInventory.seed(emptyList())
     }
 
-    /**
-     * Bridge from the pure S4 SAF plan to generic AUTO authority publication. Diagnostics keep
-     * this seam disabled; scheduled FOLDER AUTO calls it after post-observation validation.
-     */
+    /** Compatibility seam while readiness tests still target the orchestrator directly. */
     internal suspend fun publishDeviceAutoSyncPlanForReadiness(
         token: LibraryOperationToken,
         scanStartSnapshot: List<Song>,
         plan: DeviceAutoSyncPublicationPlan,
-    ): com.mica.music.data.local.LibrarySyncResult? {
-        require(token.mode == LibraryOperationMode.AUTO_SYNC)
-        require(token.sourceIdentity.source == ScanSource.DEVICE)
-        require(plan.autoSyncStateMutation.sourceIdentity == token.sourceIdentity)
+    ): com.mica.music.data.local.LibrarySyncResult? =
+        autoSyncPublicationAuthority.publishDevicePlan(token, scanStartSnapshot, plan)
 
-        if (!plan.hasAuthorityMutation) {
-            return backing.withCurrentOperationIfCurrent(token) {
-                com.mica.music.data.local.LibrarySyncResult(
-                    added = 0,
-                    updated = 0,
-                    removed = 0,
-                    unchanged = backing.songs.size,
-                )
-            }
-        }
-
-        val baseStagingId = backing.operationStagingId(token)
-        val fullStagingId = baseStagingId
-            .takeIf { plan.fullLyricsToStage.isNotEmpty() }
-        val externalStagingId = "$baseStagingId-external"
-            .takeIf { plan.externalLyricsToStage.isNotEmpty() }
-        try {
-            if (fullStagingId != null) {
-                val staged = backing.storeWriteIfCurrentOperation(token) {
-                    backing.libraryStore.stageLyrics(
-                        fullStagingId,
-                        plan.fullLyricsToStage,
-                    )
-                }
-                if (!staged) return null
-            }
-            if (externalStagingId != null) {
-                val staged = backing.storeWriteIfCurrentOperation(token) {
-                    backing.libraryStore.stageLyrics(
-                        externalStagingId,
-                        plan.externalLyricsToStage,
-                    )
-                }
-                if (!staged) return null
-            }
-
-            val result = publishAutoSyncSnapshot(
-                token = token,
-                scanStartSnapshot = scanStartSnapshot,
-                nextSnapshot = plan.nextSnapshot,
-                visibleDelta = plan.visibleDelta,
-                membershipChanges = plan.membershipChanges,
-                autoSyncStateMutation = plan.autoSyncStateMutation,
-                stagedLyricsId = fullStagingId,
-                stagedExternalLyricsId = externalStagingId,
-            )
-            if (
-                result != null &&
-                (plan.fullLyricsToStage.isNotEmpty() || plan.externalLyricsToStage.isNotEmpty())
-            ) {
-                SharedLyricsMemoryCache.invalidateSongs(
-                    (plan.fullLyricsToStage + plan.externalLyricsToStage)
-                        .map(ScannedSongLyrics::songId),
-                )
-            }
-            return result
-        } finally {
-            fullStagingId?.let { backing.discardOperationStaging(it) }
-            externalStagingId?.let { backing.discardOperationStaging(it) }
-        }
-    }
-
+    /** Compatibility seam while readiness tests still target the orchestrator directly. */
     internal suspend fun publishSafAutoSyncPlanForReadiness(
         token: LibraryOperationToken,
         scanStartSnapshot: List<Song>,
         plan: SafAutoSyncPublicationPlan,
-    ): com.mica.music.data.local.LibrarySyncResult? {
-        require(token.mode == LibraryOperationMode.AUTO_SYNC)
-        require(token.sourceIdentity.source == ScanSource.FOLDER)
-        require(plan.autoSyncStateMutation.sourceIdentity == token.sourceIdentity)
+    ): com.mica.music.data.local.LibrarySyncResult? =
+        autoSyncPublicationAuthority.publishSafPlan(token, scanStartSnapshot, plan)
 
-        if (!plan.hasAuthorityMutation) {
-            return backing.withCurrentOperationIfCurrent(token) {
-                com.mica.music.data.local.LibrarySyncResult(
-                    added = 0,
-                    updated = 0,
-                    removed = 0,
-                    unchanged = backing.songs.size,
-                )
-            }
-        }
-
-        val stagingId = backing.operationStagingId(token)
-            .takeIf { plan.lyricsToStage.isNotEmpty() }
-        try {
-            if (stagingId != null) {
-                val staged = backing.storeWriteIfCurrentOperation(token) {
-                    backing.libraryStore.stageLyrics(stagingId, plan.lyricsToStage)
-                }
-                if (!staged) return null
-            }
-
-            val result = publishAutoSyncSnapshot(
-                token = token,
-                scanStartSnapshot = scanStartSnapshot,
-                nextSnapshot = plan.nextSnapshot,
-                visibleDelta = plan.visibleDelta,
-                membershipChanges = plan.membershipChanges,
-                autoSyncStateMutation = plan.autoSyncStateMutation,
-                stagedLyricsId = stagingId,
-            )
-            if (result != null && plan.lyricsToStage.isNotEmpty()) {
-                SharedLyricsMemoryCache.invalidateSongs(
-                    plan.lyricsToStage.map(ScannedSongLyrics::songId),
-                )
-            }
-            return result
-        } finally {
-            stagingId?.let { backing.discardOperationStaging(it) }
-        }
-    }
-
+    /** Compatibility seam for publication atomicity tests; ownership lives in the authority. */
     internal suspend fun publishAutoSyncSnapshot(
         token: LibraryOperationToken,
         scanStartSnapshot: List<Song>,
@@ -1295,120 +1183,18 @@ internal class LibraryScanOrchestrator(
         autoSyncStateMutation: LibraryAutoSyncStateMutation,
         stagedLyricsId: String? = null,
         stagedExternalLyricsId: String? = null,
-    ): com.mica.music.data.local.LibrarySyncResult? {
-        require(token.mode == LibraryOperationMode.AUTO_SYNC)
-        require(autoSyncStateMutation.sourceIdentity == token.sourceIdentity)
-        require(backing.intentState == LibraryIntentState.ACTIVE) {
-            "AUTO sync requires an established active library baseline"
-        }
-        require(
-            membershipChanges.all { it.sourceIdentity == token.sourceIdentity },
-        ) {
-            "AUTO membership changes must belong to the active operation source"
-        }
-        require(
-            visibleDelta.removedStableObjectKeys == membershipChanges
-                .mapTo(linkedSetOf(), MembershipChange::stableObjectKey),
-        ) {
-            "AUTO removal delta and membership evidence must describe the same objects"
-        }
+    ): com.mica.music.data.local.LibrarySyncResult? =
+        autoSyncPublicationAuthority.publishSnapshot(
+            token = token,
+            scanStartSnapshot = scanStartSnapshot,
+            nextSnapshot = nextSnapshot,
+            visibleDelta = visibleDelta,
+            membershipChanges = membershipChanges,
+            autoSyncStateMutation = autoSyncStateMutation,
+            stagedLyricsId = stagedLyricsId,
+            stagedExternalLyricsId = stagedExternalLyricsId,
+        )
 
-        if (visibleDelta.publicationDecision() == AutoSyncPublicationDecision.CHECKPOINT_ONLY) {
-            check(membershipChanges.isEmpty())
-            return if (
-                backing.commitAutoSyncCheckpointOnlyIfCurrent(
-                    token = token,
-                    visibleDelta = visibleDelta,
-                    mutation = autoSyncStateMutation,
-                )
-            ) {
-                com.mica.music.data.local.LibrarySyncResult(0, 0, 0, backing.songs.size)
-            } else {
-                null
-            }
-        }
-
-        repeat(MAX_PUBLICATION_REBASE_ATTEMPTS) { attempt ->
-            if (!backing.isCurrentOperationToken(token)) return null
-            val field = backing.sortField
-            val direction = backing.sortDirection
-            val publicationRaw = rebaseScanResultForCurrentCatalog(
-                scanned = nextSnapshot,
-                scanStartCatalog = scanStartSnapshot,
-                currentCatalog = catalog.scannedSongsSnapshot().takeIf { it.isNotEmpty() } ?: backing.songs,
-                catalogChanged = backing.catalogRevision != token.catalogRevisionAtStart,
-            )
-            val prepared = catalog.prepareLibrarySongs(
-                raw = publicationRaw,
-                field = field,
-                direction = direction,
-                diagnosticTag = "LibraryAutoSync",
-                diagnosticReason = "autoPublish",
-                releaseLoadedLyrics = true,
-            )
-            val storeDelta = prepareAutoSyncStoreDelta(
-                snapshotSongs = prepared.visible,
-                visibleDelta = visibleDelta,
-                membershipChanges = membershipChanges,
-            )
-            val totalSizeMb =
-                (prepared.visible.sumOf { it.sizeBytes.coerceAtLeast(0L) } / (1024L * 1024L)).toInt()
-            val lastFullScanAtMs = requireNotNull(backing.lastScanAtMs) {
-                "ACTIVE library must retain its last full-scan timestamp"
-            }
-            val lastFullScanSource = backing.lastScanSource
-            val result = backing.commitAutoSyncSnapshotAndPublishIfCurrent(
-                token = token,
-                expectedCatalogRevision = prepared.catalogRevision,
-                expectedPresentationRevision = prepared.presentationRevision,
-                changeSetForRevision = { revision ->
-                    LibraryChangeSet(
-                        libraryRevision = revision,
-                        cause = token.cause,
-                        addedIds = visibleDelta.addedIds,
-                        updatedIds = visibleDelta.updatedIds,
-                        membershipChanges = membershipChanges,
-                    )
-                },
-                storeBlock = { changeSet ->
-                    val followups = LibraryFollowupProtocol.planPlaylistRemovalFollowups(
-                        changeSet = changeSet,
-                        activationEpoch = token.activationEpoch,
-                        createdAtMs = backing.scanEnvironment.currentTimeMillis(),
-                    )
-                    backing.libraryStore.commitAutoSyncDeltaAuthority(
-                        snapshotSongs = prepared.visible,
-                        delta = storeDelta,
-                        lastScanAtMs = lastFullScanAtMs,
-                        lastScanSource = lastFullScanSource,
-                        totalSizeMb = totalSizeMb,
-                        state = backing.persistedStateAfterActivation(token),
-                        autoSyncStateMutation = autoSyncStateMutation,
-                        followupOutboxItems = followups,
-                        stagedLyricsId = stagedLyricsId,
-                        stagedExternalLyricsId = stagedExternalLyricsId,
-                        sortField = field,
-                        sortDirection = direction,
-                        fastScrollSectionTargets = prepared.fastScrollIndex?.sectionTargets,
-                    )
-                },
-                publishBlock = { _, _ ->
-                    backing.activateOperationSourceAfterFinalCommit(token)
-                    catalog.adoptPrepared(prepared)
-                    backing.totalSizeMb = totalSizeMb
-                    backing.hasScanned = true
-                    catalog.persistPreparedCustomOrderIfCurrent(prepared)
-                },
-            )
-            if (result != null) return result
-            if (!backing.isCurrentOperationToken(token)) return null
-            DiagnosticLog.event(
-                "LibraryAutoSync",
-                "autoPublish rebase-retry attempt=$attempt catalogRevision=${backing.catalogRevision}",
-            )
-        }
-        return null
-    }
     private suspend fun executeSafFastVerifyShadow(
         operation: ScheduledLibraryOperation,
         token: LibraryOperationToken,
@@ -2081,7 +1867,7 @@ internal class LibraryScanOrchestrator(
         if (!backing.scanEnvironment.canReadTree(treeUri)) {
             folder.discardPendingFolderSelection()
             if (userVisible) {
-                backing.lastScanError = "无法访问所选文件夹，请重新选择"
+                backing.lastScanError = "鏃犳硶璁块棶鎵€閫夋枃浠跺す锛岃閲嶆柊閫夋嫨"
             }
             return
         }
@@ -2348,7 +2134,7 @@ internal class LibraryScanOrchestrator(
         backing.isUserVisibleScanning = userVisible
         if (userVisible) {
             backing.lastScanError = null
-            backing.scanProgressLabel = "正在读取歌曲列表…"
+            backing.scanProgressLabel = "姝ｅ湪璇诲彇姝屾洸鍒楄〃鈥?
         }
         if (sideEffects.clearTransientScanCache) {
             backing.scanEnvironment.clearTransientCache()
@@ -2380,7 +2166,7 @@ internal class LibraryScanOrchestrator(
             val result = block(
                 { done, total ->
                     if (userVisible && backing.isCurrentOperationToken(token)) {
-                        backing.scanProgressLabel = "正在分析音质、封面与歌词 ($done/$total)"
+                        backing.scanProgressLabel = "姝ｅ湪鍒嗘瀽闊宠川銆佸皝闈笌姝岃瘝 ($done/$total)"
                     }
                 },
                 cachedSongs,
@@ -2549,7 +2335,7 @@ internal class LibraryScanOrchestrator(
             if (!backing.isCurrentOperationToken(token)) return
             // Keep the previous complete snapshot; only user-visible operations surface the error.
             if (userVisible) {
-                backing.lastScanError = e.message?.takeIf { it.isNotBlank() } ?: "未知错误"
+                backing.lastScanError = e.message?.takeIf { it.isNotBlank() } ?: "鏈煡閿欒"
             }
             DiagnosticLog.event("LibraryScan", "performScan failed generation=$generation", e)
         } finally {
@@ -2726,98 +2512,7 @@ internal class LibraryScanOrchestrator(
         )
     }
 
-    /**
-     * Rebase scanner-owned fields onto the publication-time catalog when a local mutation happened
-     * after this scan started. Membership removals performed locally win over stale scanner output;
-     * scanner-discovered removals still win because current rows are never blindly re-added.
-     */
-    private fun rebaseScanResultForCurrentCatalog(
-        scanned: List<com.mica.music.data.Song>,
-        scanStartCatalog: List<com.mica.music.data.Song>,
-        currentCatalog: List<com.mica.music.data.Song>,
-        catalogChanged: Boolean,
-    ): List<com.mica.music.data.Song> {
-        if (!catalogChanged) return scanned
-
-        val startIds = scanStartCatalog.mapTo(HashSet(scanStartCatalog.size), com.mica.music.data.Song::id)
-        val currentById = currentCatalog.associateBy(com.mica.music.data.Song::id)
-        val currentIds = currentById.keys
-        val locallyRemovedIds = startIds - currentIds
-        val scannerIds = scanned.mapTo(HashSet(scanned.size), com.mica.music.data.Song::id)
-
-        val rebased = ArrayList<com.mica.music.data.Song>(scanned.size + currentCatalog.size)
-        scanned.forEach { scannedSong ->
-            if (scannedSong.id in locallyRemovedIds) return@forEach
-            val current = currentById[scannedSong.id]
-            rebased += if (current == null) {
-                scannedSong
-            } else {
-                scannedSong.copy(
-                    coverColorArgb = current.coverColorArgb,
-                    playbackUri = current.playbackUri,
-                    playCount = current.playCount,
-                    totalListenSeconds = current.totalListenSeconds,
-                    lastPlayedAtMs = current.lastPlayedAtMs,
-                    loudnessAnalysis = current.loudnessAnalysis,
-                )
-            }
-        }
-
-        // Preserve rows that were introduced locally after scan start. We intentionally do not
-        // re-add start rows missing from scanner output: those may be genuine scanner deletions.
-        currentCatalog.forEach { current ->
-            if (current.id !in startIds && current.id !in scannerIds) {
-                rebased += current
-            }
-        }
-        return rebased
-    }
-
-    private fun prepareAutoSyncStoreDelta(
-        snapshotSongs: List<Song>,
-        visibleDelta: AutoSyncVisibleDelta,
-        membershipChanges: List<MembershipChange>,
-    ): LibraryAutoSyncStoreDelta {
-        require(visibleDelta.addedIds.intersect(visibleDelta.updatedIds).isEmpty()) {
-            "AUTO added/updated ids must be disjoint"
-        }
-        val upsertIds = linkedSetOf<String>().apply {
-            addAll(visibleDelta.addedIds)
-            addAll(visibleDelta.updatedIds)
-        }
-        val upsertRows = ArrayList<LibraryAutoSyncStoreRow>(upsertIds.size)
-        snapshotSongs.forEachIndexed { index, song ->
-            if (song.id in upsertIds) {
-                upsertRows += LibraryAutoSyncStoreRow(
-                    song = song,
-                    queueOrderHint = index,
-                )
-            }
-        }
-        require(upsertRows.mapTo(linkedSetOf()) { it.song.id } == upsertIds) {
-            "AUTO visible delta contains ids absent from the prepared snapshot"
-        }
-
-        val removedSongIds = membershipChanges.map { change ->
-            requireNotNull(change.songId?.takeIf(String::isNotBlank)) {
-                "Destructive AUTO membership change must retain the published song id"
-            }
-        }.distinct()
-        require(removedSongIds.size == membershipChanges.size) {
-            "AUTO membership changes must map one-to-one to distinct song ids"
-        }
-
-        return LibraryAutoSyncStoreDelta(
-            upsertRows = upsertRows,
-            removedSongIds = removedSongIds,
-            snapshotSongCount = snapshotSongs.size,
-            addedCount = visibleDelta.addedIds.size,
-            updatedCount = visibleDelta.updatedIds.size,
-        )
-    }
-
     private companion object {
-        const val MAX_PUBLICATION_REBASE_ATTEMPTS = 2
         const val DEVICE_REQUERY_RETRY_DELAY_MS = 30_000L
         const val SAF_PROVIDER_RESELECT_FAILURE_THRESHOLD = 3
     }
