@@ -711,3 +711,73 @@ internal class SafAutoSyncPipeline(
 }
 
 private const val SAF_PROVIDER_RESELECT_FAILURE_THRESHOLD = 3
+
+internal fun logSafShadowCanonicalProjection(
+    requestSequence: Long,
+    result: SafShadowCanonicalProjectionGateResult,
+) {
+    when (result) {
+        is SafShadowCanonicalProjectionGateResult.BaselineEstablished ->
+            DiagnosticLog.event(
+                "LibraryAutoSync",
+                "saf shadow projection-baseline request=${requestSequence} " +
+                    "songs=${result.songCount}",
+            )
+
+        is SafShadowCanonicalProjectionGateResult.ContextReset ->
+            DiagnosticLog.event(
+                "LibraryAutoSync",
+                "saf shadow projection-context-reset request=${requestSequence} " +
+                    "activation=${result.previous.activationEpoch}->${result.current.activationEpoch} " +
+                    "sourceChanged=" +
+                    "${result.previous.sourceIdentityStorageKey != result.current.sourceIdentityStorageKey} " +
+                    "configChanged=" +
+                    "${result.previous.configFingerprint != result.current.configFingerprint} " +
+                    "songs=${result.songCount}",
+            )
+
+        is SafShadowCanonicalProjectionGateResult.Compared -> {
+            val equivalence = result.equivalence
+            val unresolvedAspects =
+                equivalence.projection.unresolvedAspectsByStableObjectKey.values
+                    .flatten()
+                    .groupingBy { it }
+                    .eachCount()
+                    .toSortedMap(compareBy { it.name })
+                    .entries
+                    .joinToString(separator = ",") { (aspect, count) ->
+                        "${aspect.name}:$count"
+                    }
+                    .ifBlank { "none" }
+            val diffAspects = equivalence.diff.changes
+                .flatMap { it.aspects }
+                .groupingBy { it }
+                .eachCount()
+                .toSortedMap(compareBy { it.name })
+                .entries
+                .joinToString(separator = ",") { (aspect, count) ->
+                    "${aspect.name}:$count"
+                }
+                .ifBlank { "none" }
+            val diffDetails = equivalence.diff.changes.take(4).joinToString(";") { change ->
+                val projected = equivalence.projection.snapshot
+                    .songsByStableObjectKey[change.stableObjectKey]
+                val expected = equivalence.expected
+                    .songsByStableObjectKey[change.stableObjectKey]
+                "${change.stableObjectKey}:${change.aspects.joinToString("+") { it.name }}:" +
+                    "pDateAdded=${projected?.dateAddedMs}:eDateAdded=${expected?.dateAddedMs}"
+            }.ifBlank { "none" }
+            DiagnosticLog.event(
+                "LibraryAutoSync",
+                "saf shadow projection-compare request=$requestSequence " +
+                    "diff=${equivalence.diff.changes.size} " +
+                    "diffAspects=$diffAspects " +
+                    "diffDetails=$diffDetails " +
+                    "unresolvedObjects=" +
+                    "${equivalence.projection.unresolvedAspectsByStableObjectKey.size} " +
+                    "fullyEquivalent=${equivalence.fullyEquivalent} " +
+                    "unresolvedAspects=$unresolvedAspects",
+            )
+        }
+    }
+}
