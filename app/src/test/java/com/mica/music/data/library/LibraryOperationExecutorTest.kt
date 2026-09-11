@@ -67,7 +67,7 @@ import org.robolectric.RobolectricTestRunner
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
-class LibraryScanOrchestratorTest {
+class LibraryOperationExecutorTest {
 
     @Test
     fun concurrentScansExecuteSequentiallyAndLatestResultWins() = runTest {
@@ -5136,7 +5136,7 @@ class LibraryScanOrchestratorTest {
     }
     private data class OrchestratorHarness(
         val backing: MusicLibraryBacking,
-        val orchestrator: LibraryScanOrchestrator,
+        val orchestrator: LibraryOperationExecutor,
     )
 
     private data class ScanRequest(

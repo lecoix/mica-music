@@ -174,4 +174,3 @@ internal class LibraryOperationExecutor(
 }
 
 // Temporary test compatibility while readiness tests migrate to the new executor name.
-internal typealias LibraryScanOrchestrator = LibraryOperationExecutor
