@@ -98,7 +98,7 @@ Existing pure planners stay separate unless a later audit proves they are duplic
 
 ## 5. Migration stages
 
-> Status (2026-09-11): R0-R7 complete. Final structural regression: 35 suites / 343 tests, 0 failures / 0 errors.
+> Status (2026-09-11): R0-R7 complete. Final structural regression: 36 suites / 348 tests, 0 failures / 0 errors.
 > Production `LibraryScanOrchestrator` has been retired; `LibraryOperationExecutor`, `LibraryOperationAuthority`, and `LibraryPublicationAuthority` are now the active ownership boundaries.
 
 ### R0 - Behavior freeze ✅
@@ -227,6 +227,6 @@ Completed on 2026-09-11 with the frozen behavior preserved.
 - DEVICE and SAF pipelines do not call `LibrarySyncScheduler` directly; follow-up requests flow through `AutoSyncPostCommit`.
 - `LibraryRepository` no longer depends on DEVICE/SAF retry planners. Retry-key construction is centralized in `LibraryRetryKey`.
 - Publication/store revision locks are owned by `LibraryPublicationAuthority`.
-- Final auto-sync regression: 35 suites / 343 tests / 0 failures / 0 errors.
+- Final auto-sync regression: 36 suites / 348 tests / 0 failures / 0 errors.
 
-A later scheduler cleanup may extract only pure wake-time calculations. Job ownership, locking, pending-state transitions, fairness, and launch ordering remain owned by `LibrarySyncScheduler`.
+Pure wake-time/cooldown calculation is extracted to `AutoSyncWakePolicy`. Job ownership, locking, pending-state transitions, fairness, and launch ordering remain owned by `LibrarySyncScheduler`.
