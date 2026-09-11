@@ -76,7 +76,6 @@ import com.mica.music.ui.components.rememberLyricUniformStyle
 import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import com.mica.music.ui.theme.LocalLyricReadingEnabled
-import com.mica.music.util.LetterRevealDiagnostics
 import coil.compose.AsyncImage
 import java.io.File
 
@@ -215,11 +214,6 @@ internal fun LetterLyricsPrototype(
 
         LaunchedEffect(revealLogSessionKey, primaryRevealSchedules) {
             LetterGlyphInkFloors.resetSession(revealLogSessionKey)
-            LetterRevealDiagnostics.logSongSchedules(
-                sessionKey = revealLogSessionKey,
-                lines = renderState.document.lines,
-                primaryRevealSchedules = primaryRevealSchedules,
-            )
         }
 
         val activeLineIndex = letterActiveLineIndex(renderState)
@@ -731,16 +725,6 @@ private fun DrawScope.drawLetterColumn(
                 val layout = visibleLayouts[index]
                 val glyphTopLeft = Offset(glyphLeft, topLeft.y)
                 val progress = progressByGlyph[index]
-                LetterRevealDiagnostics.onGlyphShown(
-                    lineIndex = column.lineIndex,
-                    glyphIndex = column.revealStartIndex + index,
-                    char = column.graphemes[index],
-                    scheduledMs = column.graphemeRevealMs[index],
-                    frameMs = framePositionMs,
-                    anchorMs = anchorPositionMs,
-                    inkProgress = progress,
-                    isTranslation = column.isTranslation,
-                )
                 if (index < firstMaskedIndex) {
                     drawText(
                         textLayoutResult = layout,
@@ -779,16 +763,6 @@ private fun DrawScope.drawLetterColumn(
             syncTimeMs = syncTimeMs,
             glyphRevealMs = inkGlyphRevealMs,
             motionEnabled = inkMotionEnabled,
-        )
-        LetterRevealDiagnostics.onGlyphShown(
-            lineIndex = column.lineIndex,
-            glyphIndex = column.revealStartIndex + index,
-            char = grapheme,
-            scheduledMs = glyphRevealMs,
-            frameMs = framePositionMs,
-            anchorMs = anchorPositionMs,
-            inkProgress = inkProgress,
-            isTranslation = column.isTranslation,
         )
         if (!inkMotionEnabled || inkProgress >= 1f) {
             drawText(

@@ -510,7 +510,6 @@ private const val MIN_NEXT_LYRIC_DELTA_FOR_INTERLUDE_MS = 7_000
 private const val CLASSIC_LYRICS_ANCHOR_LINE_HEIGHTS = 3f
 private const val INTERLUDE_END_LEAD_MS = 500
 private const val INTERLUDE_TAIL_MS = 800
-private const val INTERLUDE_DOT_STAGE_MS = 750
 private const val CLASSIC_LYRICS_FADE_MS = 250
 private val ClassicLyricsColorEasing = CubicBezierEasing(0.39f, 0.575f, 0.565f, 1f)
 

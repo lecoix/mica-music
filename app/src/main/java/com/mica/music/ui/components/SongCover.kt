@@ -1,6 +1,5 @@
 package com.mica.music.ui.components
 
-import android.util.LruCache
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -36,12 +35,6 @@ import kotlinx.coroutines.launch
 
 private var lastReadyCoverHoldoverUri by mutableStateOf<String?>(null)
 
-/**
- * 已成功解码过的封面 URI 集合。供其它模块查询；**不**再用于跳过 holdover 层，
- * 避免「缓存命中但 AsyncImage 尚未绘出」时出现空白帧。
- */
-private val decodedCoverUris = LruCache<String, Boolean>(192)
-
 internal fun coverHoldoverUri(
     albumArtUri: String?,
     imageReady: Boolean,
@@ -56,17 +49,6 @@ internal fun markCoverHoldoverReady(albumArtUri: String?) {
         lastReadyCoverHoldoverUri = albumArtUri
     }
 }
-
-internal fun markCoverDecoded(albumArtUri: String?) {
-    if (!albumArtUri.isNullOrBlank()) {
-        decodedCoverUris.put(albumArtUri, true)
-    }
-}
-
-internal fun coverImageInitiallyReady(albumArtUri: String?): Boolean =
-    albumArtUri.isNullOrBlank() ||
-        albumArtUri == lastReadyCoverHoldoverUri ||
-        decodedCoverUris.get(albumArtUri) == true
 
 @Composable
 fun SongCover(
@@ -241,7 +223,6 @@ fun SongCover(
                 modifier = Modifier.fillMaxSize(),
                 onSuccess = { state ->
                     lastPaintedUri = albumArtUri
-                    markCoverDecoded(albumArtUri)
                     if (publishHoldoverOnSuccess) {
                         markCoverHoldoverReady(albumArtUri)
                     }

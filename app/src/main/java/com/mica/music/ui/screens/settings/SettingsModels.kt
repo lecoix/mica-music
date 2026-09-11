@@ -137,10 +137,6 @@ internal val LyricsWordAnimationPresetChoices = LyricsWordAnimationPreset.entrie
     it.ordinal to it.settingsLabel
 }
 
-internal val LyricsBilingualDisplayChoices = LyricsBilingualDisplayMode.entries.map {
-    it.ordinal to it.settingsLabel
-}
-
 internal val ExternalLyricsBilingualDisplayChoices = listOf(
     LyricsBilingualDisplayMode.ORIGINAL.ordinal to "\u4EC5\u539F\u6587",
     LyricsBilingualDisplayMode.TRANSLATION.ordinal to "\u4EC5\u8BD1\u6587",
@@ -181,23 +177,6 @@ internal val ExternalLyricsGradientAngleChoices = listOf(
     270 to "270°（下→上）",
     315 to "315°",
     360 to "360°",
-)
-
-internal val StatusBarLyricsTopOffsetChoices = listOf(
-    0 to "贴顶",
-    24 to "下移 24dp",
-    48 to "下移 48dp",
-    72 to "下移 72dp",
-    96 to "下移 96dp",
-    128 to "下移 128dp",
-    192 to "下移 192dp",
-)
-
-internal val ExternalLyricsWidthChoices = listOf(
-    60 to "60%",
-    75 to "75%",
-    90 to "90%",
-    100 to "全宽",
 )
 
 internal val LyricsPriorityChoices = listOf(

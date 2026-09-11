@@ -453,12 +453,6 @@ private fun WaffleLegendRow(
     }
 }
 
-@Composable
-private fun waffleColorForIndex(index: Int): Color {
-    val palette = if (MicaTheme.colors.isDark) WafflePaletteDark else WafflePaletteLight
-    return palette[index % palette.size]
-}
-
 private fun swatchColorForLabel(
     label: String,
     colorIndex: Int,

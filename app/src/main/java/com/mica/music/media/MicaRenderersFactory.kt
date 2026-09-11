@@ -100,21 +100,8 @@ internal class MicaRenderersFactory(
         } else {
             eventListener
         }
-        if (PcmDeliveryExperiment.rendererSplit) {
-            buildRendererSplitAudioRenderers(
-                context,
-                mediaCodecSelector,
-                enableDecoderFallback,
-                audioSink,
-                eventHandler,
-                tracingListener,
-                out,
-            )
-            return
-        }
-        super.buildAudioRenderers(
+        buildRendererSplitAudioRenderers(
             context,
-            extensionRendererMode,
             mediaCodecSelector,
             enableDecoderFallback,
             audioSink,
@@ -267,56 +254,11 @@ internal class MicaRenderersFactory(
     private fun buildDsdDecimationProcessor(context: Context): DsdDecimationAudioProcessor =
         DsdDecimationAudioProcessor(context, outputPath.dsdDecimationMode)
 
-    /**
-     * P6 USB Direct PCM: DSD still decimates but skips EQ/spectrum/Sonic (minimal chain).
-     * Not active until [PlaybackOutputMode.UsbDirectPcm] is selected at stack build.
-     */
-    private fun buildUsbDirectDsdSink(context: Context): AudioSink =
-        buildUsbDirectMinimalSink(
-            context = context,
-            profileLabel = "usb-direct-dsd",
-            enableFloatOutput = false,
-            buildDsdDecimationProcessor(context),
-        )
-
     private fun buildUsbExactPcmSink(): AudioSink {
         val binding = checkNotNull(usbBinding) {
             "USB Exact PCM renderer requires a UsbHybridPlaybackBinding."
         }
         return UsbHybridPcmAudioSink(binding.owner, binding.realtime, binding.epoch)
-    }
-
-    /**
-     * P6 USB Direct PCM: empty processor chain, no [MicaFloatDspAudioSink] wrapper.
-     * [enableFloatOutput] follows USB DAC capability probe when P6 lands.
-     */
-    private fun buildUsbDirectMinimalSink(
-        context: Context,
-        profileLabel: String,
-        enableFloatOutput: Boolean,
-        vararg extraProcessors: androidx.media3.common.audio.AudioProcessor,
-    ): AudioSink {
-        val chain = MicaAudioProcessorChain(
-            *extraProcessors,
-            includePlaybackTuning = false,
-            includeFormatTrace = false,
-        )
-        PcmFormatDiagnostics.logSinkBuild(
-            profile = "$RENDERER_SPLIT_PROFILE+P6-$profileLabel",
-            enableFloatOutput = enableFloatOutput,
-            enableAudioOutputPlaybackParameters = false,
-            processorNames = chain.processorNamesForDiagnostics(),
-        )
-        val provider = UsbHostPrototypeOutput.createProvider(context, outputPath)
-        return DefaultAudioSink.Builder(context)
-            // Keep high-resolution integer decoder output as float. The SK02 prototype provider
-            // accepts it only when every float maps exactly to signed PCM24; it fails closed
-            // instead of silently truncating to PCM16.
-            .setEnableFloatOutput(enableFloatOutput || outputPath.prototypeUsbHost)
-            .setEnableAudioOutputPlaybackParameters(false)
-            .setAudioProcessorChain(chain)
-            .setAudioOutputProvider(provider)
-            .build()
     }
 
     private companion object {

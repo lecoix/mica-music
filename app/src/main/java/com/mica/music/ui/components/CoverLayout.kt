@@ -95,7 +95,3 @@ fun Modifier.intrinsicCoverBox(
     maxHeight: Dp,
 ): Modifier = sizeIn(maxWidth = maxWidth, maxHeight = maxHeight)
     .aspectRatio(aspectRatio.coerceIn(CoverMinAspectRatio, CoverMaxAspectRatio))
-
-/** 歌词聚焦动画中，0=正方形容器，1=按原图比例尺寸。 */
-fun coverIntrinsicMorphProgress(lyricsFocus: Float, morphEndFocus: Float = 0.05f): Float =
-    (1f - (lyricsFocus / morphEndFocus).coerceIn(0f, 1f))

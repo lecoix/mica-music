@@ -30,7 +30,6 @@ import com.mica.music.util.TrackSwitchPerformance
 import kotlinx.coroutines.delay
 
 private const val LyricsLayoutShiftDelayOnCloseMs = 220
-private const val CoverLetterboxFadeMs = 480
 
 internal class PlayerPageUiModel(
     val song: Song,

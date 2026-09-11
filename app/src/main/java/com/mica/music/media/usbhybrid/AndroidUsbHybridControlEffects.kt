@@ -441,8 +441,6 @@ class AndroidUsbHybridControlEffects(
         intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
     }
 
-    private fun safeDeviceString(value: () -> String?): String? = runCatching(value).getOrNull()
-
     private fun permissionIntent(requestId: Long, domain: String): Intent =
         Intent(permissionAction)
             .setPackage(appContext.packageName)

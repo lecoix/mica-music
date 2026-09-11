@@ -26,7 +26,6 @@ import com.mica.music.data.DEFAULT_CUSTOM_WALLPAPER_BLUR_DP
 import com.mica.music.data.DEFAULT_CUSTOM_WALLPAPER_OVERLAY_PERCENT
 import com.mica.music.data.PlaybackContentColorMode
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
-import com.mica.music.util.WallpaperBarSliceDiagnostics
 import java.io.File
 
 val LocalHifiColors = staticCompositionLocalOf { LightHifiColors }
@@ -76,14 +75,6 @@ class WallpaperViewportState {
     internal fun publishFrame(frame: ImageBitmap?, requestId: Int, owner: String = "main-background") {
         if (!isCurrentFrameRequest(requestId)) return
         this.frame = frame
-        WallpaperBarSliceDiagnostics.logViewportFrame(
-            owner = owner,
-            hasFrame = frame != null,
-            viewportTopPx = topPx,
-            viewportWidthPx = widthPx,
-            viewportHeightPx = heightPx,
-            requestId = requestId,
-        )
     }
 
     fun updateBarSliceAnchor(sliceTopPx: Float, sliceHeightPx: Float) {
@@ -215,13 +206,6 @@ object MicaTheme {
         @Composable get() = LocalHifiTypography.current
 }
 
-/** 播放页等深色背景上的文字/图标（专辑取色背景） */
-object PlayerOnDark {
-    val primary: Color @Composable get() = HifiPalette.NeutralWhite
-    val secondary: Color @Composable get() = HifiPalette.NeutralWhite.copy(alpha = 0.7f)
-    val tertiary: Color @Composable get() = HifiPalette.NeutralWhite.copy(alpha = 0.4f)
-}
-
 data class PlayerContentColors(
     val primary: Color,
     val secondary: Color,
@@ -264,12 +248,6 @@ fun rememberPlaybackContentColors(
 ): PlayerContentColors = remember(autoColors, mode) {
     resolvePlaybackContentColors(autoColors, mode)
 }
-
-@Deprecated("Renamed to resolvePlaybackContentColors", ReplaceWith("resolvePlaybackContentColors(autoColors, mode)"))
-fun resolveLyricsContentColors(
-    autoColors: PlayerContentColors,
-    mode: PlaybackContentColorMode,
-): PlayerContentColors = resolvePlaybackContentColors(autoColors, mode)
 
 @Composable
 fun rememberLyricsContentColors(

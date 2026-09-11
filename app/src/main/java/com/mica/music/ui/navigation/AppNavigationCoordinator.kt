@@ -1,14 +1,10 @@
 package com.mica.music.ui.navigation
 
-import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableIntState
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.navigation.NavHostController
 import com.mica.music.ui.screens.home.HomeNavigationIntent
@@ -69,12 +65,3 @@ internal fun playerOverlayOwnsBack(
     playerExpanded: Boolean,
     overlayFullScreen: Boolean,
 ): Boolean = playerExpanded || overlayFullScreen
-
-@Composable
-fun rememberAppNavigationCoordinator(): AppNavigationCoordinator {
-    val playerExpanded = rememberSaveable { mutableStateOf(false) }
-    val locateRequest = rememberSaveable { mutableIntStateOf(0) }
-    return remember(playerExpanded, locateRequest) {
-        AppNavigationCoordinator(playerExpanded, locateRequest)
-    }
-}

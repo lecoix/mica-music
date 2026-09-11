@@ -103,7 +103,6 @@ internal class PhotoStackTransitionView(context: Context) : View(context) {
     private val scaledDensity = density * resources.configuration.fontScale
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val paperPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val sheenPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
     }

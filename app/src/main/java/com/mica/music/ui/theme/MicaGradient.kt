@@ -12,7 +12,6 @@ import androidx.compose.ui.graphics.Brush
 
 import androidx.compose.ui.graphics.Color
 
-import androidx.compose.ui.graphics.lerp
 
 
 
@@ -96,26 +95,6 @@ fun MicaPreset.bottomThemeColor(
     isDark: Boolean,
     custom: CustomMicaBackground = CustomMicaBackground.Default,
 ): Color = gradientColors(isDark, custom).second
-
-
-
-/** 浮岛卡片底边描边（略深于底面，半透明）。 */
-
-fun micaFloatingCardBottomEdge(bottomSurface: Color, isDark: Boolean): Color {
-
-    val base = if (isDark) {
-
-        lerp(bottomSurface, Color.Black, 0.32f)
-
-    } else {
-
-        lerp(bottomSurface, Color.Black, 0.12f)
-
-    }
-
-    return base.copy(alpha = base.alpha * 0.55f)
-
-}
 
 
 

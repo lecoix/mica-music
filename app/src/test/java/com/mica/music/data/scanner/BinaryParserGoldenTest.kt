@@ -96,12 +96,6 @@ class BinaryParserGoldenTest {
         assertEquals(24, AudioTechnicalProbe.readFlacBitDepthFromHead(head))
     }
 
-    @Test
-    fun technicalHeadByteLimitMatchesFlacAndWav() {
-        assertEquals(64 * 1024, technicalHeadByteLimit("song.flac", "audio/flac"))
-        assertEquals(16 * 1024, technicalHeadByteLimit("song.wav", "audio/wav"))
-        assertNull(technicalHeadByteLimit("song.mp3", "audio/mpeg"))
-    }
 
     @Test
     fun alacContainerDetectedEvenWhenBitDepthMissing() {

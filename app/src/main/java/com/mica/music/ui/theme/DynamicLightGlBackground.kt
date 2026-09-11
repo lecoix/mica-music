@@ -260,4 +260,3 @@ private fun colorBucket(color: Int): Int {
 }
 
 private val TexturePaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG)
-private val PalettePaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG)

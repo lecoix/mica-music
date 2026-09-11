@@ -91,7 +91,6 @@ import com.mica.music.ui.system.homeStatusBarTopPadding
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.micaAppBackground
 import com.mica.music.util.DiagnosticLog
-import com.mica.music.util.logBackFlow
 import com.mica.music.util.openAppSettings
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
@@ -440,37 +439,23 @@ fun HomeScreen(
         hideStatusBar = uiSettings.statusBarVisibilityMode.hidesOutsidePlayer,
     )
 
-    val latestPlaybackState by rememberUpdatedState(playbackState)
     val libraryAccess = rememberHomeLibraryAccess(
         library = library,
         activity = activity,
         onResumeWithPermission = { granted ->
             if (granted && library.hasScanned) {
-                val syncStartedMs = SystemClock.elapsedRealtime()
                 playbackActions.syncPlaybackState()
-                val state = latestPlaybackState
-                DiagnosticLog.event(
-                    "LibraryResume",
-                    "syncPlaybackState durMs=${SystemClock.elapsedRealtime() - syncStartedMs} " +
-                        "queue=${state.queue.size} current=${state.currentSong?.id}",
-                )
             }
         },
     )
 
     fun performNavigateBack() {
-        logBackFlow(
-            "back-consume source=home-internal section=${uiState.section} " +
-                "searchOpen=${uiState.searchOpen} browse=${uiState.browseDestination} " +
-                "multiSelect=$songMultiSelectActive returnSection=${uiState.returnSection}",
-        )
         val result = navigateBack(currentNavigationSnapshot())
         applyNavigationSnapshot(result.snapshot)
         if (result.hideKeyboard) keyboardController?.hide()
     }
 
     fun onDrawerPick(target: HomeSection) {
-        logBackFlow("page-action home-drawer-pick target=$target previous=${uiState.section}")
         drawerOpen = false
         when (target) {
             HomeSection.Settings -> onOpenSettings()
@@ -505,7 +490,6 @@ fun HomeScreen(
     }
 
     fun onDrawerPlaylistPick(playlistId: String) {
-        logBackFlow("page-action home-drawer-playlist playlist=$playlistId previous=${uiState.section}")
         drawerOpen = false
         uiState = uiState.copy(
             section = HomeSection.Playlist,
@@ -590,7 +574,6 @@ fun HomeScreen(
 
     LaunchedEffect(homeNavigationIntent) {
         val intent = homeNavigationIntent ?: return@LaunchedEffect
-        logBackFlow("page-action home-intent section=${intent.section} browse=${intent.browseDestination}")
         drawerOpen = false
         applyNavigationSnapshot(consumeNavigationIntent(currentNavigationSnapshot(), intent))
         keyboardController?.hide()
@@ -643,17 +626,9 @@ fun HomeScreen(
         canNavigateBack,
         playerOverlayOpen,
     ) {
-        logBackFlow(
-            "page home drawer=$drawerOpen section=${uiState.section} " +
-                "playlist=${uiState.activePlaylistId ?: "none"} " +
-                "search=${uiState.searchOpen} browse=${uiState.browseDestination} " +
-                "multiSelect=$songMultiSelectActive " +
-                "canBack=$canNavigateBack playerOverlayOpen=$playerOverlayOpen",
-        )
     }
 
     BackHandler(enabled = drawerOpen && !playerOverlayOpen) {
-        logBackFlow("back-consume source=home-drawer section=${uiState.section}")
         drawerOpen = false
     }
     BackHandler(enabled = canNavigateBack && !drawerOpen && !playerOverlayOpen) {

@@ -5,7 +5,6 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import com.mica.music.data.CustomWallpaperCrop
-import com.mica.music.util.customWallpaperBarSliceFallbackReason
 import com.mica.music.util.effectiveWallpaperBarSliceAnchor
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -102,22 +101,6 @@ class AnimatedThemeWallpaperTest {
         viewport.updateBarSliceAnchor(Float.NaN, 96f)
         assertEquals(720f, viewport.barSliceTopPx, 0.001f)
     }
-
-    @Test
-    fun barSliceFallbackReasonIdentifiesMissingViewportFrame() {
-        assertEquals(
-            "viewport-frame-null",
-            customWallpaperBarSliceFallbackReason(
-                hasWallpaperFile = true,
-                viewportFrame = false,
-                sliceTopPx = 700f,
-                sliceHeightPx = 80f,
-                viewportTopPx = 20f,
-                viewportHeightPx = 780f,
-            ),
-        )
-    }
-
     @Test
     fun effectiveAnchorFallsBackToCachedWhenLiveLayoutIsTransientTopZero() {
         val (top, height) = effectiveWallpaperBarSliceAnchor(

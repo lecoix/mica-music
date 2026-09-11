@@ -340,10 +340,6 @@ internal object AudioProbeBytes {
                 header + input.readUpToCompat(totalSize - header.size)
             }
 
-    private fun readHead(context: Context, uri: Uri, maxBytes: Int): ByteArray? =
-        (context.contentResolver.openInputStream(uri)
-            ?: throw java.io.IOException("Unable to open $uri")).use { it.readUpToCompat(maxBytes) }
-
     private fun readFlacMetadata(context: Context, uri: Uri): ByteArray =
         (context.contentResolver.openInputStream(uri)
             ?: throw IOException("Unable to open $uri")).use { input ->

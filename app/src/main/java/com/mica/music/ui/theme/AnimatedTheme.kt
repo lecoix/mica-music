@@ -36,11 +36,8 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import com.mica.music.data.CustomWallpaperCrop
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
-import com.mica.music.util.WallpaperBarSliceDiagnostics
-import com.mica.music.util.customWallpaperBarSliceFallbackReason
 import com.mica.music.util.effectiveWallpaperBarSliceAnchor
 import java.io.File
-import androidx.compose.runtime.SideEffect
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
@@ -375,35 +372,6 @@ internal fun MicaCustomWallpaperSlice(
         viewportTopPx = viewportTopPx,
         viewportHeightPx = viewportHeightPx,
     )
-    val fallbackReason = customWallpaperBarSliceFallbackReason(
-        hasWallpaperFile = hasWallpaperFile,
-        viewportFrame = hasViewportFrame,
-        sliceTopPx = drawTopPx,
-        sliceHeightPx = drawHeightPx,
-        viewportTopPx = viewportTopPx,
-        viewportHeightPx = viewportHeightPx,
-    )
-    SideEffect {
-        WallpaperBarSliceDiagnostics.logSliceRender(
-            source = debugSource,
-            render = if (sliceAnchorReady) "slice" else "fallback",
-            reason = if (usingCachedAnchor && sliceAnchorReady) {
-                "cached-anchor"
-            } else {
-                fallbackReason
-            },
-            hasWallpaperFile = hasWallpaperFile,
-            viewportFrame = hasViewportFrame,
-            sliceTopPx = if (usingCachedAnchor) drawTopPx else sliceTopPx,
-            sliceHeightPx = if (usingCachedAnchor) drawHeightPx else sliceHeightPx,
-            viewportTopPx = viewportTopPx,
-            viewportHeightPx = viewportHeightPx,
-            cachedBarTopPx = cachedBarTopPx,
-            cachedBarHeightPx = cachedBarHeightPx,
-            anchorValid = anchorValid,
-        )
-    }
-
     Box(
         modifier
             .fillMaxWidth()
@@ -421,12 +389,6 @@ internal fun MicaCustomWallpaperSlice(
                 if (positionedAnchorValid) {
                     viewport?.updateBarSliceAnchor(bounds.top, bounds.height)
                 }
-                WallpaperBarSliceDiagnostics.logSliceLayout(
-                    source = debugSource,
-                    sliceTopPx = bounds.top,
-                    sliceHeightPx = bounds.height,
-                    anchorValid = positionedAnchorValid,
-                )
             },
     ) {
         when {

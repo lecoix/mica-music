@@ -138,7 +138,7 @@ private class VideoAlbumCoverView(context: Context) : FrameLayout(context), Play
     }
 
     override fun onPlayerError(error: PlaybackException) {
-        DiagnosticLog.event(
+        DiagnosticLog.important(
             "VideoCover",
             "playback-failed uri=$source code=${error.errorCodeName} cause=${error.cause?.javaClass?.simpleName}",
         )

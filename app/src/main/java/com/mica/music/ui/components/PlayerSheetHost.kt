@@ -36,7 +36,6 @@ import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import com.mica.music.ui.screens.NowPlayingActions
 import com.mica.music.ui.screens.NowPlayingContent
-import com.mica.music.util.WallpaperBarSliceDiagnostics
 import com.mica.music.util.WindowInteractionDiagnostics
 
 internal enum class PlayerSheetPhase {
@@ -171,15 +170,6 @@ fun PlayerSheetHost(
     val miniPlayerChromeVisible = !expanded || progress < 0.99f
 
     SideEffect {
-        WallpaperBarSliceDiagnostics.logPlayerSheet(
-            expanded = expanded,
-            progress = progress,
-            sheetPhase = sheetPhase.name,
-            showFullPlayer = showFullPlayer,
-            miniPlayerChromeVisible = miniPlayerChromeVisible,
-            miniPlayerStyle = uiSettings.miniPlayerStyle.name,
-            overlayFullScreen = showFullPlayer,
-        )
         WindowInteractionDiagnostics.logPlayerSheet(
             viewportWidthDp = configuration.screenWidthDp,
             viewportHeightDp = configuration.screenHeightDp,
