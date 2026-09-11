@@ -34,7 +34,6 @@ internal object SafUnknownFingerprintDebtPlanner {
      */
     internal const val UNKNOWN_DEBT_CLEANUP_BUDGET = SafAutoProbePlanner.UNKNOWN_VERIFY_OBJECT_BUDGET
     private const val FAILURE_RETRY_DELAY_MS = 30_000L
-    private const val RETRY_KEY_PREFIX = "saf-unknown-deep-verify:"
 
     fun plan(
         sourceIdentity: SourceIdentityKey,
@@ -208,7 +207,7 @@ internal object SafUnknownFingerprintDebtPlanner {
     }
 
     internal fun retryKey(stableObjectKey: String): String =
-        "$RETRY_KEY_PREFIX$stableObjectKey"
+        LibraryRetryKey.safUnknownFingerprint(stableObjectKey)
 
     private fun safeAdd(nowMs: Long, delayMs: Long): Long =
         if (Long.MAX_VALUE - nowMs < delayMs) Long.MAX_VALUE else nowMs + delayMs

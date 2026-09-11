@@ -22,7 +22,6 @@ import com.mica.music.data.Song
 import com.mica.music.data.SongSortField
 import com.mica.music.data.SortDirection
 import com.mica.music.data.cacheKey
-import com.mica.music.data.library.DeviceShadowRetryPlanner
 import com.mica.music.data.library.LibraryAutoSyncStateMutation
 import com.mica.music.data.library.LibraryFollowupOutboxCursor
 import com.mica.music.data.library.LibraryFollowupOutboxItem
@@ -33,8 +32,7 @@ import com.mica.music.data.library.LibraryRetryItem
 import com.mica.music.data.library.LibraryRetryKind
 import com.mica.music.data.library.LibraryRetryPage
 import com.mica.music.data.library.LibraryRetryPaging
-import com.mica.music.data.library.SafShadowRetryPlanner
-import com.mica.music.data.library.SafUnknownFingerprintDebtPlanner
+import com.mica.music.data.library.LibraryRetryKey
 import com.mica.music.data.library.LibrarySyncCheckpoint
 import com.mica.music.data.library.LyricsStagingMode
 import com.mica.music.data.library.LibraryUserExclusion
@@ -212,11 +210,7 @@ class LibraryRepository internal constructor(
             .asSequence()
             .distinct()
             .flatMap { stableObjectKey ->
-                sequenceOf(
-                    DeviceShadowRetryPlanner.retryKey(stableObjectKey),
-                    SafShadowRetryPlanner.retryKey(stableObjectKey),
-                    SafUnknownFingerprintDebtPlanner.retryKey(stableObjectKey),
-                )
+                LibraryRetryKey.allForStableObjectKey(stableObjectKey).asSequence()
             }
             .toList()
         return retryItemDao.getByKeys(

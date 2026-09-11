@@ -14,7 +14,6 @@ internal data class SafShadowRetryPlan(
 internal object SafShadowRetryPlanner {
     private const val BASE_DELAY_MS = 30_000L
     private const val MAX_DELAY_MS = 30L * 60L * 1000L
-    private const val RETRY_KEY_PREFIX = "saf-object-probe:"
 
     fun plan(
         sourceIdentity: SourceIdentityKey,
@@ -96,7 +95,7 @@ internal object SafShadowRetryPlanner {
     }
 
     internal fun retryKey(stableObjectKey: String): String =
-        "$RETRY_KEY_PREFIX$stableObjectKey"
+        LibraryRetryKey.safObject(stableObjectKey)
 
     private fun SafShadowProbeIssueKind.isRetryLedgerEligible(): Boolean =
         when (this) {

@@ -19,7 +19,6 @@ internal data class DeviceShadowRetryPlan(
 internal object DeviceShadowRetryPlanner {
     private const val BASE_DELAY_MS = 30_000L
     private const val MAX_DELAY_MS = 30L * 60L * 1000L
-    private const val RETRY_KEY_PREFIX = "device-object-probe:"
     internal const val RETRY_OBSERVATION_MISSING = "RETRY_OBSERVATION_MISSING"
     internal const val RETRY_OBSERVATION_UNAVAILABLE = "RETRY_OBSERVATION_UNAVAILABLE"
 
@@ -135,7 +134,7 @@ internal object DeviceShadowRetryPlanner {
     }
 
     internal fun retryKey(stableObjectKey: String): String =
-        "$RETRY_KEY_PREFIX$stableObjectKey"
+        LibraryRetryKey.deviceObject(stableObjectKey)
 
     private fun DeviceShadowProbeIssueKind.isRetryLedgerEligible(): Boolean = when (this) {
         DeviceShadowProbeIssueKind.DRAFT_MISSING,
