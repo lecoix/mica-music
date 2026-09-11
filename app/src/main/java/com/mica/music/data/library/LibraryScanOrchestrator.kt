@@ -65,6 +65,10 @@ internal class LibraryScanOrchestrator(
         safShadowCanonicalProjection = safShadowCanonicalProjection,
         safShadowVideoInventory = safShadowVideoInventory,
     )
+    private val fullScanExecutor = FullLibraryScanExecutor(
+        backing = backing,
+        scanEngine = scanEngine,
+    )
 
     suspend fun rescan() = rescan(null)
 
@@ -72,12 +76,12 @@ internal class LibraryScanOrchestrator(
         when (backing.lastScanSource) {
             ScanSource.FOLDER -> {
                 if (folder.hasLibraryFolder()) {
-                    scanLibraryFolder(operation = operation)
+                    fullScanExecutor.scanLibraryFolder(operation = operation)
                 }
             }
             ScanSource.DEVICE -> {
                 if (folder.hasAudioReadPermission()) {
-                    scanDeviceWide(operation = operation)
+                    fullScanExecutor.scanDeviceWide(operation = operation)
                 }
             }
         }
@@ -108,8 +112,8 @@ internal class LibraryScanOrchestrator(
     internal suspend fun executeScheduled(operation: ScheduledLibraryOperation) {
         when (val request = operation.request) {
             LibraryOperationRequest.Rescan -> rescan(operation)
-            LibraryOperationRequest.ScanDeviceWide -> scanDeviceWide(operation = operation)
-            LibraryOperationRequest.ScanLibraryFolder -> scanLibraryFolder(operation = operation)
+            LibraryOperationRequest.ScanDeviceWide -> fullScanExecutor.scanDeviceWide(operation = operation)
+            LibraryOperationRequest.ScanLibraryFolder -> fullScanExecutor.scanLibraryFolder(operation = operation)
             is LibraryOperationRequest.TargetedRefresh ->
                 refreshSongMetadata(request.songIds, operation)
             is LibraryOperationRequest.ArtworkRepair ->
@@ -287,59 +291,26 @@ internal class LibraryScanOrchestrator(
             stagedExternalLyricsId = stagedExternalLyricsId,
         )
 
+
     suspend fun scanDeviceWide(
         forceRefreshSongIds: Set<String> = emptySet(),
         userVisible: Boolean = forceRefreshSongIds.isEmpty(),
         operation: ScheduledLibraryOperation? = null,
-    ) {
-        if (!folder.hasAudioReadPermission()) return
-        scanEngine.performScan(
-            source = ScanSource.DEVICE,
-            requestedForceRefreshLyrics = false,
-            forceRefreshSongIds = forceRefreshSongIds,
-            userVisible = userVisible,
-            operation = operation,
-        ) {
-                onProgress, cachedSongs, onLyricsBatch, policy ->
-            scanDevice(
-                cachedSongs = cachedSongs,
-                onProgress = onProgress,
-                onLyricsBatch = onLyricsBatch,
-                policy = policy,
-            )
-        }
-    }
+    ) = fullScanExecutor.scanDeviceWide(
+        forceRefreshSongIds = forceRefreshSongIds,
+        userVisible = userVisible,
+        operation = operation,
+    )
 
     suspend fun scanLibraryFolder(
         forceRefreshSongIds: Set<String> = emptySet(),
         userVisible: Boolean = forceRefreshSongIds.isEmpty(),
         operation: ScheduledLibraryOperation? = null,
-    ) {
-        val treeUri = folder.scanTreeUri() ?: return
-        if (!backing.scanEnvironment.canReadTree(treeUri)) {
-            folder.discardPendingFolderSelection()
-            if (userVisible) {
-                backing.lastScanError = "无法访问所选文件夹，请重新选择"
-            }
-            return
-        }
-        scanEngine.performScan(
-            source = ScanSource.FOLDER,
-            requestedForceRefreshLyrics = false,
-            forceRefreshSongIds = forceRefreshSongIds,
-            userVisible = userVisible,
-            operation = operation,
-        ) {
-                onProgress, cachedSongs, onLyricsBatch, policy ->
-            scanFolder(
-                treeUri = treeUri,
-                cachedSongs = cachedSongs,
-                onProgress = onProgress,
-                onLyricsBatch = onLyricsBatch,
-                policy = policy,
-            )
-        }
-    }
+    ) = fullScanExecutor.scanLibraryFolder(
+        forceRefreshSongIds = forceRefreshSongIds,
+        userVisible = userVisible,
+        operation = operation,
+    )
 
     private fun scheduleAutoArtworkHydration(addedIds: Set<String>) {
         if (addedIds.isEmpty()) return
@@ -381,13 +352,13 @@ internal class LibraryScanOrchestrator(
         if (targets.isEmpty()) return
         when (backing.lastScanSource) {
             ScanSource.FOLDER -> if (folder.hasLibraryFolder()) {
-                scanLibraryFolder(
+                fullScanExecutor.scanLibraryFolder(
                     forceRefreshSongIds = targets,
                     operation = operation,
                 )
             }
             ScanSource.DEVICE -> if (folder.hasAudioReadPermission()) {
-                scanDeviceWide(
+                fullScanExecutor.scanDeviceWide(
                     forceRefreshSongIds = targets,
                     operation = operation,
                 )
@@ -395,56 +366,6 @@ internal class LibraryScanOrchestrator(
         }
     }
 
-    private suspend fun scanDevice(
-        cachedSongs: List<com.mica.music.data.Song>,
-        onProgress: (Int, Int) -> Unit,
-        onLyricsBatch: suspend (com.mica.music.data.LyricsScanBatch) -> Unit,
-        policy: ScanProbePolicy,
-    ): ScanResult = if (policy.forceRefreshSongIds.isEmpty()) {
-        backing.libraryScanner.scanDevice(
-            cachedSongs = cachedSongs,
-            onProgress = onProgress,
-            forceRefreshLyrics = policy.forceRefreshLyrics,
-            forceRefreshArtwork = false,
-            onLyricsBatch = onLyricsBatch,
-        )
-    } else {
-        backing.libraryScanner.scanDeviceForSongs(
-            songIds = policy.forceRefreshSongIds,
-            cachedSongs = cachedSongs,
-            onProgress = onProgress,
-            forceRefreshLyrics = policy.forceRefreshLyrics,
-            forceRefreshArtwork = false,
-            onLyricsBatch = onLyricsBatch,
-        )
-    }
-
-    private suspend fun scanFolder(
-        treeUri: android.net.Uri,
-        cachedSongs: List<com.mica.music.data.Song>,
-        onProgress: (Int, Int) -> Unit,
-        onLyricsBatch: suspend (com.mica.music.data.LyricsScanBatch) -> Unit,
-        policy: ScanProbePolicy,
-    ): ScanResult = if (policy.forceRefreshSongIds.isEmpty()) {
-        backing.libraryScanner.scanFolder(
-            treeUri = treeUri,
-            cachedSongs = cachedSongs,
-            onProgress = onProgress,
-            forceRefreshLyrics = policy.forceRefreshLyrics,
-            forceRefreshArtwork = false,
-            onLyricsBatch = onLyricsBatch,
-        )
-    } else {
-        backing.libraryScanner.scanFolderForSongs(
-            treeUri = treeUri,
-            songIds = policy.forceRefreshSongIds,
-            cachedSongs = cachedSongs,
-            onProgress = onProgress,
-            forceRefreshLyrics = policy.forceRefreshLyrics,
-            forceRefreshArtwork = false,
-            onLyricsBatch = onLyricsBatch,
-        )
-    }
 
     private suspend fun repairArtworkCache(
         plan: AlbumArtRepairPlan,
