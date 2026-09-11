@@ -57,19 +57,25 @@ class PlaybackUiPreferencesRobolectricTest {
     }
 
     @Test
-    fun particleCoverTuningRoundTrips() {
-        val tuning = ParticleCoverTuning(
-            erosionScale = 1.35f,
-            featherScale = 1.7f,
-            edgeParticleDensity = 0.88f,
-            edgeParticleAlpha = 1.2f,
-            edgeTravelScale = 0.4f,
-            transitionParticleDensity = 1f,
+    fun particleCoverTuningReadsLegacySavedValues() {
+        MicaSettingsStore.prefs(context).edit()
+            .putFloat("particle_cover_erosion_scale", 1.35f)
+            .putFloat("particle_cover_feather_scale", 1.7f)
+            .putFloat("particle_cover_edge_alpha", 1.2f)
+            .putFloat("particle_cover_edge_travel", 0.4f)
+            .putFloat("particle_cover_transition_density", 1f)
+            .apply()
+
+        assertEquals(
+            ParticleCoverTuning(
+                erosionScale = 1.35f,
+                featherScale = 1.7f,
+                edgeParticleAlpha = 1.2f,
+                edgeTravelScale = 0.4f,
+                transitionParticleDensity = 1f,
+            ),
+            PlaybackUiPreferences.particleCoverTuning(context),
         )
-
-        PlaybackUiPreferences.setParticleCoverTuning(context, tuning)
-
-        assertEquals(tuning, PlaybackUiPreferences.particleCoverTuning(context))
     }
 
     @Test

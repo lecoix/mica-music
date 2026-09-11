@@ -19,8 +19,6 @@ import com.mica.music.ui.components.PlaybackSeekState
 import com.mica.music.ui.screens.player.view.ParticleCoverHost
 import com.mica.music.ui.screens.player.view.ParticleCoverThemePreset
 
-internal const val UseNativeParticleCoverInPlayer = true
-
 @Composable
 internal fun ParticleCoverPlayerLayer(
     song: Song,
@@ -75,9 +73,7 @@ internal fun ParticleCoverPlayerLayer(
 }
 
 private object ParticleCoverPlayerLayerModel {
-    fun shouldMount(frame: PlayerPageFrame): Boolean =
-        UseNativeParticleCoverInPlayer &&
-            frame.particleCover.enabled
+    fun shouldMount(frame: PlayerPageFrame): Boolean = frame.particleCover.enabled
 
     fun playbackDisintegrationProgress(seekState: PlaybackSeekState): Float =
         (seekState.sliderValue / seekState.valueRange.endInclusive.coerceAtLeast(1f))

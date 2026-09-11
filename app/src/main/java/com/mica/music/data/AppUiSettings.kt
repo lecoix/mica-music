@@ -472,11 +472,6 @@ class AppUiSettings(context: Context) {
         PlaybackUiPreferences.setCustomPlayerLowerLayout(appContext, customPlayerLowerLayout)
     }
 
-    fun updateParticleCoverTuning(tuning: ParticleCoverTuning) {
-        particleCoverTuning = tuning
-        PlaybackUiPreferences.setParticleCoverTuning(appContext, tuning)
-    }
-
     fun updateAccentColor(accent: AppAccentColor) {
         accentColor = accent
         AppearancePreferences.setAppAccentColor(appContext, accent)

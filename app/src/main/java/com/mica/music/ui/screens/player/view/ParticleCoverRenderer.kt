@@ -27,7 +27,6 @@ internal class ParticleCoverRenderer(context: Context) {
         -1f, 1f, 0f, 0f,
         1f, 1f, 1f, 0f,
     ).toFloatBuffer()
-    private val edgeParticles = buildEdgeParticles()
     private val transitionParticles = buildTransitionParticles()
     private val fullCoverParticles = buildFullCoverParticles()
     private val lyricsRandomParticles = buildLyricsRandomParticles()
@@ -50,30 +49,15 @@ internal class ParticleCoverRenderer(context: Context) {
     private var tuning = ParticleCoverTuning()
     private var previewOptions = ParticleCoverPreviewOptions()
     private var playbackDisintegrationProgress: Float? = null
-    private var musicEnergy = 0f
-    private var musicBands = ParticleCoverMusicBands()
-    private var musicEnergySmooth = 0f
-    private var musicPulseStartMs = -MusicPulseDurationMs
-    private var musicPulseStrength = 0f
-    private var musicPulseSeed = 0.37f
-    private var lastMusicPulseAtMs = 0L
     private var lyricsProgress = 0f
     private var coverCenterX = 0f
     private var coverCenterY = 0f
     private var coverHalfWidth = 1f
     private var coverHalfHeight = 1f
-    private var firstRenderLogged = false
-    private var noTextureLogged = false
     private var firstQuadDrawLogged = false
     private var firstParticleDrawLogged = false
 
     fun onSurfaceCreated() {
-        DiagnosticLog.event(
-            "ParticleCover",
-            "gl-surface-created diag=gl vendor=${GLES20.glGetString(GLES20.GL_VENDOR)} " +
-                "renderer=${GLES20.glGetString(GLES20.GL_RENDERER)} " +
-                "version=${GLES20.glGetString(GLES20.GL_VERSION)}",
-        )
         quadProgram = createProgram("quad", QuadVertexShader, QuadFragmentShader)
         particleProgram = createProgram("particle", ParticleVertexShader, ParticleFragmentShader)
         GLES20.glDisable(GLES20.GL_DEPTH_TEST)
@@ -81,16 +65,11 @@ internal class ParticleCoverRenderer(context: Context) {
         GLES20.glEnable(GLES20.GL_BLEND)
         GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA)
         logGlError("surface-created")
-        DiagnosticLog.event(
-            "ParticleCover",
-            "gl-programs-ready diag=shader quad=$quadProgram particle=$particleProgram",
-        )
     }
 
     fun onSurfaceChanged(surfaceWidth: Int, surfaceHeight: Int) {
         width = surfaceWidth.coerceAtLeast(1)
         height = surfaceHeight.coerceAtLeast(1)
-        DiagnosticLog.event("ParticleCover", "gl-surface-size diag=gl size=${width}x$height")
     }
 
     fun setCover(
@@ -108,12 +87,6 @@ internal class ParticleCoverRenderer(context: Context) {
                 currentBitmapGeneration != generation ||
                 (!hasBitmap && currentFallbackColor != fallbackColor)
             ) {
-                DiagnosticLog.event(
-                    "ParticleCover",
-                    "cover-texture-rebuild diag=texture reason=same-song-change " +
-                        "song=${songId.takeLast(12)} bitmap=${bitmap.describeForLog()} " +
-                        "fallback=${fallbackColor.toUIntHex()}",
-                )
                 deleteTexture(currentTexture)
                 currentTexture = createTexture(bitmap, fallbackColor)
                 currentHasBitmap = hasBitmap
@@ -125,13 +98,6 @@ internal class ParticleCoverRenderer(context: Context) {
 
         deleteTexture(previousTexture)
         previousTexture = currentTexture
-        DiagnosticLog.event(
-            "ParticleCover",
-            "cover-texture-rebuild diag=texture reason=new-song " +
-                "song=${songId.takeLast(12)} prevTexture=$previousTexture " +
-                "bitmap=${bitmap.describeForLog()} fallback=${fallbackColor.toUIntHex()} " +
-                "motion=$motionEnabled",
-        )
         currentTexture = createTexture(bitmap, fallbackColor)
         currentSongId = songId
         currentHasBitmap = hasBitmap
@@ -169,18 +135,6 @@ internal class ParticleCoverRenderer(context: Context) {
         playbackDisintegrationProgress = progress?.coerceIn(0f, 1f)
     }
 
-    fun setMusicEnergy(energy: Float) {
-        musicEnergy = energy.coerceIn(0f, 1f)
-    }
-
-    fun setMusicBands(bands: ParticleCoverMusicBands) {
-        musicBands = ParticleCoverMusicBands(
-            bass = bands.bass.coerceIn(0f, 1f),
-            mid = bands.mid.coerceIn(0f, 1f),
-            treble = bands.treble.coerceIn(0f, 1f),
-        )
-    }
-
     fun setLyricsProgress(progress: Float) {
         lyricsProgress = progress.coerceIn(0f, 1f)
     }
@@ -195,22 +149,7 @@ internal class ParticleCoverRenderer(context: Context) {
     fun render() {
         GLES20.glClearColor(0f, 0f, 0f, 0f)
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
-        if (currentTexture == 0) {
-            if (!noTextureLogged) {
-                noTextureLogged = true
-                DiagnosticLog.event("ParticleCover", "render-skip diag=draw reason=no-texture")
-            }
-            return
-        }
-        if (!firstRenderLogged) {
-            firstRenderLogged = true
-            DiagnosticLog.event(
-                "ParticleCover",
-                "first-render diag=draw texture=$currentTexture previous=$previousTexture " +
-                    "fullParticles=${previewOptions.fullCoverParticles} lyrics=$lyricsProgress " +
-                    "coverCenter=$coverCenterX,$coverCenterY coverHalf=$coverHalfWidth,$coverHalfHeight",
-            )
-        }
+        if (currentTexture == 0) return
 
         val elapsed = transitionElapsedMs()
         val edgeAlphaPeak = EdgeAlphaPeak * tuning.edgeParticleAlpha
@@ -386,11 +325,6 @@ internal class ParticleCoverRenderer(context: Context) {
     fun isAnimating(): Boolean =
         (previousTexture != 0 && transitionElapsedMs() < TransitionDurationMs) ||
             playbackDisintegrationProgress != null ||
-            musicEnergy > 0.01f ||
-            musicBands.bass > 0.01f ||
-            musicBands.mid > 0.01f ||
-            musicBands.treble > 0.01f ||
-            (SystemClock.uptimeMillis() - musicPulseStartMs < MusicPulseDurationMs) ||
             (previewOptions.fullCoverParticles &&
                 (previewOptions.fullCoverWobble > 0.001f || lyricsProgress > 0.01f))
 
@@ -479,39 +413,6 @@ internal class ParticleCoverRenderer(context: Context) {
             lyricsSpread = LyricsSpreadScreenScale,
             playbackScatter = playbackScatter,
         )
-    }
-
-    private fun updateMusicPulse(nowMs: Long): MusicPulse {
-        val energy = musicBands.bass.coerceIn(0f, 1f)
-        val attack = energy - musicEnergySmooth
-        val smoothing = if (energy > musicEnergySmooth) 0.16f else 0.055f
-        musicEnergySmooth += (energy - musicEnergySmooth) * smoothing
-        val currentAge = ((nowMs - musicPulseStartMs).toFloat() / MusicPulseDurationMs)
-            .coerceIn(0f, 1.25f)
-
-        if (
-            energy > MusicPulseEnergyThreshold &&
-            attack > MusicPulseAttackThreshold &&
-            nowMs - lastMusicPulseAtMs > MusicPulseCooldownMs &&
-            currentAge > MusicPulseMinRetriggerAge
-        ) {
-            musicPulseStartMs = nowMs
-            musicPulseStrength = (0.28f + attack * 3.8f + energy * 0.55f).coerceIn(0.28f, 1f)
-            musicPulseSeed = (musicPulseSeed + 0.173f + energy * 0.097f).let { it - it.toInt() }
-            lastMusicPulseAtMs = nowMs
-        }
-
-        val age = ((nowMs - musicPulseStartMs).toFloat() / MusicPulseDurationMs)
-            .coerceIn(0f, 1.25f)
-        return if (age <= 1f && musicPulseStrength > 0.001f) {
-            MusicPulse(
-                age = age,
-                strength = musicPulseStrength * (1f - age * 0.35f),
-                seed = musicPulseSeed,
-            )
-        } else {
-            MusicPulse(age = 1f, strength = 0f, seed = musicPulseSeed)
-        }
     }
 
     private fun drawLyricsTextureTransition(
@@ -645,10 +546,6 @@ internal class ParticleCoverRenderer(context: Context) {
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
         if (!firstQuadDrawLogged) {
             firstQuadDrawLogged = true
-            DiagnosticLog.event(
-                "ParticleCover",
-                "first-quad-draw diag=draw texture=$texture alpha=$alpha scale=$scale erosion=$erosion",
-            )
             logGlError("first-quad-draw")
         }
         GLES20.glDisableVertexAttribArray(aPosition)
@@ -674,13 +571,6 @@ internal class ParticleCoverRenderer(context: Context) {
         lyricsSpread: Float = 1f,
         burstAmount: Float = 0f,
         breathAmount: Float = 0f,
-        musicEnergy: Float = 0f,
-        musicPulseAge: Float = 1f,
-        musicPulseStrength: Float = 0f,
-        musicPulseSeed: Float = 0f,
-        musicBass: Float = 0f,
-        musicMid: Float = 0f,
-        musicTreble: Float = 0f,
         playbackScatter: Float = 0f,
     ) {
         if (alpha <= 0.001f || texture == 0) return
@@ -719,20 +609,10 @@ internal class ParticleCoverRenderer(context: Context) {
         )
         GLES20.glUniform1f(GLES20.glGetUniformLocation(particleProgram, "uBurstAmount"), burstAmount.coerceIn(0f, 1f))
         GLES20.glUniform1f(GLES20.glGetUniformLocation(particleProgram, "uBreathAmount"), breathAmount.coerceIn(0f, 1f))
-        GLES20.glUniform1f(GLES20.glGetUniformLocation(particleProgram, "uMusicEnergy"), musicEnergy.coerceIn(0f, 1f))
-        GLES20.glUniform1f(GLES20.glGetUniformLocation(particleProgram, "uMusicBass"), musicBass.coerceIn(0f, 1f))
-        GLES20.glUniform1f(GLES20.glGetUniformLocation(particleProgram, "uMusicMid"), musicMid.coerceIn(0f, 1f))
-        GLES20.glUniform1f(GLES20.glGetUniformLocation(particleProgram, "uMusicTreble"), musicTreble.coerceIn(0f, 1f))
         GLES20.glUniform1f(
             GLES20.glGetUniformLocation(particleProgram, "uPlaybackScatter"),
             playbackScatter.coerceIn(0f, 1f),
         )
-        GLES20.glUniform1f(GLES20.glGetUniformLocation(particleProgram, "uMusicPulseAge"), musicPulseAge.coerceIn(0f, 1f))
-        GLES20.glUniform1f(
-            GLES20.glGetUniformLocation(particleProgram, "uMusicPulseStrength"),
-            musicPulseStrength.coerceIn(0f, 1f),
-        )
-        GLES20.glUniform1f(GLES20.glGetUniformLocation(particleProgram, "uMusicPulseSeed"), musicPulseSeed)
         GLES20.glUniform2f(GLES20.glGetUniformLocation(particleProgram, "uCoverCenter"), coverCenterX, coverCenterY)
         GLES20.glUniform2f(
             GLES20.glGetUniformLocation(particleProgram, "uCoverHalfSize"),
@@ -769,12 +649,6 @@ internal class ParticleCoverRenderer(context: Context) {
         GLES20.glDrawArrays(GLES20.GL_POINTS, 0, drawCount)
         if (!firstParticleDrawLogged) {
             firstParticleDrawLogged = true
-            DiagnosticLog.event(
-                "ParticleCover",
-                "first-particle-draw diag=draw texture=$texture textureB=$textureB " +
-                    "setCount=${particleSet.count} drawCount=$drawCount density=$density " +
-                    "pointScale=$pointScale alpha=$alpha lyrics=$lyrics grid=$gridStrength",
-            )
             logGlError("first-particle-draw")
         }
         GLES20.glDisableVertexAttribArray(aHome)
@@ -799,7 +673,7 @@ internal class ParticleCoverRenderer(context: Context) {
             val uploaded = runCatching {
                 GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, uploadBitmap, 0)
             }.onFailure { throwable ->
-                DiagnosticLog.event(
+                DiagnosticLog.important(
                     "ParticleCover",
                     "texture-upload-failed diag=texture id=$texture bitmap=${uploadBitmap.describeForLog()} " +
                         "fallback=${fallbackColor.toUIntHex()}",
@@ -807,22 +681,12 @@ internal class ParticleCoverRenderer(context: Context) {
                 )
                 uploadFallbackColor(fallbackColor)
             }.isSuccess
-            DiagnosticLog.event(
-                "ParticleCover",
-                "texture-ready diag=texture id=$texture source=${if (uploaded) "bitmap" else "fallback-after-failure"} " +
-                    "bitmap=${uploadBitmap.describeForLog()} fallback=${fallbackColor.toUIntHex()}",
-            )
             logGlError("texture-upload")
             if (uploadBitmap !== bitmap) {
                 uploadBitmap.recycle()
             }
         } else {
             uploadFallbackColor(fallbackColor)
-            DiagnosticLog.event(
-                "ParticleCover",
-                "texture-ready diag=texture id=$texture source=fallback bitmap=${bitmap.describeForLog()} " +
-                    "fallback=${fallbackColor.toUIntHex()}",
-            )
             logGlError("texture-fallback")
         }
         return texture
@@ -898,16 +762,12 @@ internal class ParticleCoverRenderer(context: Context) {
         GLES20.glDeleteShader(vertex)
         GLES20.glDeleteShader(fragment)
         if (status[0] != GLES20.GL_TRUE) {
-            DiagnosticLog.event(
+            DiagnosticLog.important(
                 "ParticleCover",
                 "program-link-failed diag=shader label=$label program=$program log=${log.takeForLog()}",
             )
         }
         check(status[0] == GLES20.GL_TRUE) { "Particle cover GL program link failed: $log" }
-        DiagnosticLog.event(
-            "ParticleCover",
-            "program-linked diag=shader label=$label program=$program log=${log.takeForLog()}",
-        )
         return program
     }
 
@@ -919,16 +779,12 @@ internal class ParticleCoverRenderer(context: Context) {
         GLES20.glGetShaderiv(shader, GLES20.GL_COMPILE_STATUS, status, 0)
         val log = GLES20.glGetShaderInfoLog(shader).orEmpty()
         if (status[0] != GLES20.GL_TRUE) {
-            DiagnosticLog.event(
+            DiagnosticLog.important(
                 "ParticleCover",
                 "shader-compile-failed diag=shader label=$label shader=$shader log=${log.takeForLog()}",
             )
         }
         check(status[0] == GLES20.GL_TRUE) { "Particle cover GL shader compile failed: $log" }
-        DiagnosticLog.event(
-            "ParticleCover",
-            "shader-compiled diag=shader label=$label shader=$shader log=${log.takeForLog()}",
-        )
         return shader
     }
 
@@ -940,7 +796,7 @@ internal class ParticleCoverRenderer(context: Context) {
             errors += "0x${Integer.toHexString(error)}"
             error = GLES20.glGetError()
         }
-        DiagnosticLog.event("ParticleCover", "gl-error diag=gl stage=$stage errors=${errors.joinToString(",")}")
+        DiagnosticLog.important("ParticleCover", "gl-error diag=gl stage=$stage errors=${errors.joinToString(",")}")
     }
 
     private fun Bitmap?.describeForLog(): String =
@@ -955,79 +811,6 @@ internal class ParticleCoverRenderer(context: Context) {
 
     private fun String.takeForLog(): String =
         if (isBlank()) "empty" else replace('\n', ' ').take(240)
-
-    private fun buildEdgeParticles(): ParticleSet {
-        val random = Random(0xE06ED957L)
-        val data = FloatArray(EdgeParticleCount * ParticleStrideFloats)
-        var cursor = 0
-        repeat(EdgeParticleCount) {
-            val side = random.nextInt(4)
-            val layer = random.nextFloat().toDouble().pow(2.65).toFloat()
-            val edgeDepth = EdgeParticleBand * layer
-            val edgeWeight = (1f - smoothStep(0f, EdgeParticleBand, edgeDepth))
-                .toDouble()
-                .pow(1.35)
-                .toFloat()
-            val tangent = random.nextFloat()
-            val tangentJitter = random.between(-0.035f, 0.035f) * (0.35f + edgeWeight)
-            var u: Float
-            var v: Float
-            var normalX = 0f
-            var normalY = 0f
-            when (side) {
-                0 -> {
-                    u = (tangent + tangentJitter).coerceIn(0f, 1f)
-                    v = edgeDepth.coerceIn(0f, 1f)
-                    normalY = 1f
-                }
-                1 -> {
-                    u = (1f - edgeDepth).coerceIn(0f, 1f)
-                    v = (tangent + tangentJitter).coerceIn(0f, 1f)
-                    normalX = 1f
-                }
-                2 -> {
-                    u = (tangent + tangentJitter).coerceIn(0f, 1f)
-                    v = (1f - edgeDepth).coerceIn(0f, 1f)
-                    normalY = -1f
-                }
-                else -> {
-                    u = edgeDepth.coerceIn(0f, 1f)
-                    v = (tangent + tangentJitter).coerceIn(0f, 1f)
-                    normalX = -1f
-                }
-            }
-            val homeX = u * 2f - 1f
-            val homeY = 1f - v * 2f
-            val outward = random.between(0.018f, 0.34f) *
-                EdgeParticleBand *
-                (0.28f + edgeWeight * 1.18f) *
-                2f
-            val shear = random.between(-0.11f, 0.11f) *
-                EdgeParticleBand *
-                (0.25f + edgeWeight) *
-                2f
-            val scatterX = homeX + normalX * outward + normalY * shear
-            val scatterY = homeY + normalY * outward + normalX * shear
-            val z = random.between(-1f, 1f) * EdgeDepth * (0.18f + edgeWeight * 1.35f)
-            val size = random.between(2.0f, 3.4f) + edgeWeight * random.between(1.4f, 3.4f)
-            cursor = putParticle(
-                data = data,
-                cursor = cursor,
-                homeX = homeX,
-                homeY = homeY,
-                homeZ = z,
-                scatterX = scatterX,
-                scatterY = scatterY,
-                scatterZ = z + random.between(-0.08f, 0.16f),
-                u = u,
-                v = v,
-                size = size,
-                detach = edgeWeight,
-                seed = random.nextFloat(),
-            )
-        }
-        return ParticleSet(data.toFloatBuffer(), EdgeParticleCount)
-    }
 
     private fun buildTransitionParticles(): ParticleSet {
         val random = Random(0x7A11C05EL)
@@ -1224,11 +1007,6 @@ internal class ParticleCoverRenderer(context: Context) {
         val count: Int,
     )
 
-    private data class MusicPulse(
-        val age: Float,
-        val strength: Float,
-        val seed: Float,
-    )
 
     companion object {
         const val TransitionDurationMs = 900L
@@ -1236,31 +1014,19 @@ internal class ParticleCoverRenderer(context: Context) {
         private const val EdgeBoostMs = 150L
         private const val ScatterEndMs = 450L
         private const val GatherEndMs = 750L
-        private const val StablePlaneErosion = 0.006f
         private const val StableBreakup = 0.32f
         private const val PlaneNoise = 0.022f
         private const val EdgeAlphaPeak = 0.42f
-        private const val MaxEdgeParticleDensity = 1.25f
-        private const val StableEdgeAlphaScale = 1.95f
         private const val StableEdgeResidueAlpha = 0.38f
         private const val TransitionAlphaScale = 2.35f
-        private const val EdgeWobble = 0.018f
         private const val TransitionWobble = 0.010f
         private const val StableEdgeTravel = 0.18f
         private const val LyricsParticleTravel = 0.62f
         private const val LyricsParticleAlpha = 0.70f
         private const val LyricsSpreadScreenScale = 1.32f
-        private const val MusicPulseDurationMs = 720L
-        private const val MusicPulseCooldownMs = 620L
-        private const val MusicPulseMinRetriggerAge = 0.70f
-        private const val MusicPulseEnergyThreshold = 0.42f
-        private const val MusicPulseAttackThreshold = 0.14f
-        private const val EdgeDepth = 0.145f
-        private const val EdgeParticleBand = 0.050f
         private const val MaskFeather = 0.030f
         private const val PointScale = 0.83f
         private const val CoverPlaneScale = 1f
-        private const val EdgeParticleCount = 11000
         private const val TransitionParticleGrid = 100
         private const val FullCoverParticleGrid = 188
         private const val FloatBytes = 4
@@ -1399,14 +1165,7 @@ uniform mediump float uSizeVariance;
 uniform float uLyricsSpread;
 uniform float uBurstAmount;
 uniform float uBreathAmount;
-uniform float uMusicEnergy;
-uniform float uMusicBass;
-uniform float uMusicMid;
-uniform float uMusicTreble;
 uniform float uPlaybackScatter;
-uniform float uMusicPulseAge;
-uniform float uMusicPulseStrength;
-uniform float uMusicPulseSeed;
 varying vec2 vUv;
 varying float vDetach;
 varying float vSeed;
@@ -1417,13 +1176,6 @@ float hash11(float p) {
     return fract(sin(p) * 43758.5453);
 }
 
-float pulseRing(vec2 p, vec2 center, float delay, float width) {
-    float active = step(delay, uMusicPulseAge);
-    float age = clamp((uMusicPulseAge - delay) / max(0.001, 1.0 - delay), 0.0, 1.0);
-    float radius = age * 1.72;
-    float ring = 1.0 - smoothstep(0.0, width, abs(distance(p, center) - radius));
-    return ring * sin(age * 3.14159265) * active;
-}
 
 void main() {
     vec2 rawHome = aHome.xy;
@@ -1490,21 +1242,6 @@ void main() {
     ) * uWobble * 2.4 * driftWeight;
     float perspective = mix(1.0, 1.0 / clamp(1.0 + z * 0.18, 0.72, 1.38), uSizeVariance);
     vec2 xy = mix(uCoverCenter, pos, uScale);
-    float musicActive = 1.0 - uLyrics;
-    float mid = uMusicMid * musicActive;
-    float treble = uMusicTreble * musicActive;
-    vec2 musicRadial = normalize(home.xy + vec2(0.001, -0.001));
-    vec2 clusterCoord = floor((rawHome + vec2(1.0)) * 6.0);
-    vec2 clusterCenter = (clusterCoord + vec2(0.5)) / 6.0 - vec2(1.0);
-    float clusterSeed = hash11(clusterCoord.x * 37.1 + clusterCoord.y * 91.7);
-    float clusterWave = max(0.0, sin(uTime * mix(4.8, 8.6, clusterSeed) + clusterSeed * 6.2831853));
-    float clusterGate = smoothstep(0.58, 0.95, clusterWave) * step(0.38, clusterSeed);
-    float clusterFalloff = 1.0 - smoothstep(0.02, 0.30, distance(rawHome, clusterCenter));
-    float clusterTexture = mix(0.82, 1.06, hash11(aSeed * 149.7 + clusterSeed * 53.0));
-    float midHop = mid * clusterGate * clusterGate * clusterFalloff * clusterTexture;
-    xy += musicRadial * uCoverHalfSize * midHop * (0.018 + aDetach * 0.008);
-    float trebleFlicker = treble * (0.45 + 0.55 * sin(uTime * 22.0 + aSeed * 83.0));
-    float musicPulse = midHop * 0.18 + trebleFlicker * 0.24;
     float globalBreathWave = sin(uTime * 0.1300);
     float localBreathWave = sin(uTime * mix(0.030, 0.060, aDetach) + aSeed * 6.2831853);
     float breath = 0.5 + 0.5 * mix(globalBreathWave, localBreathWave, 0.38);
@@ -1530,14 +1267,14 @@ void main() {
         particleSize * uPointScale *
             (1.0 + burst * 0.24 * uSizeVariance + uBreathAmount * mix(0.10, 0.24, breath) +
                 scatterBreath * mix(0.060, 0.150, scatterParticleBreath) +
-                trebleFlicker * 0.08) *
+                0.0) *
             perspective
     );
     vUv = mix(aUv, randomUv, uLyrics);
     vDetach = aDetach;
     vSeed = aSeed;
     vAlpha = uAlpha * mix(1.0, 0.72 + 0.28 * aDetach, uSizeVariance) *
-        (1.0 + uBreathAmount * (breath - 0.5) * 0.38 + musicPulse * 0.06 +
+        (1.0 + uBreathAmount * (breath - 0.5) * 0.38 +
             scatterBreath * (scatterParticleBreath - 0.5) * 0.28);
 }
 """

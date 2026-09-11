@@ -1,4 +1,4 @@
-package com.mica.music.ui.screens
+﻿package com.mica.music.ui.screens
 
 import android.view.TextureView
 import androidx.compose.animation.core.Animatable
@@ -27,7 +27,6 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
-import com.mica.music.data.ParticleCoverTuning
 import com.mica.music.data.PlayerCoverFlowMode
 import com.mica.music.data.Song
 import com.mica.music.data.TrackSkipDirection
@@ -47,8 +46,6 @@ import com.mica.music.ui.screens.player.view.CoverFlowCarouselHost
 import com.mica.music.ui.screens.player.view.CoverFlowCarouselNavigationBridge
 import com.mica.music.ui.screens.player.view.MusicVideoHost
 import com.mica.music.ui.screens.player.view.PhotoStackCarouselNavigationBridge
-import com.mica.music.ui.screens.player.view.ThreeParticleCoverHaloFraction
-import com.mica.music.ui.screens.player.view.ThreeParticleCoverHost
 import com.mica.music.ui.screens.player.view.VideoAlbumCoverHost
 import com.mica.music.ui.theme.FloatingIslandShadowHalo
 import com.mica.music.ui.theme.HifiSpacing
@@ -241,34 +238,6 @@ internal fun PhotoStackCoverRenderer(
             modifier = Modifier.matchParentSize(),
         )
     }
-}
-
-@Composable
-internal fun ParticleCoverRenderer(
-    song: Song,
-    frame: PlayerPageFrame,
-    coverDecodeTarget: CoverDecodeTarget,
-    coverColor: androidx.compose.ui.graphics.Color,
-    tuning: ParticleCoverTuning,
-    motionEnabled: Boolean,
-    lyricsExpanded: Boolean,
-    useNativeParticleCover: Boolean,
-    onAspectRatioChanged: (Float) -> Unit,
-    onMotionActiveChanged: (Boolean) -> Unit,
-) {
-    if (useNativeParticleCover || !frame.particleCover.normalLayerVisible) return
-    val halo = frame.cover.width * ThreeParticleCoverHaloFraction
-    ThreeParticleCoverHost(
-        song = song,
-        coverDecodeTarget = coverDecodeTarget,
-        motionEnabled = motionEnabled,
-        coverColor = coverColor,
-        tuning = tuning,
-        renderVisible = !lyricsExpanded,
-        onAspectRatioChanged = onAspectRatioChanged,
-        onMotionActiveChanged = onMotionActiveChanged,
-        modifier = Modifier.size(frame.cover.width + halo * 2f, frame.cover.height + halo * 2f),
-    )
 }
 
 @Composable
@@ -472,26 +441,9 @@ internal fun StandardOrParticleCoverRenderer(
     lyricsExpanded: Boolean,
     isPlaying: Boolean,
     wipeLayerHeight: Dp,
-    useNativeParticleCover: Boolean,
-    coverColor: androidx.compose.ui.graphics.Color,
-    particleCoverTuning: ParticleCoverTuning,
     onAspectRatioChanged: (Float) -> Unit,
-    onMotionActiveChanged: (Boolean) -> Unit,
 ) {
-    if (frame.particleCover.enabled) {
-        ParticleCoverRenderer(
-            song = song,
-            frame = frame,
-            coverDecodeTarget = coverDecodeTarget,
-            coverColor = coverColor,
-            tuning = particleCoverTuning,
-            motionEnabled = motionEnabled,
-            lyricsExpanded = lyricsExpanded,
-            useNativeParticleCover = useNativeParticleCover,
-            onAspectRatioChanged = onAspectRatioChanged,
-            onMotionActiveChanged = onMotionActiveChanged,
-        )
-    } else {
+    if (!frame.particleCover.enabled) {
         StandardCoverRenderer(
             song = song,
             frame = frame,
@@ -527,7 +479,6 @@ internal fun CoverRendererSlot(
     coverArtworkScrim: Boolean,
     coverFlowReflection: Boolean,
     particleNormalLayerVisible: Boolean,
-    useNativeParticleCover: Boolean,
     coverSwipeGesturesEnabled: Boolean,
     coverShadowEnabled: Boolean,
     coverShadowStrength: Float,
@@ -551,7 +502,7 @@ internal fun CoverRendererSlot(
             .size(cover.width, coverBoxHeight)
             .graphicsLayer {
                 clip = !coverArtworkScrim && !coverFlowReflection && !particleNormalLayerVisible &&
-                    !useNativeParticleCover && !coverShadowEnabled
+                    !frame.particleCover.enabled && !coverShadowEnabled
             }
             .onGloballyPositioned { onCoverBoundsChanged(it.boundsInRoot()) }
             .pointerInput(coverSwipeGesturesEnabled, frame.coverFlowStageActive) {
@@ -581,7 +532,7 @@ internal fun CoverRendererSlot(
                 .graphicsLayer {
                     alpha = coverContentAlpha
                     clip = !coverArtworkScrim && !coverFlowReflection && !particleNormalLayerVisible &&
-                        !useNativeParticleCover && !coverShadowEnabled
+                        !frame.particleCover.enabled && !coverShadowEnabled
                     if (standardMode && !frame.coverFlowStageActive) {
                         translationX = gestureState.standardSwipeOffsetFraction * size.width * 0.35f
                     }

@@ -41,11 +41,6 @@ internal val ParticleCoverThemePreset = ParticleCoverPreviewOptions(
     fullCoverWobble = 0f,
 )
 
-internal data class ParticleCoverMusicBands(
-    val bass: Float = 0f,
-    val mid: Float = 0f,
-    val treble: Float = 0f,
-)
 
 @Composable
 internal fun ParticleCoverHost(
@@ -58,8 +53,6 @@ internal fun ParticleCoverHost(
     modifier: Modifier = Modifier,
     tuning: ParticleCoverTuning = ParticleCoverTuning(),
     playbackDisintegrationProgress: Float? = null,
-    musicEnergy: Float = 0f,
-    musicBands: ParticleCoverMusicBands = ParticleCoverMusicBands(),
     lyricsProgress: Float = 0f,
     coverCenter: Offset = Offset.Zero,
     coverHalfSize: Offset = Offset(1f, 1f),
@@ -115,8 +108,6 @@ internal fun ParticleCoverHost(
             view.setTuning(tuning)
             view.setPreviewOptions(previewOptions)
             view.setPlaybackDisintegrationProgress(playbackDisintegrationProgress)
-            view.setMusicEnergy(musicEnergy)
-            view.setMusicBands(musicBands)
             view.setLyricsProgress(lyricsProgress)
             view.setCoverTransform(
                 centerX = coverCenter.x,

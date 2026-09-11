@@ -67,8 +67,7 @@ object PlaybackUiPreferences {
         "custom_player_lower_progress_spectrum_height"
     private const val KEY_PARTICLE_COVER_EROSION_SCALE = "particle_cover_erosion_scale"
     private const val KEY_PARTICLE_COVER_FEATHER_SCALE = "particle_cover_feather_scale"
-    private const val KEY_PARTICLE_COVER_EDGE_DENSITY = "particle_cover_edge_density"
-    private const val KEY_PARTICLE_COVER_EDGE_ALPHA = "particle_cover_edge_alpha"
+        private const val KEY_PARTICLE_COVER_EDGE_ALPHA = "particle_cover_edge_alpha"
     private const val KEY_PARTICLE_COVER_EDGE_TRAVEL = "particle_cover_edge_travel"
     private const val KEY_PARTICLE_COVER_TRANSITION_DENSITY = "particle_cover_transition_density"
     private const val KEY_COVER_EDGE_PROGRESS = "cover_edge_progress"
@@ -448,7 +447,6 @@ object PlaybackUiPreferences {
         return ParticleCoverTuning(
             erosionScale = p.getFloat(KEY_PARTICLE_COVER_EROSION_SCALE, defaults.erosionScale),
             featherScale = p.getFloat(KEY_PARTICLE_COVER_FEATHER_SCALE, defaults.featherScale),
-            edgeParticleDensity = p.getFloat(KEY_PARTICLE_COVER_EDGE_DENSITY, defaults.edgeParticleDensity),
             edgeParticleAlpha = p.getFloat(KEY_PARTICLE_COVER_EDGE_ALPHA, defaults.edgeParticleAlpha),
             edgeTravelScale = p.getFloat(KEY_PARTICLE_COVER_EDGE_TRAVEL, defaults.edgeTravelScale),
             transitionParticleDensity = p.getFloat(
@@ -456,17 +454,6 @@ object PlaybackUiPreferences {
                 defaults.transitionParticleDensity,
             ),
         )
-    }
-
-    fun setParticleCoverTuning(context: Context, tuning: ParticleCoverTuning) {
-        MicaSettingsStore.prefs(context).edit()
-            .putFloat(KEY_PARTICLE_COVER_EROSION_SCALE, tuning.erosionScale)
-            .putFloat(KEY_PARTICLE_COVER_FEATHER_SCALE, tuning.featherScale)
-            .putFloat(KEY_PARTICLE_COVER_EDGE_DENSITY, tuning.edgeParticleDensity)
-            .putFloat(KEY_PARTICLE_COVER_EDGE_ALPHA, tuning.edgeParticleAlpha)
-            .putFloat(KEY_PARTICLE_COVER_EDGE_TRAVEL, tuning.edgeTravelScale)
-            .putFloat(KEY_PARTICLE_COVER_TRANSITION_DENSITY, tuning.transitionParticleDensity)
-            .apply()
     }
 
     fun coverEdgeProgress(context: Context): Boolean =

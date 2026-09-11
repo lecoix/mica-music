@@ -30,8 +30,6 @@ internal class ParticleCoverView @JvmOverloads constructor(
     private var lyricsProgress: Float = 0f
     private var coverTransform: ParticleCoverTransform = ParticleCoverTransform()
     private var previewOptions: ParticleCoverPreviewOptions = ParticleCoverPreviewOptions()
-    private var musicEnergy: Float = 0f
-    private var musicBands: ParticleCoverMusicBands = ParticleCoverMusicBands()
 
     init {
         isOpaque = false
@@ -69,16 +67,6 @@ internal class ParticleCoverView @JvmOverloads constructor(
         renderThread?.setPlaybackDisintegrationProgress(progress)
     }
 
-    fun setMusicEnergy(energy: Float) {
-        musicEnergy = energy.coerceIn(0f, 1f)
-        renderThread?.setMusicEnergy(musicEnergy)
-    }
-
-    fun setMusicBands(bands: ParticleCoverMusicBands) {
-        musicBands = bands.coerced()
-        renderThread?.setMusicBands(musicBands)
-    }
-
     fun setLyricsProgress(progress: Float) {
         lyricsProgress = progress
         renderThread?.setLyricsProgress(progress)
@@ -100,10 +88,6 @@ internal class ParticleCoverView @JvmOverloads constructor(
     }
 
     override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
-        DiagnosticLog.event(
-            "ParticleCover",
-            "surface-available diag=surface size=${width}x$height opaque=$isOpaque",
-        )
         release()
         renderThread = ParticleCoverRenderThread(
             appContext = context.applicationContext,
@@ -115,8 +99,6 @@ internal class ParticleCoverView @JvmOverloads constructor(
             thread.setTuning(tuning)
             thread.setPreviewOptions(previewOptions)
             thread.setPlaybackDisintegrationProgress(playbackDisintegrationProgress)
-            thread.setMusicEnergy(musicEnergy)
-            thread.setMusicBands(musicBands)
             thread.setLyricsProgress(lyricsProgress)
             thread.setCoverTransform(coverTransform)
             coverId?.let { thread.setCover(it, coverBitmap, fallbackColor, motionEnabled) }
@@ -124,12 +106,10 @@ internal class ParticleCoverView @JvmOverloads constructor(
     }
 
     override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {
-        DiagnosticLog.event("ParticleCover", "surface-size diag=surface size=${width}x$height")
         renderThread?.resize(width, height)
     }
 
     override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
-        DiagnosticLog.event("ParticleCover", "surface-destroyed diag=surface")
         release()
         return true
     }
@@ -151,12 +131,6 @@ private data class ParticleCoverTransform(
     val halfHeight: Float = 1f,
 )
 
-private fun ParticleCoverMusicBands.coerced(): ParticleCoverMusicBands =
-    ParticleCoverMusicBands(
-        bass = bass.coerceIn(0f, 1f),
-        mid = mid.coerceIn(0f, 1f),
-        treble = treble.coerceIn(0f, 1f),
-    )
 
 private class ParticleCoverRenderThread(
     private val appContext: Context,
@@ -175,10 +149,6 @@ private class ParticleCoverRenderThread(
     private var pendingPreviewOptions: ParticleCoverPreviewOptions? = null
     private var pendingPlaybackDisintegrationProgress: Float? = null
     private var playbackProgressChanged = false
-    private var pendingMusicEnergy = 0f
-    private var musicEnergyChanged = false
-    private var pendingMusicBands = ParticleCoverMusicBands()
-    private var musicBandsChanged = false
     private var pendingLyricsProgress = 0f
     private var lyricsProgressChanged = false
     private var pendingCoverTransform = ParticleCoverTransform()
@@ -191,7 +161,6 @@ private class ParticleCoverRenderThread(
     private var eglContext: EGLContext = EGL14.EGL_NO_CONTEXT
     private var eglSurface: EGLSurface = EGL14.EGL_NO_SURFACE
     private var eglConfig: EGLConfig? = null
-    private var firstSwapLogged = false
     private var swapFailureLogged = false
 
     private val renderer = ParticleCoverRenderer(appContext)
@@ -234,22 +203,6 @@ private class ParticleCoverRenderThread(
         }
     }
 
-    fun setMusicEnergy(energy: Float) {
-        synchronized(lock) {
-            pendingMusicEnergy = energy.coerceIn(0f, 1f)
-            musicEnergyChanged = true
-            lock.notifyAll()
-        }
-    }
-
-    fun setMusicBands(bands: ParticleCoverMusicBands) {
-        synchronized(lock) {
-            pendingMusicBands = bands.coerced()
-            musicBandsChanged = true
-            lock.notifyAll()
-        }
-    }
-
     fun setLyricsProgress(progress: Float) {
         synchronized(lock) {
             pendingLyricsProgress = progress.coerceIn(0f, 1f)
@@ -277,12 +230,7 @@ private class ParticleCoverRenderThread(
 
     override fun run() {
         try {
-            DiagnosticLog.event(
-                "ParticleCover",
-                "render-thread-start diag=thread initialSize=${width}x$height",
-            )
             if (!initEgl()) {
-                DiagnosticLog.event("ParticleCover", "render-thread-stop diag=egl-init-failed")
                 return
             }
             renderer.onSurfaceCreated()
@@ -292,10 +240,6 @@ private class ParticleCoverRenderThread(
                 var previewOptions: ParticleCoverPreviewOptions?
                 var playbackProgress: Float?
                 var applyPlaybackProgress: Boolean
-                var musicEnergy: Float
-                var applyMusicEnergy: Boolean
-                var musicBands: ParticleCoverMusicBands
-                var applyMusicBands: Boolean
                 var lyricsProgress: Float
                 var applyLyricsProgress: Boolean
                 var coverTransform: ParticleCoverTransform
@@ -313,12 +257,6 @@ private class ParticleCoverRenderThread(
                     playbackProgress = pendingPlaybackDisintegrationProgress
                     applyPlaybackProgress = playbackProgressChanged
                     playbackProgressChanged = false
-                    musicEnergy = pendingMusicEnergy
-                    applyMusicEnergy = musicEnergyChanged
-                    musicEnergyChanged = false
-                    musicBands = pendingMusicBands
-                    applyMusicBands = musicBandsChanged
-                    musicBandsChanged = false
                     lyricsProgress = pendingLyricsProgress
                     applyLyricsProgress = lyricsProgressChanged
                     lyricsProgressChanged = false
@@ -347,12 +285,6 @@ private class ParticleCoverRenderThread(
                 if (applyPlaybackProgress) {
                     renderer.setPlaybackDisintegrationProgress(playbackProgress)
                 }
-                if (applyMusicEnergy) {
-                    renderer.setMusicEnergy(musicEnergy)
-                }
-                if (applyMusicBands) {
-                    renderer.setMusicBands(musicBands)
-                }
                 if (applyLyricsProgress) {
                     renderer.setLyricsProgress(lyricsProgress)
                 }
@@ -366,12 +298,9 @@ private class ParticleCoverRenderThread(
                 }
                 renderer.render()
                 val swapped = EGL14.eglSwapBuffers(eglDisplay, eglSurface)
-                if (swapped && !firstSwapLogged) {
-                    firstSwapLogged = true
-                    DiagnosticLog.event("ParticleCover", "first-swap diag=egl ok=true")
-                } else if (!swapped && !swapFailureLogged) {
+                if (!swapped && !swapFailureLogged) {
                     swapFailureLogged = true
-                    DiagnosticLog.event(
+                    DiagnosticLog.important(
                         "ParticleCover",
                         "swap-failed diag=egl error=${eglErrorHex()}",
                     )
@@ -379,7 +308,7 @@ private class ParticleCoverRenderThread(
                 sleepFrame(renderer.isAnimating())
             }
         } catch (throwable: Throwable) {
-            DiagnosticLog.event("ParticleCover", "renderer stopped", throwable)
+            DiagnosticLog.important("ParticleCover", "renderer stopped", throwable)
         } finally {
             renderer.release()
             releaseEgl()
@@ -396,12 +325,12 @@ private class ParticleCoverRenderThread(
     private fun initEgl(): Boolean {
         eglDisplay = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
         if (eglDisplay == EGL14.EGL_NO_DISPLAY) {
-            DiagnosticLog.event("ParticleCover", "egl-get-display-failed diag=egl error=${eglErrorHex()}")
+            DiagnosticLog.important("ParticleCover", "egl-get-display-failed diag=egl error=${eglErrorHex()}")
             return false
         }
         val version = IntArray(2)
         if (!EGL14.eglInitialize(eglDisplay, version, 0, version, 1)) {
-            DiagnosticLog.event("ParticleCover", "egl-initialize-failed diag=egl error=${eglErrorHex()}")
+            DiagnosticLog.important("ParticleCover", "egl-initialize-failed diag=egl error=${eglErrorHex()}")
             return false
         }
 
@@ -419,12 +348,12 @@ private class ParticleCoverRenderThread(
             EGL14.EGL_NONE,
         )
         if (!EGL14.eglChooseConfig(eglDisplay, attribs, 0, configs, 0, 1, numConfigs, 0)) {
-            DiagnosticLog.event("ParticleCover", "egl-choose-config-failed diag=egl error=${eglErrorHex()}")
+            DiagnosticLog.important("ParticleCover", "egl-choose-config-failed diag=egl error=${eglErrorHex()}")
             return false
         }
         val config = configs[0]
         if (config == null) {
-            DiagnosticLog.event(
+            DiagnosticLog.important(
                 "ParticleCover",
                 "egl-choose-config-empty diag=egl count=${numConfigs[0]} error=${eglErrorHex()}",
             )
@@ -440,7 +369,7 @@ private class ParticleCoverRenderThread(
             0,
         )
         if (eglContext == EGL14.EGL_NO_CONTEXT) {
-            DiagnosticLog.event("ParticleCover", "egl-create-context-failed diag=egl error=${eglErrorHex()}")
+            DiagnosticLog.important("ParticleCover", "egl-create-context-failed diag=egl error=${eglErrorHex()}")
             return false
         }
 
@@ -452,18 +381,14 @@ private class ParticleCoverRenderThread(
             0,
         )
         if (eglSurface == EGL14.EGL_NO_SURFACE) {
-            DiagnosticLog.event("ParticleCover", "egl-create-window-surface-failed diag=egl error=${eglErrorHex()}")
+            DiagnosticLog.important("ParticleCover", "egl-create-window-surface-failed diag=egl error=${eglErrorHex()}")
             return false
         }
         val current = EGL14.eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext)
         if (!current) {
-            DiagnosticLog.event("ParticleCover", "egl-make-current-failed diag=egl error=${eglErrorHex()}")
+            DiagnosticLog.important("ParticleCover", "egl-make-current-failed diag=egl error=${eglErrorHex()}")
             return false
         }
-        DiagnosticLog.event(
-            "ParticleCover",
-            "egl-ready diag=egl version=${version[0]}.${version[1]} configs=${numConfigs[0]} alpha=8",
-        )
         return true
     }
 

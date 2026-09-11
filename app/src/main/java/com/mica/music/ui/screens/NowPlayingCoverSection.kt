@@ -53,7 +53,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.mica.music.data.ArtistNames
 import com.mica.music.data.CoverDisplayMode
-import com.mica.music.data.ParticleCoverTuning
 import com.mica.music.data.PlayerCoverFlowMode
 import com.mica.music.data.PlayerLowerBackgroundMode
 import com.mica.music.data.Song
@@ -81,14 +80,11 @@ import com.mica.music.ui.screens.player.PlayerPageFrame
 import com.mica.music.ui.screens.player.LyricsFocusCoverStartPadding
 import com.mica.music.ui.screens.player.LyricsFocusMiniCoverSize
 import com.mica.music.ui.screens.player.PlayerPageLayoutEngine
-import com.mica.music.ui.screens.player.UseNativeParticleCoverInPlayer
 import com.mica.music.ui.screens.player.playerHeaderFocus
 import com.mica.music.ui.screens.player.rememberCoverGestureState
 import com.mica.music.ui.screens.player.view.CoverFlowCarouselNavigationBridge
 import com.mica.music.ui.screens.player.view.PhotoStackCarouselNavigationBridge
 import com.mica.music.ui.screens.player.view.CoverFlowCarouselHost
-import com.mica.music.ui.screens.player.view.ThreeParticleCoverHaloFraction
-import com.mica.music.ui.screens.player.view.ThreeParticleCoverHost
 import com.mica.music.ui.screens.player.view.VideoAlbumCoverHost
 import com.mica.music.ui.screens.player.view.MusicVideoHost
 import com.mica.music.playback.PlaybackVideoState
@@ -126,7 +122,6 @@ internal fun NowPlayingCoverSection(
     attachMusicVideoOutput: (TextureView) -> Long?,
     detachMusicVideoOutput: (TextureView, Long) -> Unit,
     trackSkipDirection: TrackSkipDirection?,
-    particleCoverTuning: ParticleCoverTuning,
     lyricsExpanded: Boolean,
     coverContentAlpha: Float,
     coverSwipeEnabled: Boolean = true,
@@ -174,9 +169,8 @@ internal fun NowPlayingCoverSection(
     val coverStartPaddingPx = with(density) { cover.startPadding.toPx() }
     val particleFrame = frame.particleCover
     val displayTitle = SongTitleDisplay.displayTitle(song.title, stripSongTitleParentheses)
-    val nativeParticleCoverActive = particleFrame.enabled && UseNativeParticleCoverInPlayer
     val particleNormalLayerVisible = particleFrame.normalLayerVisible
-    val coverSlotVisible = !particleFrame.lyricsBackgroundVisible || nativeParticleCoverActive
+    val coverSlotVisible = !particleFrame.lyricsBackgroundVisible || particleFrame.enabled
     // Lyrics focus lerps the slot toward the mini cover. Pin decode size so portrait
     // cover-flow does not cross into the landscape slot-sized path mid-fold.
     val pinCoverFlowDecodeToViewport = playerHeaderFocus(
@@ -251,7 +245,6 @@ internal fun NowPlayingCoverSection(
             null
         }
     }
-    val useNativeParticleCover = nativeParticleCoverActive
     val coverSwipeGesturesEnabled = frame.gesturesEnabled && coverSwipeEnabled
     val gestureState = rememberCoverGestureState(
         gesturesEnabled = coverSwipeGesturesEnabled,
@@ -430,7 +423,6 @@ internal fun NowPlayingCoverSection(
                     coverArtworkScrim = coverArtworkScrim,
                     coverFlowReflection = coverFlowReflection,
                     particleNormalLayerVisible = particleNormalLayerVisible,
-                    useNativeParticleCover = useNativeParticleCover,
                     coverSwipeGesturesEnabled = coverSwipeGesturesEnabled,
                     coverShadowEnabled = coverShadowEnabled,
                     coverShadowStrength = coverShadowStrength,
@@ -467,11 +459,7 @@ internal fun NowPlayingCoverSection(
                         lyricsExpanded = lyricsExpanded,
                         isPlaying = isPlaying,
                         wipeLayerHeight = wipeLayerHeight,
-                        useNativeParticleCover = useNativeParticleCover,
-                        coverColor = coverColor,
-                        particleCoverTuning = particleCoverTuning,
-                        onAspectRatioChanged = onCoverAspectRatioChanged,
-                        onMotionActiveChanged = onCoverMotionActiveChanged,
+                            onAspectRatioChanged = onCoverAspectRatioChanged,
                     )
                     if (frame.lower.coverEdgeOnPlaySurface) {
                         val coverEdgeProgressAlpha = 1f - frame.lower.chromeProgressAlpha

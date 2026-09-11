@@ -143,7 +143,6 @@ fun AboutScreen(
             LicenseRow("libebur128（R128 算法参考）", "MIT License")
             LicenseRow("Schroeder/Freeverb 混响结构（算法参考）", "Public Domain")
             LicenseRow("Woodworth 球形头 ITD/ILD（算法参考）", "声学公开模型")
-            LicenseRow("Three.js（粒子封面 WebView 回退资产）", "MIT License")
             AboutParagraph(
                 "完整开源声明维护在仓库 docs/OPEN_SOURCE_NOTICES.md",
             )
@@ -216,7 +215,6 @@ fun AboutScreen(
                         val health = AlbumArtCache.health(context, songs)
                         val storage = StorageDiagnostics.collect(context)
                         val storageReport = storage.toReportText()
-                        DiagnosticLog.event("AlbumArtCache", "about-export ${health.toLogMessage()}")
                         DiagnosticLog.event("StorageDiagnostics", storageReport.replace("\n", " | "))
                         DiagnosticLog.shareReport(
                             context = context,

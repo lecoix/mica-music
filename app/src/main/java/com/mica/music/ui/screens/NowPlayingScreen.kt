@@ -127,7 +127,6 @@ import com.mica.music.ui.theme.rememberPlayerScreenAppearance
 import com.mica.music.ui.theme.relativeLuminance
 import com.mica.music.util.TrackSwitchPerformance
 import com.mica.music.util.deleteSongEverywhere
-import com.mica.music.util.logBackFlow
 import com.mica.music.util.openSongInTagEditor
 import com.mica.music.util.shareSong
 import android.view.TextureView
@@ -216,51 +215,6 @@ internal fun Modifier.landscapeStandardCoverRightFade(
                 )
             }
         }
-
-@Composable
-fun NowPlayingScreen(
-    library: MusicLibrary,
-    playlistStore: PlaylistStore,
-    surfaceState: PlaybackSurfaceState,
-    progressState: PlaybackProgressState,
-    queueState: PlaybackQueueState,
-    sleepTimer: SleepTimerController,
-    actions: NowPlayingActions,
-    uiSettings: AppUiSettings,
-    onClose: () -> Unit,
-    onOpenEqualizer: () -> Unit,
-    onOpenSongDetail: (String) -> Unit = {},
-    onBrowseArtist: (String) -> Unit = {},
-    onBrowseAlbum: (AlbumBrowseKey) -> Unit = {},
-    customLayoutEditRequested: Boolean = false,
-    onCustomLayoutEditRequestConsumed: () -> Unit = {},
-    contentPadding: PaddingValues = PaddingValues(),
-    coverContentAlpha: Float = 1f,
-    onCoverBoundsChanged: (Rect?) -> Unit = {},
-    handleBackToClose: Boolean = true,
-) {
-    NowPlayingContent(
-        library = library,
-        playlistStore = playlistStore,
-        surfaceState = surfaceState,
-        progressState = progressState,
-        queueState = queueState,
-        sleepTimer = sleepTimer,
-        actions = actions,
-        uiSettings = uiSettings,
-        onClose = onClose,
-        onOpenEqualizer = onOpenEqualizer,
-        onOpenSongDetail = onOpenSongDetail,
-        onBrowseArtist = onBrowseArtist,
-        onBrowseAlbum = onBrowseAlbum,
-        customLayoutEditRequested = customLayoutEditRequested,
-        onCustomLayoutEditRequestConsumed = onCustomLayoutEditRequestConsumed,
-        contentPadding = contentPadding,
-        coverContentAlpha = coverContentAlpha,
-        onCoverBoundsChanged = onCoverBoundsChanged,
-        handleBackToClose = handleBackToClose,
-    )
-}
 
 @Composable
 @OptIn(ExperimentalSharedTransitionApi::class)
@@ -431,15 +385,6 @@ fun NowPlayingContent(
         pendingDeleteSong,
         landscapeCoverFlowImmersive,
     ) {
-        logBackFlow(
-            "page now-playing song=${song.id} handleBackToClose=$handleBackToClose " +
-                "lyricsExpanded=$lyricsExpanded queueSheet=$queueSheetOpen " +
-                "sleepTimerSheet=$sleepTimerSheetOpen playbackTuningSheet=$playbackTuningSheetOpen " +
-                "lyricsOffsetSheet=$lyricsOffsetSheetOpen " +
-                "landscapeCoverFlowImmersive=$landscapeCoverFlowImmersive " +
-                "actionMenu=${actionMenuSong?.id ?: "none"} " +
-                "addToPlaylist=${addToPlaylistSong?.id ?: "none"} delete=${pendingDeleteSong?.id ?: "none"}",
-        )
     }
 
     val sleepTimerActive = sleepTimer.isActive
@@ -586,15 +531,12 @@ fun NowPlayingContent(
     val photoStackNavigation = remember { PhotoStackCarouselNavigationBridge() }
 
     BackHandler(enabled = landscapeCoverFlowImmersive && !playerOverlayOpen) {
-        logBackFlow("back-consume source=now-playing-landscape-cover-flow-immersive song=${song.id}")
         landscapeCoverFlowImmersive = false
     }
     BackHandler(enabled = lyricsExpanded) {
-        logBackFlow("back-consume source=now-playing-lyrics song=${song.id}")
         lyricsExpanded = false
     }
     BackHandler(enabled = queueSheetOpen) {
-        logBackFlow("back-consume source=now-playing-queue song=${song.id}")
         queueSheetOpen = false
     }
     BackHandler(
@@ -604,7 +546,6 @@ fun NowPlayingContent(
             !landscapeCoverFlowImmersive &&
             !customLayoutEditing,
     ) {
-        logBackFlow("back-consume source=now-playing-close song=${song.id}")
         onClose()
     }
     BackHandler(enabled = customLayoutEditing) {
@@ -1110,8 +1051,7 @@ fun NowPlayingContent(
                     attachMusicVideoOutput = actions.attachMusicVideoOutput,
                     detachMusicVideoOutput = actions.detachMusicVideoOutput,
                     trackSkipDirection = effectiveTrackWipeDirection,
-                    particleCoverTuning = uiSettings.particleCoverTuning,
-                    lyricsExpanded = classicLyricsExpanded && !photoStackLyricsPageEnabled,
+                            lyricsExpanded = classicLyricsExpanded && !photoStackLyricsPageEnabled,
                     coverContentAlpha = coverContentAlpha,
                     coverSwipeEnabled = effectiveCoverFlowMode != PlayerCoverFlowMode.CUSTOM_STANDARD ||
                         customLayout.coverSwipeEnabled,
