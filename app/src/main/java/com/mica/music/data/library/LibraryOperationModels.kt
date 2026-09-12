@@ -283,6 +283,7 @@ internal sealed interface LibraryOperationRequest {
 
     data class AutoSync(
         override val cause: LibraryOperationCause,
+        val coalescedCauses: Set<LibraryOperationCause> = setOf(cause),
     ) : LibraryOperationRequest {
         override val mode = LibraryOperationMode.AUTO_SYNC
     }

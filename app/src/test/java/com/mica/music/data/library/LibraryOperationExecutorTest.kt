@@ -22,6 +22,7 @@ import com.mica.music.data.preferences.LibraryScanSettings
 import com.mica.music.data.scanner.AutoSyncVisibleDelta
 import com.mica.music.data.scanner.DeviceAutoSyncShadow
 import com.mica.music.data.scanner.DeviceAutoSyncShadowObservation
+import com.mica.music.data.scanner.DeviceAutoSyncObservationScope
 import com.mica.music.data.scanner.DeviceDeltaChannel
 import com.mica.music.data.scanner.DeviceDeltaChannelStatus
 import com.mica.music.data.scanner.DeviceDeltaRow
@@ -5117,7 +5118,10 @@ class LibraryOperationExecutorTest {
             return true
         }
 
-        override fun observe(configKey: String): DeviceAutoSyncShadowObservation {
+        override fun observe(
+            configKey: String,
+            scope: DeviceAutoSyncObservationScope,
+        ): DeviceAutoSyncShadowObservation {
             observeCalls += 1
             onObserve?.invoke()
             return if (observeCalls == 1) {

@@ -35,6 +35,17 @@ internal sealed interface DeviceAutoSyncShadowObservation {
     ) : DeviceAutoSyncShadowObservation
 }
 
+
+internal data class DeviceAutoSyncObservationScope(
+    val trackedStableObjectKeys: Set<String> = emptySet(),
+    val trackedLyricsKeys: Set<String> = emptySet(),
+    val verifyTrackedStateOnNoChange: Boolean = false,
+) {
+    companion object {
+        val EMPTY = DeviceAutoSyncObservationScope()
+    }
+}
+
 internal sealed interface DeviceFullScanShadowAnchor {
     data object Disabled : DeviceFullScanShadowAnchor
 
@@ -57,7 +68,10 @@ internal interface DeviceAutoSyncShadow {
         configKey: String,
     )
 
-    fun observe(configKey: String): DeviceAutoSyncShadowObservation
+    fun observe(
+        configKey: String,
+        scope: DeviceAutoSyncObservationScope = DeviceAutoSyncObservationScope.EMPTY,
+    ): DeviceAutoSyncShadowObservation
 
     /**
      * Restores a durable Full/AUTO generation anchor after process recreation. Existing in-memory
@@ -87,8 +101,10 @@ internal object NoopDeviceAutoSyncShadow : DeviceAutoSyncShadow {
         configKey: String,
     ) = Unit
 
-    override fun observe(configKey: String): DeviceAutoSyncShadowObservation =
-        DeviceAutoSyncShadowObservation.Disabled
+    override fun observe(
+        configKey: String,
+        scope: DeviceAutoSyncObservationScope,
+    ): DeviceAutoSyncShadowObservation = DeviceAutoSyncShadowObservation.Disabled
 
     override fun accept(
         observation: DeviceAutoSyncShadowObservation,
@@ -107,15 +123,25 @@ internal class AndroidDeviceAutoSyncShadow(
             options = LibraryScanSettings.scanOptions(context),
         )
     },
-    private val lyricsInventoryLoader: () -> MediaStoreLyricsSidecarInventoryResult = {
-        MediaStoreLyricsSidecarInventory.load(context)
-    },
-    private val presenceInventoryLoader: () -> PresenceInventory = {
-        MediaStorePresenceInventory.load(
-            context = context,
-            options = LibraryScanSettings.scanOptions(context),
-        )
-    },
+    private val lyricsInventoryLoader:
+        (Set<String>, DeviceMediaStoreDeltaBatch) -> MediaStoreLyricsSidecarInventoryResult =
+        { trackedLyricsKeys, batch ->
+            MediaStoreTrackedLyricsSidecarInventory.load(
+                context = context,
+                trackedLyricsKeys = trackedLyricsKeys,
+                deltaBatch = batch,
+            )
+        },
+    private val presenceInventoryLoader:
+        (Set<String>, DeviceMediaStoreDeltaBatch) -> PresenceInventory =
+        { trackedStableObjectKeys, batch ->
+            MediaStoreTrackedPresenceInventory.load(
+                context = context,
+                options = LibraryScanSettings.scanOptions(context),
+                trackedStableObjectKeys = trackedStableObjectKeys,
+                deltaBatch = batch,
+            )
+        },
 ) : DeviceAutoSyncShadow {
 
     override fun captureFullScanAnchor(configKey: String): DeviceFullScanShadowAnchor =
@@ -142,7 +168,10 @@ internal class AndroidDeviceAutoSyncShadow(
         configKey: String,
     ): Boolean = cursor.restoreIfEmpty(snapshot, configKey)
 
-    override fun observe(configKey: String): DeviceAutoSyncShadowObservation {
+    override fun observe(
+        configKey: String,
+        scope: DeviceAutoSyncObservationScope,
+    ): DeviceAutoSyncShadowObservation {
         val current = generationApi.read()
         return when (val plan = cursor.plan(current, configKey)) {
             DeviceGenerationPlan.LegacyTimestampFallbackRequired ->
@@ -157,10 +186,18 @@ internal class AndroidDeviceAutoSyncShadow(
                     reason = plan.reason,
                 )
 
-            is DeviceGenerationPlan.NoChange ->
-                DeviceAutoSyncShadowObservation.NoChange(plan.snapshot)
+            is DeviceGenerationPlan.NoChange -> {
+                if (scope.verifyTrackedStateOnNoChange) {
+                    observeDelta(
+                        DeviceGenerationPlan.Delta(plan.snapshot, plan.snapshot),
+                        scope,
+                    )
+                } else {
+                    DeviceAutoSyncShadowObservation.NoChange(plan.snapshot)
+                }
+            }
 
-            is DeviceGenerationPlan.Delta -> observeDelta(plan)
+            is DeviceGenerationPlan.Delta -> observeDelta(plan, scope)
         }
     }
 
@@ -183,6 +220,7 @@ internal class AndroidDeviceAutoSyncShadow(
 
     private fun observeDelta(
         plan: DeviceGenerationPlan.Delta,
+        scope: DeviceAutoSyncObservationScope,
     ): DeviceAutoSyncShadowObservation {
         val batch = DeviceMediaStoreDeltaReader.read(
             api = queryApiFactory(),
@@ -208,7 +246,7 @@ internal class AndroidDeviceAutoSyncShadow(
             )
         }
 
-        val lyricsInventory = lyricsInventoryLoader()
+        val lyricsInventory = lyricsInventoryLoader(scope.trackedLyricsKeys, batch)
         if (!lyricsInventory.complete) {
             return DeviceAutoSyncShadowObservation.ReconcileRequired(
                 detail = "lyrics sidecar inventory incomplete: ${lyricsInventory.status.detail}",
@@ -216,7 +254,7 @@ internal class AndroidDeviceAutoSyncShadow(
             )
         }
 
-        val presenceInventory = presenceInventoryLoader()
+        val presenceInventory = presenceInventoryLoader(scope.trackedStableObjectKeys, batch)
 
         val post = generationApi.read()
         val postAvailable = post as? DeviceGenerationSnapshot.Available

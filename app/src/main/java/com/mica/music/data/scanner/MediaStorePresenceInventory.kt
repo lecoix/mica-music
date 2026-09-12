@@ -23,11 +23,25 @@ internal object MediaStorePresenceInventory {
         val entries = linkedMapOf<PresenceKey, PresenceEntry>()
         val statuses = mutableListOf<DiscoveryPartitionStatus>()
         val capabilities = linkedMapOf<String, DeviceMediaStoreChannelCapability>()
+        val normalizedExcludedDirectories =
+            ExcludedScanDirectories.normalizeAll(options.excludedDirectories)
         statuses += loadChannel(DiscoveryPartitions.MEDIASTORE_AUDIO) {
-            loadAudioRows(context, options, entries, capabilities)
+            loadAudioRows(
+                context,
+                options,
+                normalizedExcludedDirectories,
+                entries,
+                capabilities,
+            )
         }
         statuses += loadChannel(DiscoveryPartitions.MEDIASTORE_FILES_FALLBACK) {
-            loadFallbackFileRows(context, options, entries, capabilities)
+            loadFallbackFileRows(
+                context,
+                options,
+                normalizedExcludedDirectories,
+                entries,
+                capabilities,
+            )
         }
         return PresenceInventory(
             entries = entries,
@@ -57,6 +71,7 @@ internal object MediaStorePresenceInventory {
     private fun loadAudioRows(
         context: Context,
         options: ScanOptions,
+        normalizedExcludedDirectories: List<String>,
         out: MutableMap<PresenceKey, PresenceEntry>,
         capabilities: MutableMap<String, DeviceMediaStoreChannelCapability>,
     ) {
@@ -133,9 +148,9 @@ internal object MediaStorePresenceInventory {
                 } else isMusic
                 val eligibleByDuration =
                     options.minDurationMs <= 0L || durationMs <= 0L || durationMs >= options.minDurationMs
-                val excluded = ExcludedScanDirectories.isExcluded(
+                val excluded = ExcludedScanDirectories.isExcludedNormalized(
                     folderPath,
-                    options.excludedDirectories,
+                    normalizedExcludedDirectories,
                 )
                 val eligibility = mediaStoreEligibility(
                     pending = pending,
@@ -160,6 +175,7 @@ internal object MediaStorePresenceInventory {
     private fun loadFallbackFileRows(
         context: Context,
         options: ScanOptions,
+        normalizedExcludedDirectories: List<String>,
         out: MutableMap<PresenceKey, PresenceEntry>,
         capabilities: MutableMap<String, DeviceMediaStoreChannelCapability>,
     ) {
@@ -228,9 +244,9 @@ internal object MediaStorePresenceInventory {
                     dataCol >= 0 -> c.getString(dataCol)?.substringBeforeLast('/', "").orEmpty()
                     else -> ""
                 }
-                val excluded = ExcludedScanDirectories.isExcluded(
+                val excluded = ExcludedScanDirectories.isExcludedNormalized(
                     folderPath,
-                    options.excludedDirectories,
+                    normalizedExcludedDirectories,
                 )
                 val eligibility = mediaStoreEligibility(
                     pending = pending,

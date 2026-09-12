@@ -27,6 +27,19 @@ class ExcludedScanDirectoriesTest {
     }
 
     @Test
+    fun normalizedExclusionMatcherPreservesBoundarySemantics() {
+        val normalized = ExcludedScanDirectories.normalizeAll(
+            listOf("/Music/Live/", "music\\live", "Podcasts"),
+        )
+
+        assertTrue(ExcludedScanDirectories.isExcludedNormalized("Music/Live", normalized))
+        assertTrue(ExcludedScanDirectories.isExcludedNormalized("music/live/2024", normalized))
+        assertTrue(ExcludedScanDirectories.isExcludedNormalized("Podcasts/Episode", normalized))
+        assertFalse(ExcludedScanDirectories.isExcludedNormalized("Music/Liverpool", normalized))
+        assertFalse(ExcludedScanDirectories.isExcludedNormalized("", normalized))
+    }
+
+    @Test
     fun safArtifactFilterExcludesAndroidTrashFilesWithoutBlanketHiddenFiltering() {
         assertTrue(
             FolderScanner.shouldIgnoreSafArtifact(

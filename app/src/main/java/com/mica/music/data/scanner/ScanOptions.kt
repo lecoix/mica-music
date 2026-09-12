@@ -37,10 +37,13 @@ object ExcludedScanDirectories {
             .filter { it.isNotBlank() }
             .distinctBy { it.lowercase() }
 
-    fun isExcluded(path: String, excludedDirectories: List<String>): Boolean {
+    fun isExcluded(path: String, excludedDirectories: List<String>): Boolean =
+        isExcludedNormalized(path, normalizeAll(excludedDirectories))
+
+    fun isExcludedNormalized(path: String, normalizedExcludedDirectories: List<String>): Boolean {
         val normalizedPath = normalize(path)
         if (normalizedPath.isBlank()) return false
-        return normalizeAll(excludedDirectories).any { excluded ->
+        return normalizedExcludedDirectories.any { excluded ->
             normalizedPath.equals(excluded, ignoreCase = true) ||
                 normalizedPath.startsWith("$excluded/", ignoreCase = true)
         }

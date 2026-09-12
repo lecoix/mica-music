@@ -4,6 +4,7 @@ import com.mica.music.data.Song
 import com.mica.music.data.scanner.DeviceAudioDeltaCandidate
 import com.mica.music.data.scanner.DeviceDeltaCandidatePlan
 import com.mica.music.data.scanner.DeviceDeltaRow
+import com.mica.music.data.scanner.DeviceLyricsSidecarDiff
 import com.mica.music.data.scanner.DeviceObjectRef
 import com.mica.music.data.scanner.deviceObjectRef
 import com.mica.music.data.scanner.deviceObjectRevisionFingerprint
@@ -92,6 +93,10 @@ internal object DeviceAutoProbePlanner {
     fun plan(
         candidates: DeviceDeltaCandidatePlan,
         currentSongs: List<Song>,
+        lyricsDiff: DeviceLyricsSidecarDiff = DeviceLyricsSidecarDiff(
+            changes = emptyList(),
+            unverifiableSongIds = emptySet(),
+        ),
         retryItems: List<LibraryRetryItem>,
         sourceIdentity: SourceIdentityKey,
         activationEpoch: Long,
@@ -142,6 +147,22 @@ internal object DeviceAutoProbePlanner {
                 builders = builders,
                 excludedStableObjectKeys = excludedStableObjectKeys,
             )
+        }
+
+        // Sidecar deletion has no MediaStore delta tombstone. A bounded inventory can still prove
+        // that the external-lyrics signature changed, so turn that evidence into real probe work
+        // even when there is no sidecar delta row to seed a candidate.
+        lyricsDiff.affectedSongIds.forEach { songId ->
+            if (songId in excludedStableObjectKeys) return@forEach
+            val current = currentById[songId] ?: return@forEach
+            val mutable = builders.getOrPut(songId) {
+                MutableProbe(
+                    stableObjectKey = songId,
+                    mediaUri = current.mediaUri,
+                )
+            }
+            mutable.reasons += DeviceAutoProbeReason.EXTERNAL_LYRICS_CHANGED
+            mutable.work += DeviceAutoProbeWork.EXTERNAL_LYRICS
         }
 
         retryItems.asSequence()

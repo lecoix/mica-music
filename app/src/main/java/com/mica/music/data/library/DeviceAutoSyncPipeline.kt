@@ -83,8 +83,21 @@ internal class DeviceAutoSyncPipeline(
                 )
             }
         }
+        val observationSongs = backing.songs.toList()
+        val autoSyncCauses = (operation.request as? LibraryOperationRequest.AutoSync)
+            ?.coalescedCauses
+            .orEmpty()
+        val verifyTrackedStateOnNoChange = autoSyncCauses.any { cause ->
+            cause == LibraryOperationCause.MEDIASTORE_FILES_DIRTY ||
+                cause == LibraryOperationCause.MEDIA_SCANNER_FINISHED
+        }
+        val observationScope = DeviceAutoSyncObservationScope(
+            trackedStableObjectKeys = observationSongs.mapTo(linkedSetOf(), Song::id),
+            trackedLyricsKeys = observationSongs.mapNotNullTo(linkedSetOf(), ::mediaStoreSongLyricsKey),
+            verifyTrackedStateOnNoChange = verifyTrackedStateOnNoChange,
+        )
         val observation = withContext(backing.ioDispatcher) {
-            backing.deviceAutoSyncShadow.observe(configKey)
+            backing.deviceAutoSyncShadow.observe(configKey, observationScope)
         }
         val after = backing.captureShadowObservationStamp(ScanSource.DEVICE)
         if (after != before) {
@@ -241,6 +254,7 @@ internal class DeviceAutoSyncPipeline(
             val probePlan = DeviceAutoProbePlanner.plan(
                 candidates = candidates,
                 currentSongs = currentSongs,
+                lyricsDiff = lyricsDiff,
                 retryItems = retryItemsForProbe,
                 sourceIdentity = before.sourceActivation.sourceIdentity,
                 activationEpoch = before.sourceActivation.activationEpoch,

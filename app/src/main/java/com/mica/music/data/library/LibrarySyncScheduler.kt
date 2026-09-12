@@ -447,7 +447,12 @@ internal class LibrarySyncScheduler(
         dirtyBurstStartedAtMs = null
         lastDirtyAtMs = null
         cancelWakeLocked()
-        launchRequestLocked(LibraryOperationRequest.AutoSync(cause))
+        launchRequestLocked(
+            LibraryOperationRequest.AutoSync(
+                cause = cause,
+                coalescedCauses = causeCounts.keys + cause,
+            ),
+        )
     }
 
     private fun launchRequestLocked(request: LibraryOperationRequest) {

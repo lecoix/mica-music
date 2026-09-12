@@ -27,8 +27,8 @@ class DeviceAutoSyncShadowTest {
                     emptyList()
                 }
             },
-            lyricsInventoryLoader = ::completeLyricsInventory,
-            presenceInventoryLoader = ::completePresenceInventory,
+            lyricsInventoryLoader = { _, _ -> completeLyricsInventory() },
+            presenceInventoryLoader = { _, _ -> completePresenceInventory() },
         )
 
         val first = shadow.observe("cfg")
@@ -57,8 +57,8 @@ class DeviceAutoSyncShadowTest {
                     emptyList()
                 }
             },
-            lyricsInventoryLoader = ::completeLyricsInventory,
-            presenceInventoryLoader = ::completePresenceInventory,
+            lyricsInventoryLoader = { _, _ -> completeLyricsInventory() },
+            presenceInventoryLoader = { _, _ -> completePresenceInventory() },
         )
 
         val anchor = shadow.captureFullScanAnchor("cfg")
@@ -94,8 +94,8 @@ class DeviceAutoSyncShadowTest {
                     emptyList()
                 }
             },
-            lyricsInventoryLoader = ::completeLyricsInventory,
-            presenceInventoryLoader = ::completePresenceInventory,
+            lyricsInventoryLoader = { _, _ -> completeLyricsInventory() },
+            presenceInventoryLoader = { _, _ -> completePresenceInventory() },
         )
 
         assertTrue(shadow.restorePersistedAnchor(state10, "cfg"))
@@ -126,11 +126,11 @@ class DeviceAutoSyncShadowTest {
                 queryFactoryCalls += 1
                 DeviceMediaStoreDeltaQueryApi { _, _ -> emptyList() }
             },
-            lyricsInventoryLoader = {
+            lyricsInventoryLoader = { _, _ ->
                 lyricsInventoryCalls += 1
                 completeLyricsInventory()
             },
-            presenceInventoryLoader = {
+            presenceInventoryLoader = { _, _ ->
                 presenceInventoryCalls += 1
                 completePresenceInventory()
             },
@@ -148,6 +148,64 @@ class DeviceAutoSyncShadowTest {
         assertEquals(0, queryFactoryCalls)
         assertEquals(0, lyricsInventoryCalls)
         assertEquals(0, presenceInventoryCalls)
+    }
+
+    @Test
+    fun unchangedGenerationCanRunBoundedTrackedVerificationWithoutDeltaRows() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val state10 = snapshot(volume("external_primary", "v1", 10L))
+        val generationApi = sequenceGenerationApi(state10, state10, state10)
+        var deltaQueryCalls = 0
+        var lyricsInventoryCalls = 0
+        var presenceInventoryCalls = 0
+        var observedLyricsKeys: Set<String> = emptySet()
+        var observedStableKeys: Set<String> = emptySet()
+        val shadow = AndroidDeviceAutoSyncShadow(
+            context = context,
+            generationApi = generationApi,
+            queryApiFactory = {
+                DeviceMediaStoreDeltaQueryApi { _, _ ->
+                    deltaQueryCalls += 1
+                    emptyList()
+                }
+            },
+            lyricsInventoryLoader = { keys, batch ->
+                lyricsInventoryCalls += 1
+                observedLyricsKeys = keys
+                assertTrue(batch.rows.isEmpty())
+                completeLyricsInventory()
+            },
+            presenceInventoryLoader = { keys, batch ->
+                presenceInventoryCalls += 1
+                observedStableKeys = keys
+                assertTrue(batch.rows.isEmpty())
+                completePresenceInventory()
+            },
+        )
+
+        val anchor = shadow.captureFullScanAnchor("cfg")
+        shadow.acceptFullScanAnchor(anchor, "cfg")
+
+        val verified = shadow.observe(
+            "cfg",
+            DeviceAutoSyncObservationScope(
+                trackedStableObjectKeys = setOf("ms_42"),
+                trackedLyricsKeys = setOf("musicsong"),
+                verifyTrackedStateOnNoChange = true,
+            ),
+        ) as DeviceAutoSyncShadowObservation.DeltaCandidate
+
+        assertTrue(verified.batch.rows.isEmpty())
+        assertTrue(verified.batch.windows.all {
+            it.fromGenerationExclusive == 10L && it.toGenerationInclusive == 10L
+        })
+        assertEquals(state10, verified.advanceTo)
+        assertFalse(verified.followUpRequired)
+        assertEquals(0, deltaQueryCalls)
+        assertEquals(1, lyricsInventoryCalls)
+        assertEquals(1, presenceInventoryCalls)
+        assertEquals(setOf("musicsong"), observedLyricsKeys)
+        assertEquals(setOf("ms_42"), observedStableKeys)
     }
 
     @Test
@@ -171,7 +229,8 @@ class DeviceAutoSyncShadowTest {
                     emptyList()
                 }
             },
-            lyricsInventoryLoader = ::completeLyricsInventory,
+            lyricsInventoryLoader = { _, _ -> completeLyricsInventory() },
+            presenceInventoryLoader = { _, _ -> completePresenceInventory() },
         )
 
         val baseline = shadow.captureFullScanAnchor("cfg")
@@ -207,7 +266,8 @@ class DeviceAutoSyncShadowTest {
                     emptyList()
                 }
             },
-            lyricsInventoryLoader = ::completeLyricsInventory,
+            lyricsInventoryLoader = { _, _ -> completeLyricsInventory() },
+            presenceInventoryLoader = { _, _ -> completePresenceInventory() },
         )
 
         val baseline = shadow.captureFullScanAnchor("cfg")
@@ -250,7 +310,8 @@ class DeviceAutoSyncShadowTest {
                     }
                 }
             },
-            lyricsInventoryLoader = ::completeLyricsInventory,
+            lyricsInventoryLoader = { _, _ -> completeLyricsInventory() },
+            presenceInventoryLoader = { _, _ -> completePresenceInventory() },
         )
 
         val baseline = shadow.captureFullScanAnchor("cfg")
@@ -276,7 +337,8 @@ class DeviceAutoSyncShadowTest {
             context = context,
             generationApi = generationApi,
             queryApiFactory = { DeviceMediaStoreDeltaQueryApi { _, _ -> emptyList() } },
-            lyricsInventoryLoader = ::completeLyricsInventory,
+            lyricsInventoryLoader = { _, _ -> completeLyricsInventory() },
+            presenceInventoryLoader = { _, _ -> completePresenceInventory() },
         )
 
         val baseline = shadow.captureFullScanAnchor("cfg")

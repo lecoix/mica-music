@@ -5,6 +5,8 @@ import com.mica.music.data.scanner.DeviceAudioDeltaCandidate
 import com.mica.music.data.scanner.DeviceDeltaCandidatePlan
 import com.mica.music.data.scanner.DeviceDeltaChannel
 import com.mica.music.data.scanner.DeviceDeltaRow
+import com.mica.music.data.scanner.DeviceLyricsSidecarDiff
+import com.mica.music.data.scanner.DeviceLyricsSignatureChange
 import com.mica.music.data.scanner.DeviceSidecarDeltaCandidate
 import com.mica.music.data.scanner.LibraryEligibility
 import com.mica.music.testutil.SongFixtures
@@ -83,6 +85,49 @@ class DeviceAutoProbePlannerTest {
             plan.ready.single().work,
         )
         assertEquals(null, plan.ready.single().observationStamp)
+    }
+
+    @Test
+    fun lyricsInventoryDiffCreatesLightweightProbeWithoutSidecarDeltaRow() {
+        val current = song("ms_21").copy(externalLyricsSignature = "old-signature")
+        val lyricsDiff = DeviceLyricsSidecarDiff(
+            changes = listOf(
+                DeviceLyricsSignatureChange(
+                    songId = current.id,
+                    lyricsKey = "musicsong",
+                    previousSignature = "old-signature",
+                    observedSignature = "",
+                ),
+            ),
+            unverifiableSongIds = emptySet(),
+        )
+
+        val plan = DeviceAutoProbePlanner.plan(
+            candidates = candidatePlan(),
+            currentSongs = listOf(current),
+            lyricsDiff = lyricsDiff,
+            retryItems = emptyList(),
+            sourceIdentity = source,
+            activationEpoch = 3L,
+            nowMs = 100L,
+            playback = LibraryPlaybackIoSnapshot(
+                currentStableObjectKey = current.id,
+                currentMediaUri = current.mediaUri,
+                hasActivePlaybackInstance = true,
+            ),
+        )
+
+        assertEquals(1, plan.ready.size)
+        assertTrue(plan.deferred.isEmpty())
+        assertFalse(plan.ready.single().requiresHeavyProbe)
+        assertEquals(
+            setOf(DeviceAutoProbeReason.EXTERNAL_LYRICS_CHANGED),
+            plan.ready.single().reasons,
+        )
+        assertEquals(
+            setOf(DeviceAutoProbeWork.EXTERNAL_LYRICS),
+            plan.ready.single().work,
+        )
     }
 
     @Test
