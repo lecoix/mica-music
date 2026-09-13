@@ -7,7 +7,10 @@ import com.mica.music.data.SharedLyricsMemoryCache
 import com.mica.music.data.local.MicaDatabase
 import com.mica.music.data.remote.navidrome.NavidromeHttpExecutor
 import com.mica.music.data.remote.navidrome.NavidromeRequestFactory
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.yield
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -305,6 +308,54 @@ class RemoteSourceManagerTest {
         assertEquals(9000L, repository.sourceStatus("fresh")?.lastSyncAtMs)
         assertEquals(0L, repository.sourceStatus("disabled")?.lastSyncAtMs)
     }
+
+    @Test
+    fun concurrentCatalogSyncsForSameSourceRunSerially() = runTest {
+        var inFlight = 0
+        var maxInFlight = 0
+        var searchPasses = 0
+        val firstSearchStarted = CompletableDeferred<Unit>()
+        val releaseFirst = CompletableDeferred<Unit>()
+        val manager = manager(
+            NavidromeHttpExecutor { request ->
+                when {
+                    request.url.contains("/rest/ping?") -> okResponse()
+                    request.url.contains("/rest/search3?") -> {
+                        searchPasses += 1
+                        inFlight += 1
+                        maxInFlight = maxOf(maxInFlight, inFlight)
+                        try {
+                            if (searchPasses == 1) {
+                                firstSearchStarted.complete(Unit)
+                                releaseFirst.await()
+                            }
+                            searchResponse("song-$searchPasses")
+                        } finally {
+                            inFlight -= 1
+                        }
+                    }
+                    else -> error("Unexpected request ${request.url}")
+                }
+            },
+        )
+        val source = manager.createNavidrome("Home", "https://music.example", "alice", "secret")
+
+        val first = async { manager.syncNavidrome(source.id) }
+        firstSearchStarted.await()
+        val second = async { manager.syncNavidrome(source.id) }
+        repeat(5) { yield() }
+        assertEquals(1, inFlight)
+        assertEquals(1, maxInFlight)
+
+        releaseFirst.complete(Unit)
+        first.await()
+        second.await()
+
+        assertEquals(1, maxInFlight)
+        assertEquals(2, searchPasses)
+        assertEquals("song-2", repository.tracksForSource(source.id).single().ref.opaqueTrackId)
+    }
+
     @Test
     fun endpointValidationRejectsEmbeddedCredentialAndQuery() {
         val embedded = runCatching {

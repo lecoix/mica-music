@@ -14,6 +14,8 @@ import com.mica.music.data.remote.smb.SmbSourceSync
 import com.mica.music.data.remote.smb.SmbSyncResult
 import java.net.URI
 import java.util.UUID
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Application-facing owner for remote source configuration and explicit synchronization.
@@ -21,6 +23,10 @@ import java.util.UUID
  * Credential rotation always writes a brand-new credentialRef before atomically switching the
  * source row to that ref. The currently published source therefore never observes new credential
  * material paired with its old endpoint/config revision.
+ *
+ * Catalog sync for a given source is single-flight: overlapping manual and automatic refreshes
+ * serialize on one per-source mutex so they cannot publish concurrently under a shared operation
+ * token. Operation generation is still advanced only by source edit / explicit invalidation.
  */
 internal class RemoteSourceManager internal constructor(
     private val catalogRepository: RemoteCatalogRepository,
@@ -34,6 +40,9 @@ internal class RemoteSourceManager internal constructor(
     private val fileMetadataProbe: RemoteTrackMetadataProbe? = null,
     private val automaticSyncRequest: () -> Unit = {},
 ) {
+    private val sourceSyncLockGuard = Mutex()
+    private val sourceSyncLocks = mutableMapOf<String, Mutex>()
+
     constructor(
         catalogRepository: RemoteCatalogRepository,
         credentialStore: MutableSecureRemoteCredentialStore,
@@ -177,6 +186,7 @@ internal class RemoteSourceManager internal constructor(
         }
         SharedLyricsMemoryCache.invalidateSongs(mediaIds)
         credentialStore.delete(current.credentialRef)
+        forgetSourceCatalogSyncLock(sourceInstanceId)
     }
     suspend fun rotateNavidromeCredentials(
         sourceInstanceId: String,
@@ -252,7 +262,7 @@ internal class RemoteSourceManager internal constructor(
     suspend fun syncNavidrome(
         sourceInstanceId: String,
         limit: Int = Int.MAX_VALUE,
-    ): NavidromeSyncResult {
+    ): NavidromeSyncResult = withSourceCatalogSyncLock(sourceInstanceId) {
         val source = requireNavidromeSource(sourceInstanceId)
         require(source.enabled) { "Remote source is disabled" }
         val previousMediaIds = catalogRepository.tracksForSource(sourceInstanceId)
@@ -264,13 +274,13 @@ internal class RemoteSourceManager internal constructor(
             requestFactory = navidromeRequestFactory,
         ).sync(sourceInstanceId, limit)
         invalidateSourceLyrics(sourceInstanceId, previousMediaIds)
-        return result
+        result
     }
 
     suspend fun syncWebDav(
         sourceInstanceId: String,
         limit: Int = Int.MAX_VALUE,
-    ): WebDavSyncResult {
+    ): WebDavSyncResult = withSourceCatalogSyncLock(sourceInstanceId) {
         val source = requireWebDavSource(sourceInstanceId)
         require(source.enabled) { "Remote source is disabled" }
         val previousMediaIds = catalogRepository.tracksForSource(sourceInstanceId)
@@ -281,13 +291,13 @@ internal class RemoteSourceManager internal constructor(
             metadataProbe = fileMetadataProbe,
         ).sync(sourceInstanceId, limit)
         invalidateSourceLyrics(sourceInstanceId, previousMediaIds)
-        return result
+        result
     }
 
     suspend fun syncSmb(
         sourceInstanceId: String,
         limit: Int = Int.MAX_VALUE,
-    ): SmbSyncResult {
+    ): SmbSyncResult = withSourceCatalogSyncLock(sourceInstanceId) {
         val source = requireSmbSource(sourceInstanceId)
         require(source.enabled) { "Remote source is disabled" }
         val previousMediaIds = catalogRepository.tracksForSource(sourceInstanceId)
@@ -298,8 +308,25 @@ internal class RemoteSourceManager internal constructor(
             metadataProbe = fileMetadataProbe,
         ).sync(sourceInstanceId, limit)
         invalidateSourceLyrics(sourceInstanceId, previousMediaIds)
-        return result
+        result
     }
+
+    private suspend fun <T> withSourceCatalogSyncLock(
+        sourceInstanceId: String,
+        block: suspend () -> T,
+    ): T {
+        val lock = sourceSyncLockGuard.withLock {
+            sourceSyncLocks.getOrPut(sourceInstanceId) { Mutex() }
+        }
+        return lock.withLock { block() }
+    }
+
+    private suspend fun forgetSourceCatalogSyncLock(sourceInstanceId: String) {
+        sourceSyncLockGuard.withLock {
+            sourceSyncLocks.remove(sourceInstanceId)
+        }
+    }
+
     private suspend fun rotateUsernamePasswordCredentials(
         current: RemoteSourceInstance,
         username: String,
