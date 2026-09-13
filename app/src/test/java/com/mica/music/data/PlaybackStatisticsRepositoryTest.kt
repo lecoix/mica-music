@@ -3,13 +3,18 @@ package com.mica.music.data
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -105,6 +110,40 @@ class PlaybackStatisticsRepositoryTest {
         advanceUntilIdle()
 
         assertEquals(1, PlayHistoryStore.getStats(context, "song-d").count)
+    }
+
+    @Test
+    fun concurrentPlaybackEventsAreSerializedWithoutLostUpdates() {
+        val writerExecutor = Executors.newFixedThreadPool(4)
+        val writerDispatcher = writerExecutor.asCoroutineDispatcher()
+        val producers = Executors.newFixedThreadPool(8)
+        val playEvents = 200
+        val listenEvents = 200
+        val presented = CountDownLatch(playEvents + listenEvents)
+        val repo = PlaybackStatisticsRepository(
+            context = context,
+            ioDispatcher = writerDispatcher,
+            mainDispatcher = writerDispatcher,
+        )
+        val token = Any()
+        repo.attachPresentationSink(token) { songId, _ ->
+            if (songId == "race-song") presented.countDown()
+        }
+
+        try {
+            repeat(playEvents) { producers.execute { repo.recordPlay("race-song") } }
+            repeat(listenEvents) { producers.execute { repo.recordListenSeconds("race-song", 1L) } }
+            producers.shutdown()
+            assertTrue(producers.awaitTermination(10, TimeUnit.SECONDS))
+            assertTrue(presented.await(20, TimeUnit.SECONDS))
+
+            val stats = PlayHistoryStore.getStats(context, "race-song")
+            assertEquals(playEvents, stats.count)
+            assertEquals(listenEvents.toLong(), stats.totalListenSeconds)
+        } finally {
+            producers.shutdownNow()
+            writerDispatcher.close()
+        }
     }
 
     @Test

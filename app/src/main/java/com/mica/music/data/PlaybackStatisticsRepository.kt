@@ -5,6 +5,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicReference
@@ -16,6 +17,9 @@ import java.util.concurrent.atomic.AtomicReference
  * [PlayHistoryStore] on a scope that outlives Activity/ViewModel. Optional presentation
  * sinks (typically the current [MusicLibrary]) may refresh Compose song rows; missing
  * or released sinks must never block persistence.
+ *
+ * Persistence is a single FIFO consumer over [mutations]: producers only enqueue, so overlapping
+ * play-count and listen-seconds updates cannot race inside [PlayHistoryStore]'s get-then-edit path.
  */
 class PlaybackStatisticsRepository(
     context: Context,
@@ -26,6 +30,23 @@ class PlaybackStatisticsRepository(
     private val appContext = context.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + ioDispatcher)
     private val presentation = AtomicReference<PresentationSink?>(null)
+    private val mutations = Channel<Mutation>(capacity = Channel.UNLIMITED)
+
+    init {
+        scope.launch {
+            for (mutation in mutations) {
+                val stats = when (mutation) {
+                    is Mutation.PlayStarted -> PlayHistoryStore.recordPlay(appContext, mutation.songId)
+                    is Mutation.ListenSeconds -> PlayHistoryStore.recordListenSeconds(
+                        appContext,
+                        mutation.songId,
+                        mutation.seconds,
+                    )
+                }
+                notifyPresentation(mutation.songId, stats)
+            }
+        }
+    }
 
     val playStartedSink: (String) -> Unit = ::recordPlay
     val listenSecondsSink: (String, Long) -> Unit = ::recordListenSeconds
@@ -42,17 +63,15 @@ class PlaybackStatisticsRepository(
 
     fun recordPlay(songId: String) {
         if (!isPersistentSong(songId)) return
-        scope.launch {
-            val stats = PlayHistoryStore.recordPlay(appContext, songId)
-            notifyPresentation(songId, stats)
+        check(mutations.trySend(Mutation.PlayStarted(songId)).isSuccess) {
+            "Playback statistics writer is unavailable"
         }
     }
 
     fun recordListenSeconds(songId: String, seconds: Long) {
         if (seconds <= 0L || !isPersistentSong(songId)) return
-        scope.launch {
-            val stats = PlayHistoryStore.recordListenSeconds(appContext, songId, seconds)
-            notifyPresentation(songId, stats)
+        check(mutations.trySend(Mutation.ListenSeconds(songId, seconds)).isSuccess) {
+            "Playback statistics writer is unavailable"
         }
     }
 
@@ -64,6 +83,17 @@ class PlaybackStatisticsRepository(
                 current.sink(songId, stats)
             }
         }
+    }
+
+    private sealed interface Mutation {
+        val songId: String
+
+        data class PlayStarted(override val songId: String) : Mutation
+
+        data class ListenSeconds(
+            override val songId: String,
+            val seconds: Long,
+        ) : Mutation
     }
 
     private data class PresentationSink(
