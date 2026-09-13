@@ -1,15 +1,17 @@
 # 当前功能状态
 
-> 最后更新：2026-09-11。本文是“当前实现 + 已取得证据 + 未完成验收”的 living status；代码/JVM/单机 smoke 不能外推为所有 OEM、DAC、ABI、签名包或音质均通过。
-> 当前 App 基线：**0.4.0 / versionCode 54 / Room schema v29 / minSdk 26 / targetSdk 34 / compileSdk 36**。
+> 最后更新：2026-09-14。本文是“当前实现 + 已取得证据 + 未完成验收”的 living status；代码/JVM/单机 smoke 不能外推为所有 OEM、DAC、ABI、签名包或音质均通过。
+> 当前 App 基线文档曾记 **0.4.0 / versionCode 54**；Room schema 工作树为 **v32**（含 SAF mass-deletion 累计确认字段）。minSdk 26 / targetSdk 34 / compileSdk 36。发布结论仍以正式签名包与矩阵证据为准。
 
 ## 已接入的主链
 
 - 播放统一由前台 `MicaMediaService` 管理 Media3/ExoPlayer 单链路；普通格式与 ALAC/DSF/APE 扩展解码进入同一 Service/MediaSession。最近的队列修复避免列表选歌与非当前 metadata refresh 无意义重建整条 timeline；同曲单曲循环由 Service 确认回卷时同步把 UI 进度重置到 0。
-- `PlayerController` 是 UI facade；`PlaybackRuntime` 与 queue/timeline/tuning/statistics/connection coordinator 持有长期状态。2026-09-02 的架构收敛已把 catalog store write fencing、media/UI/lyrics seam、browse/lyrics ownership、cover renderer/geometry authority 和 playback-stack lifecycle 进一步集中到 owner 边界。
-- 本地曲库以 `MusicLibraryBacking -> LibraryScanOrchestrator -> LibraryStore` 为单一 authority。Full Scan、cache hydrate、clear 与 AUTO publication 共享 generation/revision/publication fencing；Room v30 同时持有本地曲库、歌词 staging、自动同步 checkpoint/retry/outbox/exclusion、browse 派生状态、歌单及远端 catalog。
-- DEVICE 与 SAF/FOLDER **durable automatic sync 已进入 ordinary scheduler real-auto**。dirty signal 只触发调度；任何 PARTIAL/UNAVAILABLE、provider transient、mass-deletion quarantine、playback defer 或 stale token 都 fail-closed。global / DEVICE / FOLDER 内部 kill switch 可停 AUTO 而不影响 Manual Full Scan；SAF provider 不可用有 30s/60s 有界重试，之后要求用户重选来源而不热循环。
-- 远程曲库 MVP 已合并：Navidrome/OpenSubsonic、WebDAV、SMB2/SMB3；支持来源隔离、原始音频播放/JIT 解析、文件型 Range/random-access、自动 catalog sync、独立排序、全局搜索、Artists/Albums/Recent 联合浏览、安全多选、歌单/封面解析、当前曲定位、JIT 封面与歌词。SMB1 不启用，凭据不进入稳定 media id/歌单导出。
+- `PlayerController` 是 UI facade；`PlaybackRuntime` 与 queue/timeline/tuning/statistics/connection coordinator 持有长期状态。队列列表写路径（`setQueue` / `appendSongs` / `removeSongById` 等）约定主线程；基于 live 队列的读改写走 owner API，禁止跨 await 快照后再整表 `setQueue`。
+- 本地曲库以 `MusicLibraryBacking -> LibraryOperationExecutor -> LibraryStore` 为扫描/AUTO/封面修复执行入口（`LibraryScanOrchestrator` 已退役）。Full Scan、cache hydrate、clear 与 AUTO publication 共享 generation/revision/publication fencing；Room **v32** 持有本地曲库、歌词 staging、自动同步 checkpoint/retry/outbox/exclusion、browse 派生状态、歌单及远端 catalog。
+- DEVICE 与 SAF/FOLDER **durable automatic sync 已进入 ordinary scheduler real-auto**。dirty signal 只触发调度；任何 PARTIAL/UNAVAILABLE、provider transient、mass-deletion quarantine、playback defer 或 stale token 都 fail-closed。SAF 大量删除开闸需跨批**累计**对象级 missing 证明盖住隔离全集（cursor 只是 resume）。global / DEVICE / FOLDER 内部 kill switch 可停 AUTO 而不影响 Manual Full Scan；SAF provider 不可用有 30s/60s 有界重试，之后要求用户重选来源而不热循环。
+- AUTO `CONFIRMED_MISSING` 的歌单清理经 followup outbox 异步消费；手动 `deleteSongEverywhere` 即时清歌单并报告 `playlistCleanupSucceeded`，**不**走该 outbox 补偿。
+- 播放统计由进程级 `PlaybackStatisticsRepository` 经 FIFO `Channel` 单消费者写入 `PlayHistoryStore`。
+- 远程曲库 MVP 已合并：Navidrome/OpenSubsonic、WebDAV、SMB2/SMB3；支持来源隔离、原始音频播放/JIT 解析、文件型 Range/random-access、自动 catalog sync、独立排序、全局搜索、Artists/Albums/Recent 联合浏览、安全多选、歌单/封面解析、当前曲定位、JIT 封面与歌词。同一来源 catalog sync 在 `RemoteSourceManager` 单飞串行。SMB1 不启用，凭据不进入稳定 media id/歌单导出。
 
 ## UI / 歌词 / 系统集成
 
@@ -28,10 +30,11 @@
 - `.dsf` 在 Shared PCM 路径仍可经 Media3 FFmpeg + DSD processor 播放；`.dff` / DSDIFF 仍拒绝播放。
 - EQ、ReplayGain、频谱 tap、offload 偏好/熔断、音效实验室均走当前 `AudioPipelineCoordinator` 约束。任何可能降低音质的改动继续受 `CONTEXT.md` 的 Audio quality consent 规则约束。
 
-## 当前工作树中的 staged 修复（未等同已发布）
+## 当前工作树中的 staged / 未合入发布基线项
 
-- **Spectrum stall**：当前未提交工作树正在把频谱从“processor wall-clock 发布”迁到 sink media clock + `SpectrumPcmTimeline` + `SpectrumAnalysisEngine`；桌面 focused suite 与完整 JVM 曾通过，设备验收仍进行中。它不能写成 0.4.0 干净 HEAD 已发布行为，详见 `SPECTRUM_STALL_BUG.md`。
-- **Managed artwork recovery / ANR**：当前未提交工作树把启动/health/scan-reuse/provider-open 的封面健康检查限制为 metadata-level，强 SHA-256 校验只在真实图片加载失败后进入低优先级单线程 lazy recovery。2026-09-11 的 10,665 首冷启动 `repair-check` 约 200ms 且无缺失，但一次 smoke 不能关闭历史主线程 SHA ANR，且改动尚未提交。
+- **Spectrum stall**：频谱从“processor wall-clock 发布”迁到 sink media clock + `SpectrumPcmTimeline` + `SpectrumAnalysisEngine` 的工作若仍未合入正式发布包，不能写成已发布行为；详见 `SPECTRUM_STALL_BUG.md`。
+- **Managed artwork recovery / ANR**：启动/health/scan-reuse/provider-open 的封面健康检查限制为 metadata-level、强 SHA 仅 lazy recovery 的改动若未提交/未进发布包，同理不得外推。
+- 上列「队列 owner RMW / 统计 FIFO / 远端 sync 单飞 / 删除歌单成败文案 / SAF 累计 missing 证明」属于当前工作树正确性收敛；是否已进正式签名包以 git/发布记录为准。
 
 ## 2026-09-11 发布前设备证据
 
@@ -42,7 +45,7 @@
 
 ## 尚未关闭的发布验收
 
-- 目前**不能宣称发布前完整流程已通过**：2026-09-11 设备轮次只覆盖一台 Android 12，且机上包包含当前工作树改动，不是正式签名/混淆 Release。
+- 目前**不能宣称发布前完整流程已通过**：2026-09-11 设备轮次只覆盖一台 Android 12，且机上包包含当时工作树改动，不是正式签名/混淆 Release。
 - 仍缺 Android 8/8.1 与 Android 14+ 双端矩阵、真实 MP3 点播、DFF 拒绝样本、蓝牙/耳机拔出、USB 模式矩阵、通知控制/划掉 Activity、正式覆盖升级，以及六种封面行为 × 歌词主题 × 浅深色的完整 UI 组合。
 - Android Auto/不同 OEM 车机、锁屏、后台限制、Glance launcher 差异、分屏/小窗触摸、USB 多 DAC/扩展坞、真实 32 位进程与正式签名 ABI split 仍需独立证据。
 - 8 GB 设备条件在自动同步 S3/S4 阶段曾被用户明确跳过；这不是 PASS。项目仍以 10,000 首 + 完整逐字歌词 + 8 GB 为设计容量基线，发布结论不得用 12 GB 设备结果等价替代。

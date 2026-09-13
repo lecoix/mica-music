@@ -1,6 +1,6 @@
 # Mica Music — 播放
 
-> 2026-09-11 复核：领域词汇已按 0.4.0/code54 当前代码校准；Room 当前为 v29，DEVICE + SAF/FOLDER AUTO 与远端曲库已进入生产代码。当前工作树中的频谱时钟与 managed artwork lazy recovery 仍是 staged 改动，不等同已发布行为。
+> 2026-09-14 复核：领域词汇按当前工作树校准；Room 为 **v32**（含 SAF mass-deletion 累计确认字段）；DEVICE + SAF/FOLDER AUTO 与远端曲库已在生产代码。扫描/封面修复执行 owner 为 `LibraryOperationExecutor`（`LibraryScanOrchestrator` 已退役）。频谱时钟与 managed artwork lazy recovery 等若仍仅在工作树、未合入发布基线，不得写成已发布行为。
 
 Mica 本地音乐播放器的领域语言：曲目与队列、出声路径、播放页 UI 与布局。本文只定义**叫什么**、**指什么**。
 
@@ -44,8 +44,8 @@ _Avoid_: 静态地按相邻歌词开始时间插入间奏
 _Avoid_: 从普通 LRC 的相邻开始时间推断歌词云间奏；让光团拦截歌词点击
 
 **Playlist（歌单）**：
-用户保存的静态曲目集合；选中后**装入**播放队列，本身不驱动出声。`MicaApp.playlistStore` 是进程内唯一 `PlaylistStore` owner；主页与播放页由装配层接收同一实例。持久化由 Room `playlists` / `playlist_songs`（schema v29）承载；首次启动把旧 `mica_playlists` JSON 一次性迁入，之后所有增删改先写 Room 成功再更新内存，写失败不发布内存变更。v21 的 `20→21` 迁移历史上增加歌曲的 `musicVideoUri` 与 `musicVideoRevision`；后续 remote catalog 与 AUTO durable state 已继续推进到 v29。
-_Avoid_: 与「播放队列」混用；在 Composable 内自行构造 `PlaylistStore`
+用户保存的静态曲目集合；选中后**装入**播放队列，本身不驱动出声。`MicaApp.playlistStore` 是进程内唯一 `PlaylistStore` owner；主页与播放页由装配层接收同一实例。持久化由 Room `playlists` / `playlist_songs`（当前 schema **v32**）承载；首次启动把旧 `mica_playlists` JSON 一次性迁入，之后所有增删改先写 Room 成功再更新内存，写失败不发布内存变更。AUTO `CONFIRMED_MISSING` 的歌单清理经 `library_followup_outbox`（`PLAYLIST_REMOVE_CONFIRMED_MISSING`）异步消费；**手动**删歌走即时 `removeSongFromAllPlaylists`，成功与否进入 `DeleteSongResult.playlistCleanupSucceeded`，**不**经该 outbox 补偿。
+_Avoid_: 与「播放队列」混用；在 Composable 内自行构造 `PlaylistStore`；假定手动删除失败会自动入 followup outbox
 
 **Library scan settings（曲库扫描设置）**：
 曲库扫描相关偏好的窄门面（`LibraryScanSettings`）：最短时长、纳入非音乐音频、深度元数据探测、排除目录、SAF 曲库目录、上次扫描来源与歌词 parser 版本。与浏览排序、播放页 UI、外观、歌词、EQ 分属不同 preference 门面；物理存储仍为单一 `mica_settings`（经 `MicaSettingsStore`）。
@@ -80,8 +80,8 @@ _Avoid_: 在音频链或 EQ UI 内直接读 equalizer_* key
 _Avoid_: 系统 `AudioEffect`；默认开启；把音效写入 `AudioQualityMode.DSP`；在 USB 独占路径套用；把压缩器/动态 EQ 当作已实现
 
 **Album art repair coordinator（封面缓存修复协调器）**：
-根据 `AlbumArtCache.health(...)`、上次扫描来源、SAF 目录可用性和设备音频权限，决定是否启动封面缓存修复以及从设备还是文件夹重扫。`health(...)` 只允许做 URI / 文件存在性 / 非空等元数据级检查，**禁止在启动或曲库复用路径全量读取 managed artwork 重新算 SHA-256**；content-addressed SHA 只在写入时，以及实际 Coil/Provider 加载失败后由 `ManagedArtworkRecovery` 的低优先级单线程按 `contentKey` 合并强校验。确认缓存损坏/缺失后再从原歌曲懒重建；managed artwork 不进入 Coil 二级磁盘缓存。协调器只做整库修复计划；`MusicLibrary.launchArtworkCacheRepairIfNeeded` 调用 `plan(...)` 后，将可执行计划交给 `LibraryScanOrchestrator.launchArtworkCacheRepair(plan)` 执行（`forceRefreshArtwork=true`、不强制刷新歌词）。
-_Avoid_: 在 `MusicLibrary` 或 `LibraryScanOrchestrator` 内继续堆封面缓存健康判断和修复来源选择；把 managed artwork 的完整 SHA 校验放回启动、`health()`、扫描复用或每次 `ContentProvider.openFile()` 路径
+根据 `AlbumArtCache.health(...)`、上次扫描来源、SAF 目录可用性和设备音频权限，决定是否启动封面缓存修复以及从设备还是文件夹重扫。`health(...)` 只允许做 URI / 文件存在性 / 非空等元数据级检查，**禁止在启动或曲库复用路径全量读取 managed artwork 重新算 SHA-256**；content-addressed SHA 只在写入时，以及实际 Coil/Provider 加载失败后由 `ManagedArtworkRecovery` 的低优先级单线程按 `contentKey` 合并强校验。确认缓存损坏/缺失后再从原歌曲懒重建；managed artwork 不进入 Coil 二级磁盘缓存。协调器只做整库修复计划；`MusicLibrary.launchArtworkCacheRepairIfNeeded` 调用 `plan(...)` 后，将可执行计划交给 `LibraryOperationExecutor.launchArtworkCacheRepair(plan)` 执行（`forceRefreshArtwork=true`、不强制刷新歌词）。
+_Avoid_: 在 `MusicLibrary` 或 `LibraryOperationExecutor` 内继续堆封面缓存健康判断和修复来源选择；把 managed artwork 的完整 SHA 校验放回启动、`health()`、扫描复用或每次 `ContentProvider.openFile()` 路径
 
 **MusicLibrary（曲库门面）**：
 Compose 可见曲库状态与稳定对外 API：`songs` / `songIds`、浏览查询、文件夹与权限、扫描触发入口。`MusicLibraryBacking` 随可见曲库快照维护 `songId → Song` 索引，`songById` 不得线性扫描曲库；大型歌单解析复用此索引。门面只组合 backing 与深模块并转发，不拥有 browse/search revision cache、歌词 hydration cache，也**不**承载 `performScan`、排序发布或 `scannedSongs` 细节。封面修复在此做 plan + delegate；权限/扫描**决策**仍由 `LibraryAccessCoordinator` 负责。播放统计仅经 `applyPlayStats` 刷新展示，不拥有 `PlayHistoryStore` 写入。
@@ -95,9 +95,9 @@ _Avoid_: 在 `MusicLibrary` 重新持有 `artistGroupCache` / `searchIndex` / fo
 `data/library/LibraryLyricsHydrator` 拥有本地歌曲 `songWithLyrics` / prefetch 的 hydration policy：priority revision、`lyricsDataVersion`、`SharedLyricsMemoryCache` 命中/并发合并、IO store load 与诊断。`LyricsDocumentMemoryCache` / `LyricsCacheCoordinator` 继续作为进程级 bounded cache 与 invalidation owner；hydrator 只组合这些能力并返回 `Song.copy(lyricsLoaded=true)`。远端歌词仍由 `RemoteLyricsRepository` 负责。
 _Avoid_: 在 `MusicLibrary` 或 UI 重新拼 lyrics cache key、直接调 `LibraryStore.loadLyrics`；把远端歌词加载并入本地 hydrator
 
-**Library scan orchestrator（曲库扫描编排器）**：
-`data/library/LibraryScanOrchestrator`：扫描生命周期、串行执行互斥、Room incremental sync、封面修复**执行**。歌词探测返回 `NotProbed` / `Complete` / `ReadFailed`：每个有界批次只把 `Complete` 结果用短 Room 事务直接替换到正式 `song_lyrics`，`ReadFailed` 不修改该歌曲任何歌词槽并持久化全局重试标记。批次可以在扫描结束前生效；歌曲摘要、删除、扫描元数据和 Compose 曲库仍仅在完整扫描成功后统一提交和发布。parser 升级或重试标记存在时，所有扫描类型（包括封面修复）都强制重新探测歌词；完整零失败扫描后才清除重试标记并推进 parser 版本。扫描失败不改变旧 snapshot，只设置 `lastScanError`。完整替换协议见 `Library snapshot publication` 与 `docs/adr/0002-library-snapshot-publication.md`。
-_Avoid_: 把 `ReadFailed` 当成空歌词替换正式槽；让歌词批次直接发布 Compose 曲库；把全库歌词留在内存等结束后一次写入；用覆盖整次扫描的长 Room 事务；在 orchestrator 内做封面健康判断、权限 launcher、或 UI 侧扫描决策；失败路径把 `hasScanned` 置 true 或改写旧元数据
+**Library operation executor（曲库操作执行器）**：
+`data/library/LibraryOperationExecutor`：Full Scan / targeted refresh / artwork repair / AUTO sync 的调度入口与执行分发（经 `LibrarySyncScheduler` + `LibraryScanEngine` / `FullLibraryScanExecutor` / `LibraryAutoSyncExecutor` 等）。歌词探测返回 `NotProbed` / `Complete` / `ReadFailed`：每个有界批次只把 `Complete` 结果用短 Room 事务直接替换到正式 `song_lyrics`，`ReadFailed` 不修改该歌曲任何歌词槽并持久化全局重试标记。批次可以在扫描结束前生效；歌曲摘要、删除、扫描元数据和 Compose 曲库仍仅在完整扫描成功后统一提交和发布。parser 升级或重试标记存在时，所有扫描类型（包括封面修复）都强制重新探测歌词；完整零失败扫描后才清除重试标记并推进 parser 版本。扫描失败不改变旧 snapshot，只设置 `lastScanError`。完整替换协议见 `Library snapshot publication` 与 `docs/adr/0002-library-snapshot-publication.md`。操作代际与 token 由 `LibraryOperationAuthority` 在 begin 时推进 `scanGeneration`。
+_Avoid_: 引用已退役的 `LibraryScanOrchestrator`；把 `ReadFailed` 当成空歌词替换正式槽；让歌词批次直接发布 Compose 曲库；把全库歌词留在内存等结束后一次写入；用覆盖整次扫描的长 Room 事务；在 executor 内做封面健康判断、权限 launcher、或 UI 侧扫描决策；失败路径把 `hasScanned` 置 true 或改写旧元数据
 
 **Library snapshot publication（完整曲库快照发布）**：
 能替换完整曲库真相的操作只有：cache hydrate、scan commit、clear library，以及 `release` 作废未完成发布。它们共用 `scanGeneration`（语义为 library generation）与 `storeRevision` + `storeSyncMutex`：需要写库时先 Room 成功，再同世代发布内存中的 `songs` 与 `hasScanned` / `lastScanAtMs` / `lastScanSource` / `totalSizeMb`。`storeSyncMutex` 与 store revision recipe 只由 `MusicLibraryBacking` 持有；scan commit / clear 通过完整 snapshot seam 写库。依赖当前内存 catalog 的异步 persist（完整歌曲持久化、presentation、封面色、browse cache）必须经 Backing seam，并统一按 `scanExecutionMutex → storeSyncMutex` 顺序串行；扫描中的歌词 batch 已处于 scan lock 内，继续使用 generation + store seam，不重复获取 scan mutex。`applyPlayStats`、`removeSong`、排序 presentation、扫描中歌词 batch 不是完整替换。
@@ -105,15 +105,15 @@ _Avoid_: 先改内存扫描元数据再 `commitScan`；`clear` / `commitScan` �
 
 **Library catalog publisher（曲库目录发布器）**：
 `data/library/LibraryCatalogPublisher`：私有 `scannedSongs`、排序、`songIds` / `catalogRevision` / `queueMetadataRevision` / fast scroll 发布、async persist、播放统计**展示**写回（`applyPlayStats`）、`removeSong`。外部只读曲库快照及其结构/元数据版本。播放次数权威持久化不在此，见 `PlaybackStatisticsRepository`。
-_Avoid_: 在 orchestrator / UI 直接读写 `scannedSongs`；绕过 catalog 改可见列表或排序；在 catalog 内写 `PlayHistoryStore`
+_Avoid_: 在 executor / UI 直接读写 `scannedSongs`；绕过 catalog 改可见列表或排序；在 catalog 内写 `PlayHistoryStore`
 
 **Library browse details（曲库浏览详情模型）**：
 专辑 / 艺术家详情页的展示模型与排序规则，例如专辑曲目排序、disc 分组、版权行、艺术家专辑分组。`HomeBrowseContent` 负责渲染和用户动作，不直接承载这些领域展示计算。
 _Avoid_: 在 Composable 文件里继续散落专辑排序、disc section、artist album section 计算
 
 **SongActions（歌曲操作流程）**：
-主页、播放页等 UI 共享的歌曲动作流程。删除歌曲使用 `deleteSongEverywhere(...)` 统一串起物理文件删除、曲库移除、歌单移除和播放队列修正，并返回结构化结果给调用方展示提示。
-_Avoid_: 在多个 Composable 内复制 `deleteSongFile -> removeFromLibrary -> removeFromAllPlaylists -> setQueue` 链路
+主页、播放页等 UI 共享的歌曲动作流程。删除使用 `deleteSongEverywhere(...)`：物理文件删除 → 曲库移除 → `removeSongFromAllPlaylists`（`Boolean`）→ owner 侧 `removeSongById` / `removeFromQueue(songId)` 修正 live 队列；结果含 `playlistCleanupSucceeded` 与 `queueChanged`，供 snackbar。不得在入口捕获队列快照、跨 await 后再 `setQueue(filterNot)`。
+_Avoid_: 在多个 Composable 内复制删除链路；跨 suspend 持有 `currentQueue` 整表回写
 
 ## 播放队列与控制
 
@@ -121,9 +121,13 @@ _Avoid_: 在多个 Composable 内复制 `deleteSongFile -> removeFromLibrary -> 
 当前会话中待播与在播的 `Song` 有序列表，含 `currentIndex`；上一曲 / 下一曲、队列 Sheet、封面流邻槽均以此为准。
 _Avoid_: playlist、播放列表（指歌单时）
 
+**Playback queue mutation ownership（队列列表写路径）**：
+App 侧队列列表变更的 owner 是 `PlaybackRuntime`（经 `PlayerController`）：`setQueue` / `playQueueSong`（整表替换）、`appendSongs`、`insertPlayNext`、`moveInQueue`、`removeFromQueue(index)`、`removeSongById`、`refreshQueueMetadata`、`bootstrapQueue`。这些 API **必须在主线程**调用（与 MediaController / UI 亲和）；基于当前队列的读改写必须走上述 API，禁止 caller 跨 await 快照后再 `setQueue`。曲库 reconcile 剔除缺失 id 用 `removeSongById`，不用入口 index 快照。
+_Avoid_: `setQueue(playbackQueueState.queue + songs)`；删除路径入口 `currentQueue.filterNot`；假定存在跨线程队列写锁（未采用 C 方案 Mutex）
+
 **Library playback queue sync（曲库队列同步）**：
-曲库可见列表变化时，将播放队列与曲库对齐的**唯一编排入口**：`MainViewModel.syncPlaybackQueueWithLibrarySongs` → `LibraryPlaybackQueueCoordinator`（执行）+ `LibraryQueueSyncPolicy`（决策：bootstrap / bootstrap-only / 整队替换 / 仅刷新元数据）。由 `MainActivity` 分别监听结构身份 `MusicLibrary.songIds` 与静态内容版本 `queueMetadataRevision`；后者排除播放次数、收听时长和最近播放时间，避免统计写回触发 MediaItem 刷新。同 ID 静态元数据通过 `replaceMediaItem` 增量写入服务，不重建权威队列。用户主动换队（点专辑、歌单、文件夹、「播放全部」）仍直接 `PlayerController.setQueue`，不经过此路径。App 内存队列写入服务仍走 `PlayerController` 内 `syncQueueToService`，与曲库同步分层。外部单曲/临时队列只有在 URI 权限可跨进程重启存续（MediaStore authority 或已持久化 grant）时才进入恢复快照；不可存续的临时队列不写 `ServicePlaybackStateStore`。
-_Avoid_: 在 Composable / 扫描回调里对全库 `setQueue`、在 `init` 与 `LaunchedEffect` 各调一次 sync、用 `library.songs` 作 sync 触发键
+曲库可见列表变化时，将播放队列与曲库对齐的**唯一编排入口**：`MainViewModel.syncPlaybackQueueWithLibrarySongs` → `LibraryPlaybackQueueCoordinator`（执行）+ `LibraryQueueSyncPolicy`（决策：bootstrap / bootstrap-only / 整队替换 / reconcile 按 id 移除 / 仅刷新元数据）。由 `MainActivity` 分别监听结构身份 `MusicLibrary.songIds` 与静态内容版本 `queueMetadataRevision`；后者排除播放次数、收听时长和最近播放时间，避免统计写回触发 MediaItem 刷新。同 ID 静态元数据通过 `replaceMediaItem` 增量写入服务，不重建权威队列。用户主动换队（点专辑、歌单、文件夹、「播放全部」）仍直接 `PlayerController.setQueue`，不经过此路径。追加到队尾用 `appendSongs`。App 内存队列写入服务仍走 `PlayerController` 内 `syncQueueToService`，与曲库同步分层。外部单曲/临时队列只有在 URI 权限可跨进程重启存续（MediaStore authority 或已持久化 grant）时才进入恢复快照；不可存续的临时队列不写 `ServicePlaybackStateStore`。
+_Avoid_: 在 Composable / 扫描回调里对全库 `setQueue`、在 `init` 与 `LaunchedEffect` 各调一次 sync、用 `library.songs` 作 sync 触发键；reconcile 时对入口 `currentQueueIds` 快照按 index 删除
 
 **PlaybackQueueMode（播放模式）**：
 队列推进策略：顺序（OFF）→ 列表循环（REPEAT_ALL）→ 单曲循环（REPEAT_ONE）→ 随机（SHUFFLE）。
@@ -159,8 +163,12 @@ App 侧运行时统计状态机。用户明确点播/重播仍由 `PlayerControl
 _Avoid_: 在 `PlayerController` callbacks 中重新实现去重、pending target 或收听 session 结算
 
 **PlaybackStatisticsRepository（播放统计仓库）**：
-`MicaApp` 持有的进程级播放统计持久化 owner。绑定 `PlayerController.onSongPlayStarted` / `onSongListenSecondsAdded`，在自有 IO scope 写入 `PlayHistoryStore`；可选 presentation sink（通常为当前 `MusicLibrary.applyPlayStats`）仅刷新 Compose 曲目展示。Activity/ViewModel 销毁不得取消其写入 scope；sink 缺失或已 `release` 的曲库不得阻塞持久化。冷启动或重新加载曲库时仍经 `withPlayStats()` 从 `PlayHistoryStore` 合并到 `Song`。
-_Avoid_: 把统计持久化绑到 `MainViewModel` / `MusicLibrary.ioScope`；仅靠置空 Controller 回调“修泄漏”而丢掉后台播放统计
+`MicaApp` 持有的进程级播放统计持久化 owner。绑定 `PlayerController.onSongPlayStarted` / `onSongListenSecondsAdded`，经无界 FIFO `Channel` 单消费者串行写入 `PlayHistoryStore`（生产者只 enqueue，避免 play count / listen seconds 的 get-then-edit 竞态）；可选 presentation sink（通常为当前 `MusicLibrary.applyPlayStats`）仅刷新 Compose 曲目展示。Activity/ViewModel 销毁不得取消其写入 scope；sink 缺失或已 `release` 的曲库不得阻塞持久化。冷启动或重新加载曲库时仍经 `withPlayStats()` 从 `PlayHistoryStore` 合并到 `Song`。
+_Avoid_: 把统计持久化绑到 `MainViewModel` / `MusicLibrary.ioScope`；对每次事件独立 `launch` 写 prefs；仅靠置空 Controller 回调“修泄漏”而丢掉后台播放统计
+
+**RemoteSourceManager（远端来源管理）**：
+应用侧远端来源配置与 catalog 同步入口。同一 `sourceInstanceId` 的 Navidrome / WebDAV / SMB catalog sync（含手动与 WorkManager 自动）经 per-source mutex **单飞串行**，避免同配置并发 refresh 共用 `RemoteOperationToken` 时后完成的旧 listing 覆盖新结果。`beginOperation` / `beginOperationSnapshot` 仍只快照 `(configRevision, operationGeneration)`，不在每次 begin 推进 generation；generation 仍由源编辑 `replace` 或显式 `invalidateOperations` 推进。
+_Avoid_: 绕过 Manager 直接并发调用各 `*SourceSync.sync`；把每次 artwork/stream `beginOperationSnapshot` 当成会 bump 的 refresh 代际
 
 **Authoritative playback queue（权威播放队列）**：
 服务侧 `MicaCompositePlayer.playlistItems`（经 `playbackQueueSnapshot()` 暴露）为唯一真相源；`ServicePlaybackEngineCoordinator` 的 `onEnded` / `startAt` / 失败跳曲均读此快照。App 内 `PendingPlaybackNavigation` 在 binder 延迟时携带切歌意图。
@@ -203,8 +211,8 @@ _Avoid_: queue snapshot（非持久化语境时）
 ## 播放操作（UI 输出）
 
 **NowPlayingActions**：
-播放页对 `PlayerController` / 设置的**唯一**写操作集合：播放控制、seek、队列编辑、播放模式、沉浸切换、插播与整队替换。
-_Avoid_: 在子组件里散落 `playerController.xxx()` 调用
+播放页对 `PlayerController` / 设置的**唯一**写操作集合：播放控制、seek、队列编辑（含 `removeSongById`）、播放模式、沉浸切换、插播与整队替换。
+_Avoid_: 在子组件里散落 `playerController.xxx()` 调用；删除时跨 await 快照队列再 `setQueue`
 
 **Seek UI active（进度 UI 钉住）**：
 用户拖动进度条或歌词 seek 期间，进度展示与播放器进度解耦，避免条在手指下跳动。
