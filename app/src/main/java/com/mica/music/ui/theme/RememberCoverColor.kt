@@ -1,24 +1,15 @@
 package com.mica.music.ui.theme
 
-import android.util.LruCache
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import com.mica.music.data.Song
-import com.mica.music.data.SongSource
-import com.mica.music.data.scanner.CoverColorExtractor
-import com.mica.music.data.scanner.CoverColorPersistence
-import com.mica.music.data.scanner.needsPersistedCoverColorRepair
-import com.mica.music.data.scanner.shouldSampleCoverColorAtPlayback
-import kotlinx.coroutines.ensureActive
-
-private const val CoverColorCacheSize = 256
-private val sampledCoverColorCache = LruCache<String, Int>(CoverColorCacheSize)
+import com.mica.music.imaging.PlaybackCoverColorResolver
 
 /**
  * Uses the artwork color extracted and persisted during library scanning.
@@ -32,47 +23,17 @@ fun rememberCoverColor(
     sampleArtwork: Boolean = true,
 ): Color {
     val isDark = MicaTheme.colors.isDark
-    val albumArtUri = song.albumArtUri
-    val shouldSample = shouldSampleCoverColorAtPlayback(song, sampleArtwork)
-    val cachedSample = albumArtUri?.let(sampledCoverColorCache::get)
-    var sampledArgb by remember(song.id, albumArtUri, shouldSample) {
-        mutableStateOf(cachedPlaybackCoverColorSample(cachedSample, shouldSample))
-    }
     val context = LocalContext.current
-    LaunchedEffect(song.id, albumArtUri, shouldSample) {
-        if (!shouldSample || albumArtUri.isNullOrBlank()) return@LaunchedEffect
-        sampledCoverColorCache.get(albumArtUri)?.let { cached ->
-            if (shouldPersistPlaybackCoverColorSample(song, shouldSample)) {
-                CoverColorPersistence.persistLibraryColor(song.id, albumArtUri, cached)
-            }
-            sampledArgb = cached
-            return@LaunchedEffect
-        }
-        val extracted = CoverColorExtractor.fromUriString(context, albumArtUri) ?: return@LaunchedEffect
-        sampledCoverColorCache.put(albumArtUri, extracted)
-        if (song.source == SongSource.LIBRARY) {
-            CoverColorPersistence.persistLibraryColor(song.id, albumArtUri, extracted)
-        }
-        ensureActive()
-        sampledArgb = extracted
+    var resolvedArgb by remember(song.id, song.albumArtUri, song.coverColorArgb, sampleArtwork) {
+        mutableIntStateOf(PlaybackCoverColorResolver.initialArgb(song, sampleArtwork))
     }
-    val argb = resolvePlaybackCoverColorArgb(song.coverColorArgb, sampledArgb, shouldSample)
-    return remember(argb, isDark) {
+    LaunchedEffect(song.id, song.albumArtUri, song.coverColorArgb, sampleArtwork) {
+        resolvedArgb = PlaybackCoverColorResolver.resolve(context, song, sampleArtwork)
+    }
+    return remember(resolvedArgb, isDark) {
         PlayerBackgroundBlend.comfortColor(
-            Color(argb),
+            Color(resolvedArgb),
             isDark,
         )
     }
 }
-
-internal fun cachedPlaybackCoverColorSample(cachedArgb: Int?, shouldSample: Boolean): Int? =
-    cachedArgb?.takeIf { shouldSample }
-
-internal fun resolvePlaybackCoverColorArgb(
-    persistedArgb: Int,
-    sampledArgb: Int?,
-    shouldSample: Boolean,
-): Int = if (shouldSample) sampledArgb ?: persistedArgb else persistedArgb
-
-internal fun shouldPersistPlaybackCoverColorSample(song: Song, shouldSample: Boolean): Boolean =
-    shouldSample && song.source == SongSource.LIBRARY && song.needsPersistedCoverColorRepair()

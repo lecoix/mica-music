@@ -235,6 +235,17 @@ object MicaImageLoaders {
             }
         }
 
+    /**
+     * Image-presentation boundary for a decode/open failure.
+     *
+     * Callers only decide whether to retry their presentation request; managed-cache integrity
+     * verification and repair remain owned by the imaging/data pipeline.
+     */
+    suspend fun recoverAfterLoadFailure(context: Context, albumArtUri: String): Boolean =
+        withContext(Dispatchers.IO) {
+            ManagedArtworkRecovery.repairAfterLoadFailure(context.applicationContext, albumArtUri)
+        }
+
     private fun buildCoverRequest(context: Context, albumArtUri: String): ImageRequest =
         ImageRequest.Builder(context)
             .data(albumArtUri)
@@ -261,7 +272,7 @@ object MicaImageLoaders {
         load: suspend () -> Boolean,
     ): Boolean {
         if (load()) return true
-        if (!ManagedArtworkRecovery.repairAfterLoadFailure(context, albumArtUri)) return false
+        if (!recoverAfterLoadFailure(context, albumArtUri)) return false
         return load()
     }
 

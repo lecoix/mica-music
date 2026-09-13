@@ -25,7 +25,6 @@ import coil.request.ImageRequest
 import coil.size.Scale
 import com.mica.music.R
 import com.mica.music.data.CoverDisplayMode
-import com.mica.music.data.scanner.ManagedArtworkRecovery
 import com.mica.music.imaging.CoverDecodeTarget
 import com.mica.music.imaging.MicaImageLoaders
 import com.mica.music.imaging.StandardCoverRequestSpec
@@ -244,7 +243,7 @@ fun SongCover(
                     onImageFailed()
                     val failedUri = albumArtUri
                     recoveryScope.launch {
-                        if (ManagedArtworkRecovery.repairAfterLoadFailure(context, failedUri)) {
+                        if (MicaImageLoaders.recoverAfterLoadFailure(context, failedUri)) {
                             repairRetryGeneration++
                         }
                     }

@@ -1,24 +1,22 @@
-package com.mica.music.ui.theme
+package com.mica.music.imaging
 
 import com.mica.music.data.SongSource
 import com.mica.music.data.scanner.CoverColorExtractor
 import com.mica.music.testutil.SongFixtures
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class RememberCoverColorTest {
+class PlaybackCoverColorResolverTest {
     @Test
     fun samplingDisabledIgnoresProcessCachedColor() {
         val cached = 0xFF123456.toInt()
         val persisted = 0xFFABCDEF.toInt()
 
-        assertNull(cachedPlaybackCoverColorSample(cached, shouldSample = false))
         assertEquals(
             persisted,
-            resolvePlaybackCoverColorArgb(persisted, cached, shouldSample = false),
+            PlaybackCoverColorResolver.resolveArgb(persisted, cached, shouldSample = false),
         )
     }
 
@@ -27,10 +25,9 @@ class RememberCoverColorTest {
         val cached = 0xFF123456.toInt()
         val persisted = CoverColorExtractor.FALLBACK_ARGB
 
-        assertEquals(cached, cachedPlaybackCoverColorSample(cached, shouldSample = true))
         assertEquals(
             cached,
-            resolvePlaybackCoverColorArgb(persisted, cached, shouldSample = true),
+            PlaybackCoverColorResolver.resolveArgb(persisted, cached, shouldSample = true),
         )
     }
 
@@ -42,7 +39,7 @@ class RememberCoverColorTest {
             source = SongSource.LIBRARY,
         )
 
-        assertTrue(shouldPersistPlaybackCoverColorSample(librarySong, shouldSample = true))
+        assertTrue(PlaybackCoverColorResolver.shouldPersistSample(librarySong, shouldSample = true))
     }
 
     @Test
@@ -58,7 +55,7 @@ class RememberCoverColorTest {
             source = SongSource.LIBRARY,
         )
 
-        assertFalse(shouldPersistPlaybackCoverColorSample(remoteSong, shouldSample = true))
-        assertFalse(shouldPersistPlaybackCoverColorSample(validLibrarySong, shouldSample = true))
+        assertFalse(PlaybackCoverColorResolver.shouldPersistSample(remoteSong, shouldSample = true))
+        assertFalse(PlaybackCoverColorResolver.shouldPersistSample(validLibrarySong, shouldSample = true))
     }
 }

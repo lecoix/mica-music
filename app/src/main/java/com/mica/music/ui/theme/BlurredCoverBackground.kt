@@ -34,7 +34,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
-import com.mica.music.data.scanner.ManagedArtworkRecovery
 import com.mica.music.imaging.MicaImageLoaders
 import com.mica.music.util.TrackSwitchPerformance
 import kotlinx.coroutines.launch
@@ -149,7 +148,7 @@ fun BlurredCoverBackground(
                 onError = {
                     val failedUri = albumArtUri
                     recoveryScope.launch {
-                        if (ManagedArtworkRecovery.repairAfterLoadFailure(context, failedUri)) {
+                        if (MicaImageLoaders.recoverAfterLoadFailure(context, failedUri)) {
                             repairRetryGeneration++
                         }
                     }

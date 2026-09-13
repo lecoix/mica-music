@@ -23,7 +23,6 @@ import androidx.compose.ui.viewinterop.AndroidView
 import coil.request.ImageRequest
 import coil.request.SuccessResult
 import coil.size.Scale
-import com.mica.music.data.scanner.ManagedArtworkRecovery
 import com.mica.music.imaging.MicaImageLoaders
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -70,7 +69,7 @@ private suspend fun loadDynamicLightTexture(context: Context, albumArtUri: Strin
             .build()
 
         var result = MicaImageLoaders.background.execute(request())
-        if (result !is SuccessResult && ManagedArtworkRecovery.repairAfterLoadFailure(context, albumArtUri)) {
+        if (result !is SuccessResult && MicaImageLoaders.recoverAfterLoadFailure(context, albumArtUri)) {
             result = MicaImageLoaders.background.execute(request())
         }
         (result as? SuccessResult)?.drawable?.toDynamicLightTexture()

@@ -13,7 +13,6 @@ import com.mica.music.data.StartupBrowseTarget
 import com.mica.music.data.remote.RemotePlayStatsPresentation
 import com.mica.music.data.library.LibraryPlaybackIoSnapshot
 import com.mica.music.data.remote.toPlaybackSong
-import com.mica.music.data.scanner.CoverColorPersistence
 import com.mica.music.playback.asLibraryPlaybackQueueTarget
 import com.mica.music.data.preferences.LibraryBrowseSettings
 import com.mica.music.playback.toLibraryQueueSyncInput
@@ -43,9 +42,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             library.consumeConfirmedMissingFollowup(playlistStore, item, songId)
         },
     )
-    private val coverColorPersistenceSink = CoverColorPersistence.Sink { songId, albumArtUri, argb ->
-        library.applyCoverColorArgb(songId, albumArtUri, argb)
-    }
 
     init {
         library.setPlaybackIoSnapshotProvider {
@@ -74,7 +70,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             library.applyPlayStats(songId, stats)
             remotePlayStatsPresentation.applyLive(songId, stats)
         }
-        CoverColorPersistence.attach(coverColorPersistenceSink)
         viewModelScope.launch {
             remoteCatalogRepository.observeTracksForEnabledSources().collectLatest { tracks ->
                 val mediaIds = tracks.map { it.mediaId }
@@ -135,7 +130,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     override fun onCleared() {
-        CoverColorPersistence.detach(coverColorPersistenceSink)
         playbackStatistics.detachPresentationSink(this)
         library.release()
         super.onCleared()

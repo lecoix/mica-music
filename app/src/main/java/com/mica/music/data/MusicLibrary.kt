@@ -17,6 +17,7 @@ import com.mica.music.data.library.MusicLibraryBacking
 import com.mica.music.data.library.userExclusionStableObjectKey
 import com.mica.music.data.preferences.LibraryScanSettings
 import com.mica.music.data.scanner.AndroidDeviceAutoSyncShadow
+import com.mica.music.data.scanner.CoverColorPersistence
 import com.mica.music.data.scanner.DeviceAutoSyncShadow
 import com.mica.music.data.scanner.NoopDeviceAutoSyncShadow
 import com.mica.music.data.scanner.canPersistCoverColor
@@ -44,6 +45,7 @@ class MusicLibrary internal constructor(
     deviceRetryObservationRuntime: DeviceRetryObservationRuntime =
         NoopDeviceRetryObservationRuntime,
     safShadowProbeRuntime: SafShadowProbeRuntime = NoopSafShadowProbeRuntime,
+    private val ownsCoverColorPersistenceSink: Boolean = false,
 ) {
     private val backing = MusicLibraryBacking(
         context = context,
@@ -69,7 +71,12 @@ class MusicLibrary internal constructor(
         deviceShadowProbeRuntime = AndroidDeviceShadowProbeRuntime(context),
         deviceRetryObservationRuntime = AndroidDeviceRetryObservationRuntime(context),
         safShadowProbeRuntime = AndroidSafShadowProbeRuntime(context),
+        ownsCoverColorPersistenceSink = true,
     )
+
+    private val coverColorPersistenceSink = CoverColorPersistence.Sink { songId, albumArtUri, argb ->
+        applyCoverColorArgb(songId, albumArtUri, argb)
+    }
 
     val songs get() = backing.songs
 
@@ -125,6 +132,9 @@ class MusicLibrary internal constructor(
     val songFastScrollSectionTargets get() = backing.songFastScrollSectionTargets
 
     init {
+        if (ownsCoverColorPersistenceSink) {
+            CoverColorPersistence.attach(coverColorPersistenceSink)
+        }
         backing.folder.reloadLibraryFolderFromPrefs()
         backing.catalog.reloadSortFromPrefs()
         backing.lastScanSource = LibraryScanSettings.lastScanSource(context)
@@ -473,5 +483,10 @@ class MusicLibrary internal constructor(
 
     internal fun onPlaybackIoLeaseChanged() = backing.onPlaybackIoLeaseChanged()
 
-    fun release() = backing.release()
+    fun release() {
+        if (ownsCoverColorPersistenceSink) {
+            CoverColorPersistence.detach(coverColorPersistenceSink)
+        }
+        backing.release()
+    }
 }
