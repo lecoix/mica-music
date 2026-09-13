@@ -14,9 +14,11 @@ import com.mica.music.data.local.CachedLibrary
 import com.mica.music.data.local.LibrarySyncResult
 import com.mica.music.data.scanner.ScanResult
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -30,6 +32,139 @@ import org.robolectric.RobolectricTestRunner
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
 class LibrarySyncSchedulerTest {
+
+    @Test
+    fun eagerDispatcherPublishesActiveJobBeforeExecuteCanReenterScheduler() = runTest {
+        val backing = activeBacking(
+            dispatcher = UnconfinedTestDispatcher(testScheduler),
+        )
+        val executed = mutableListOf<LibraryOperationRequest>()
+        lateinit var scheduler: LibrarySyncScheduler
+        scheduler = testSchedulerOwner(
+            backing = backing,
+            timing = LibrarySyncSchedulerTiming(0L, 0L, 0L),
+        ) { operation ->
+            executed += operation.request
+            if (executed.size == 1) {
+                scheduler.submit(
+                    LibraryOperationRequest.TargetedRefresh(
+                        songIds = setOf("reentrant"),
+                        cause = LibraryOperationCause.TAG_EDITOR_RETURN,
+                    ),
+                )
+            }
+        }
+
+        scheduler.submit(LibraryOperationRequest.ScanDeviceWide)
+
+        assertEquals(2, executed.size)
+        assertEquals(LibraryOperationRequest.ScanDeviceWide, executed[0])
+        assertEquals(
+            LibraryOperationRequest.TargetedRefresh(
+                songIds = setOf("reentrant"),
+                cause = LibraryOperationCause.TAG_EDITOR_RETURN,
+            ),
+            executed[1],
+        )
+        assertEquals(null, backing.scanJob)
+
+        backing.release()
+    }
+
+    @Test
+    fun failedAutoPassRequeuesConsumedBatchAndRetriesAfterBackoff() = runTest {
+        val backing = activeBacking()
+        val executed = mutableListOf<ScheduledLibraryOperation>()
+        var attempts = 0
+        val scheduler = testSchedulerOwner(
+            backing = backing,
+            timing = LibrarySyncSchedulerTiming(
+                debounceMs = 0L,
+                cooldownMs = 0L,
+                maxDebounceMs = 0L,
+                failureRetryBaseMs = 100L,
+                failureRetryMaxMs = 400L,
+            ),
+        ) { operation ->
+            executed += operation
+            attempts++
+            if (attempts == 1) error("synthetic auto failure")
+        }
+
+        scheduler.markDirty(
+            cause = LibraryOperationCause.MEDIASTORE_AUDIO_DIRTY,
+            mediaStoreUriHint = "content://media/external/audio/media/42",
+        )
+        runCurrent()
+
+        assertEquals(1, executed.size)
+        assertTrue(scheduler.pendingDirty)
+
+        advanceTimeBy(99L)
+        runCurrent()
+        assertEquals(1, executed.size)
+
+        advanceTimeBy(1L)
+        runCurrent()
+
+        assertEquals(2, executed.size)
+        val retry = executed[1].request as LibraryOperationRequest.AutoSync
+        assertEquals(LibraryOperationCause.MEDIASTORE_AUDIO_DIRTY, retry.cause)
+        assertEquals(
+            setOf("content://media/external/audio/media/42"),
+            retry.mediaStoreUriHints,
+        )
+        assertEquals(
+            setOf(LibraryOperationCause.MEDIASTORE_AUDIO_DIRTY),
+            retry.coalescedCauses,
+        )
+        assertEquals(AutoSyncWakeReason.FAILURE_RETRY, scheduler.lastAutoShadowDiagnostic?.wakeReason)
+        assertFalse(scheduler.pendingDirty)
+
+        backing.release()
+        runCurrent()
+    }
+
+    @Test
+    fun cancelledAutoPassDoesNotReviveConsumedDirtyAfterExplicitFullScan() = runTest {
+        val backing = activeBacking()
+        val autoGate = CompletableDeferred<Unit>()
+        val executed = mutableListOf<LibraryOperationRequest>()
+        val scheduler = testSchedulerOwner(
+            backing = backing,
+            timing = LibrarySyncSchedulerTiming(
+                debounceMs = 0L,
+                cooldownMs = 0L,
+                maxDebounceMs = 0L,
+                failureRetryBaseMs = 100L,
+                failureRetryMaxMs = 400L,
+            ),
+        ) { operation ->
+            executed += operation.request
+            if (operation.request is LibraryOperationRequest.AutoSync) {
+                autoGate.await()
+            }
+        }
+
+        scheduler.markDirty(LibraryOperationCause.MEDIASTORE_AUDIO_DIRTY)
+        runCurrent()
+        assertEquals(1, executed.size)
+
+        scheduler.submit(LibraryOperationRequest.ScanDeviceWide)
+        runCurrent()
+
+        assertEquals(2, executed.size)
+        assertTrue(executed[0] is LibraryOperationRequest.AutoSync)
+        assertEquals(LibraryOperationRequest.ScanDeviceWide, executed[1])
+        assertFalse(scheduler.pendingDirty)
+
+        advanceTimeBy(1_000L)
+        runCurrent()
+        assertEquals(2, executed.size)
+
+        backing.release()
+        runCurrent()
+    }
 
     @Test
     fun continuationGetsTwoTurnsThenArtworkGetsBoundedTurn() = runTest {
@@ -1003,8 +1138,8 @@ class LibrarySyncSchedulerTest {
 
     private fun TestScope.activeBacking(
         sourceIdentity: SourceIdentityKey = SourceIdentityKey.device(),
+        dispatcher: CoroutineDispatcher = StandardTestDispatcher(testScheduler),
     ): MusicLibraryBacking {
-        val dispatcher = StandardTestDispatcher(testScheduler)
         return MusicLibraryBacking(
             context = ApplicationProvider.getApplicationContext(),
             libraryScanner = NoopScanner,

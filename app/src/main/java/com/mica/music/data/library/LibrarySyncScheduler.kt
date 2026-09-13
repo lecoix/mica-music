@@ -4,6 +4,8 @@ import android.os.SystemClock
 import com.mica.music.data.AlbumArtRepairPlan
 import com.mica.music.data.ScanSource
 import com.mica.music.util.DiagnosticLog
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -12,11 +14,15 @@ internal data class LibrarySyncSchedulerTiming(
     val debounceMs: Long = 1_500L,
     val cooldownMs: Long = 60_000L,
     val maxDebounceMs: Long = 5_000L,
+    val failureRetryBaseMs: Long = 5_000L,
+    val failureRetryMaxMs: Long = 60_000L,
 ) {
     init {
         require(debounceMs >= 0L)
         require(cooldownMs >= 0L)
         require(maxDebounceMs >= debounceMs)
+        require(failureRetryBaseMs >= 0L)
+        require(failureRetryMaxMs >= failureRetryBaseMs)
     }
 }
 
@@ -30,7 +36,20 @@ internal enum class AutoSyncWakeReason {
     FOREGROUND_CATCH_UP,
     IN_PASS_FOLLOW_UP,
     RETRY_DUE,
+    FAILURE_RETRY,
 }
+
+private enum class LibraryOperationCompletion {
+    SUCCESS,
+    FAILED,
+    CANCELLED,
+}
+
+private data class ActiveAutoBatch(
+    val request: LibraryOperationRequest.AutoSync,
+    val eventCount: Int,
+    val causeCounts: Map<LibraryOperationCause, Int>,
+)
 
 internal data class AutoSyncShadowDiagnostic(
     val requestSequence: Long,
@@ -57,6 +76,7 @@ internal class LibrarySyncScheduler(
     private var activeSequence: Long = 0L
     private var activeOperation: ScheduledLibraryOperation? = null
     private var activeAutoWakeReason: AutoSyncWakeReason? = null
+    private var activeAutoBatch: ActiveAutoBatch? = null
     private var requestSequence: Long = 0L
 
     private var pendingFull: LibraryOperationRequest? = null
@@ -80,6 +100,8 @@ internal class LibrarySyncScheduler(
     private val pendingMediaStoreUriHints = linkedSetOf<String>()
     private var pendingMediaStoreHintIncomplete: Boolean = false
     private var nextAllowedAutoSyncAtMs: Long = 0L
+    private var consecutiveAutoFailures: Int = 0
+    private var nextAutoFailureRetryAtMs: Long = 0L
 
     @Volatile
     var lastAutoShadowDiagnostic: AutoSyncShadowDiagnostic? = null
@@ -305,6 +327,8 @@ internal class LibrarySyncScheduler(
             pendingMediaStoreHintIncomplete = false
             dirtyBurstStartedAtMs = null
             lastDirtyAtMs = null
+            consecutiveAutoFailures = 0
+            nextAutoFailureRetryAtMs = 0L
             cancelWakeLocked()
         }
     }
@@ -333,6 +357,8 @@ internal class LibrarySyncScheduler(
             dirtyBurstStartedAtMs = null
             lastDirtyAtMs = null
             nextAllowedAutoSyncAtMs = 0L
+            consecutiveAutoFailures = 0
+            nextAutoFailureRetryAtMs = 0L
             cancelWakeLocked()
             cancelRetryWakeLocked()
             activeJob?.cancel()
@@ -427,7 +453,7 @@ internal class LibrarySyncScheduler(
     private fun computeDirtyDueAtLocked(now: Long): Long {
         val burstStart = dirtyBurstStartedAtMs ?: now.also { dirtyBurstStartedAtMs = it }
         val lastDirty = lastDirtyAtMs ?: burstStart.also { lastDirtyAtMs = it }
-        return AutoSyncWakePolicy.dueAtMs(
+        val policyDueAt = AutoSyncWakePolicy.dueAtMs(
             timing = effectiveAutoTimingLocked(),
             burstStartedAtMs = burstStart,
             lastDirtyAtMs = lastDirty,
@@ -435,6 +461,7 @@ internal class LibrarySyncScheduler(
             usesCooldown = pendingAutoUsesCooldownLocked(),
             bypassDebounce = pendingAutoBypassesDebounceLocked(),
         )
+        return maxOf(policyDueAt, nextAutoFailureRetryAtMs)
     }
 
     private fun pendingAutoUsesCooldownLocked(): Boolean =
@@ -463,6 +490,17 @@ internal class LibrarySyncScheduler(
         val now = nowMs()
         val burstStart = dirtyBurstStartedAtMs ?: now
         val lastDirty = lastDirtyAtMs ?: burstStart
+        val policyDueAt = AutoSyncWakePolicy.dueAtMs(
+            timing = effectiveAutoTimingLocked(),
+            burstStartedAtMs = burstStart,
+            lastDirtyAtMs = lastDirty,
+            nextAllowedAutoSyncAtMs = nextAllowedAutoSyncAtMs,
+            usesCooldown = pendingAutoUsesCooldownLocked(),
+            bypassDebounce = pendingAutoBypassesDebounceLocked(),
+        )
+        if (nextAutoFailureRetryAtMs > policyDueAt) {
+            return AutoSyncWakeReason.FAILURE_RETRY
+        }
         return AutoSyncWakePolicy.wakeReason(
             timing = effectiveAutoTimingLocked(),
             burstStartedAtMs = burstStart,
@@ -514,17 +552,26 @@ internal class LibrarySyncScheduler(
         dirtyBurstStartedAtMs = null
         lastDirtyAtMs = null
         cancelWakeLocked()
+        val request = LibraryOperationRequest.AutoSync(
+            cause = cause,
+            coalescedCauses = causeCounts.keys + cause,
+            mediaStoreUriHints = mediaStoreUriHints,
+            mediaStoreHintIncomplete = mediaStoreHintIncomplete,
+        )
         launchRequestLocked(
-            LibraryOperationRequest.AutoSync(
-                cause = cause,
-                coalescedCauses = causeCounts.keys + cause,
-                mediaStoreUriHints = mediaStoreUriHints,
-                mediaStoreHintIncomplete = mediaStoreHintIncomplete,
+            request = request,
+            autoBatch = ActiveAutoBatch(
+                request = request,
+                eventCount = eventCount,
+                causeCounts = causeCounts,
             ),
         )
     }
 
-    private fun launchRequestLocked(request: LibraryOperationRequest) {
+    private fun launchRequestLocked(
+        request: LibraryOperationRequest,
+        autoBatch: ActiveAutoBatch? = null,
+    ) {
         val sequence = ++requestSequence
         activeSequence = sequence
         val scheduled = ScheduledLibraryOperation(
@@ -533,25 +580,46 @@ internal class LibrarySyncScheduler(
             dirtySequenceAtStart = dirtySequence,
         )
         activeOperation = scheduled
-        val job = backing.scanScope.launch {
+        activeAutoBatch = autoBatch
+        var completion = LibraryOperationCompletion.SUCCESS
+        val job = backing.scanScope.launch(start = CoroutineStart.LAZY) {
             try {
                 execute(scheduled)
+            } catch (cancelled: CancellationException) {
+                completion = LibraryOperationCompletion.CANCELLED
+                throw cancelled
+            } catch (error: Exception) {
+                completion = LibraryOperationCompletion.FAILED
+                DiagnosticLog.event(
+                    "LibraryAutoSync",
+                    "operation failed request=$sequence mode=${request.mode} cause=${request.cause}",
+                    error,
+                )
+                if (request.mode != LibraryOperationMode.AUTO_SYNC) {
+                    throw error
+                }
             } finally {
-                onFinished(sequence)
+                onFinished(sequence, completion)
             }
         }
         activeJob = job
         backing.scanJob = job
+        job.start()
     }
 
-    private fun onFinished(sequence: Long) {
+    private fun onFinished(
+        sequence: Long,
+        completion: LibraryOperationCompletion,
+    ) {
         synchronized(stateLock) {
             if (activeSequence != sequence) return
             val finished = activeOperation
             val finishedAutoWakeReason = activeAutoWakeReason
+            val finishedAutoBatch = activeAutoBatch
             activeJob = null
             activeOperation = null
             activeAutoWakeReason = null
+            activeAutoBatch = null
             backing.scanJob = null
 
             val now = nowMs()
@@ -559,17 +627,32 @@ internal class LibrarySyncScheduler(
                 dirtySequence > finished.dirtySequenceAtStart
 
             if (finished?.request?.mode == LibraryOperationMode.AUTO_SYNC) {
+                when (completion) {
+                    LibraryOperationCompletion.SUCCESS -> {
+                        consecutiveAutoFailures = 0
+                        nextAutoFailureRetryAtMs = 0L
+                    }
+                    LibraryOperationCompletion.FAILED -> {
+                        finishedAutoBatch?.let { requeueFailedAutoLocked(it) }
+                        scheduleAutoFailureRetryLocked(now)
+                    }
+                    LibraryOperationCompletion.CANCELLED -> Unit
+                }
+
                 if (autoHadNewDirty || pendingDirty) {
-                    // Anything arriving during the pass gets one immediate follow-up, bypassing the
-                    // normal cooldown/debounce. The next pass snapshots the newer dirtySequence.
+                    // Anything arriving during the pass is retained. Successful passes may get one
+                    // immediate follow-up; failed passes re-enter through bounded failure backoff.
                     pendingDirty = true
                     if (pendingAutoCause == null) {
                         pendingAutoCause = finished.request.cause
                     }
                     dirtyBurstStartedAtMs = dirtyBurstStartedAtMs ?: now
                     lastDirtyAtMs = lastDirtyAtMs ?: now
-                } else {
+                } else if (completion == LibraryOperationCompletion.SUCCESS) {
                     nextAllowedAutoSyncAtMs = now + timing.cooldownMs
+                    dirtyBurstStartedAtMs = null
+                    lastDirtyAtMs = null
+                } else {
                     dirtyBurstStartedAtMs = null
                     lastDirtyAtMs = null
                 }
@@ -588,6 +671,7 @@ internal class LibrarySyncScheduler(
 
             if (
                 autoHadNewDirty &&
+                completion == LibraryOperationCompletion.SUCCESS &&
                 pendingDirty &&
                 autoEligibleLocked() &&
                 finishedAutoWakeReason != AutoSyncWakeReason.IN_PASS_FOLLOW_UP
@@ -601,6 +685,42 @@ internal class LibrarySyncScheduler(
                 startNextLocked()
             }
         }
+    }
+
+    private fun requeueFailedAutoLocked(batch: ActiveAutoBatch) {
+        pendingDirty = true
+        if (pendingAutoCause == null) {
+            pendingAutoCause = batch.request.cause
+        }
+        pendingAutoEventCount += batch.eventCount
+        batch.causeCounts.forEach { (cause, count) ->
+            pendingAutoCauseCounts[cause] = (pendingAutoCauseCounts[cause] ?: 0) + count
+        }
+        batch.request.mediaStoreUriHints.forEach { hint ->
+            when {
+                hint in pendingMediaStoreUriHints -> Unit
+                pendingMediaStoreUriHints.size < MAX_MEDIASTORE_URI_HINTS ->
+                    pendingMediaStoreUriHints += hint
+                else -> pendingMediaStoreHintIncomplete = true
+            }
+        }
+        pendingMediaStoreHintIncomplete =
+            pendingMediaStoreHintIncomplete || batch.request.mediaStoreHintIncomplete
+    }
+
+    private fun scheduleAutoFailureRetryLocked(now: Long) {
+        consecutiveAutoFailures = (consecutiveAutoFailures + 1).coerceAtMost(31)
+        var delayMs = timing.failureRetryBaseMs
+        repeat((consecutiveAutoFailures - 1).coerceAtMost(30)) {
+            delayMs = if (delayMs >= timing.failureRetryMaxMs / 2L) {
+                timing.failureRetryMaxMs
+            } else {
+                (delayMs * 2L).coerceAtMost(timing.failureRetryMaxMs)
+            }
+        }
+        nextAutoFailureRetryAtMs = AutoSyncWakePolicy.safeAdd(now, delayMs)
+        dirtyBurstStartedAtMs = dirtyBurstStartedAtMs ?: now
+        lastDirtyAtMs = lastDirtyAtMs ?: now
     }
 
     private fun cancelWakeLocked() {

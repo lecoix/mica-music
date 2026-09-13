@@ -1,6 +1,8 @@
 package com.mica.music.data
 
 import android.content.Context
+import com.mica.music.util.DiagnosticLog
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -35,15 +37,39 @@ class PlaybackStatisticsRepository(
     init {
         scope.launch {
             for (mutation in mutations) {
-                val stats = when (mutation) {
-                    is Mutation.PlayStarted -> PlayHistoryStore.recordPlay(appContext, mutation.songId)
-                    is Mutation.ListenSeconds -> PlayHistoryStore.recordListenSeconds(
-                        appContext,
-                        mutation.songId,
-                        mutation.seconds,
+                val stats = try {
+                    when (mutation) {
+                        is Mutation.PlayStarted -> PlayHistoryStore.recordPlay(appContext, mutation.songId)
+                        is Mutation.ListenSeconds -> PlayHistoryStore.recordListenSeconds(
+                            appContext,
+                            mutation.songId,
+                            mutation.seconds,
+                        )
+                    }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    DiagnosticLog.event(
+                        "PlaybackStats",
+                        "persistence failed song=${mutation.songId} type=${mutation::class.simpleName}",
+                        error,
+                    )
+                    continue
+                }
+
+                try {
+                    notifyPresentation(mutation.songId, stats)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    // Presentation is best-effort. A Compose/ViewModel callback must never kill the
+                    // process-lifetime persistence writer or strand future UNLIMITED channel items.
+                    DiagnosticLog.event(
+                        "PlaybackStats",
+                        "presentation failed song=${mutation.songId}",
+                        error,
                     )
                 }
-                notifyPresentation(mutation.songId, stats)
             }
         }
     }

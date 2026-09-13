@@ -1,6 +1,8 @@
 package com.mica.music.data
 
 import android.content.Context
+import android.content.ContextWrapper
+import android.content.SharedPreferences
 import androidx.test.core.app.ApplicationProvider
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
@@ -110,6 +112,59 @@ class PlaybackStatisticsRepositoryTest {
         advanceUntilIdle()
 
         assertEquals(1, PlayHistoryStore.getStats(context, "song-d").count)
+    }
+
+    @Test
+    fun throwingPresentationSinkDoesNotKillPersistenceWriter() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repo = PlaybackStatisticsRepository(
+            context = context,
+            ioDispatcher = dispatcher,
+            mainDispatcher = dispatcher,
+        )
+        val token = Any()
+        val callbacks = AtomicInteger(0)
+        repo.attachPresentationSink(token) { _, _ ->
+            if (callbacks.incrementAndGet() == 1) {
+                error("synthetic presentation failure")
+            }
+        }
+
+        repo.recordPlay("writer-survives-a")
+        repo.recordPlay("writer-survives-b")
+        advanceUntilIdle()
+
+        assertEquals(2, callbacks.get())
+        assertEquals(1, PlayHistoryStore.getStats(context, "writer-survives-a").count)
+        assertEquals(1, PlayHistoryStore.getStats(context, "writer-survives-b").count)
+    }
+
+    @Test
+    fun persistenceFailureDoesNotKillWriterForLaterMutations() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val sharedPreferencesCalls = AtomicInteger(0)
+        val flakyContext = object : ContextWrapper(context) {
+            override fun getApplicationContext(): Context = this
+
+            override fun getSharedPreferences(name: String, mode: Int): SharedPreferences {
+                if (name == "mica_play_counts" && sharedPreferencesCalls.getAndIncrement() == 0) {
+                    error("synthetic persistence failure")
+                }
+                return context.getSharedPreferences(name, mode)
+            }
+        }
+        val repo = PlaybackStatisticsRepository(
+            context = flakyContext,
+            ioDispatcher = dispatcher,
+            mainDispatcher = dispatcher,
+        )
+
+        repo.recordPlay("writer-fails-once")
+        repo.recordPlay("writer-recovers")
+        advanceUntilIdle()
+
+        assertEquals(0, PlayHistoryStore.getStats(context, "writer-fails-once").count)
+        assertEquals(1, PlayHistoryStore.getStats(context, "writer-recovers").count)
     }
 
     @Test
