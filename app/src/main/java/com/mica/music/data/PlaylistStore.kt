@@ -387,28 +387,20 @@ class PlaylistStore(
         awaitReady()
         return mutationMutex.withLock {
             mutationGeneration.incrementAndGet()
-            val current = withContext(Dispatchers.IO) { repository.loadSnapshot() }
+            // The repository verifies, removes, acknowledges and reads the resulting snapshot in one
+            // Room transaction. Obsolete/rejected/already-consumed events therefore cost no full
+            // playlist read, which matters when a mass deletion drains thousands of events.
             val outcome = withContext(Dispatchers.IO) {
                 repository.consumeConfirmedMissingFollowup(item, songId)
             }
-            val published = if (
+            val applied =
                 outcome.disposition == PlaylistFollowupDisposition.APPLIED &&
-                outcome.playlistRevision != null
-            ) {
-                current.playlists.map { playlist ->
-                    if (songId !in playlist.songIds) playlist
-                    else playlist.copy(
-                        songIds = playlist.songIds.filterNot { it == songId },
-                        coverSongId = playlist.coverSongId.takeUnless { it == songId },
-                    )
-                }
-            } else {
-                null
-            }
+                    outcome.playlistRevision != null &&
+                    outcome.playlists != null
             PlaylistFollowupStoreCommit(
                 acknowledged = outcome.acknowledged,
-                playlists = published,
-                expectedRevision = outcome.playlistRevision,
+                playlists = if (applied) outcome.playlists else null,
+                expectedRevision = if (applied) outcome.playlistRevision else null,
             )
         }
     }

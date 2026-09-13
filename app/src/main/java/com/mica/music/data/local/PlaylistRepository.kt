@@ -156,10 +156,14 @@ internal class PlaylistRepository(
         dao.removeSongEverywhere(songId)
         val playlistRevision = bumpRevisionInTransaction()
         followupDao.deleteById(persisted.eventId)
+        // Read the post-removal snapshot inside the same transaction so the in-memory publication
+        // is by construction the durable state at [playlistRevision]. Non-APPLIED outcomes never
+        // pay for a full playlist read.
         PlaylistFollowupConsumeOutcome(
             acknowledged = true,
             disposition = PlaylistFollowupDisposition.APPLIED,
             playlistRevision = playlistRevision,
+            playlists = loadPlaylistsInTransaction(),
         )
     }
 
@@ -221,6 +225,8 @@ internal data class PlaylistFollowupConsumeOutcome(
     val acknowledged: Boolean,
     val disposition: PlaylistFollowupDisposition,
     val playlistRevision: Long?,
+    /** Durable playlists at [playlistRevision]; only present when the disposition is APPLIED. */
+    val playlists: List<UserPlaylist>? = null,
 )
 
 private fun UserPlaylist.toEntity(position: Int): PlaylistEntity = PlaylistEntity(
