@@ -7,36 +7,23 @@ import com.mica.music.data.playback.ServicePlaybackStateStore
 import com.mica.music.audio.AudioQualityMode
 
 import android.Manifest
-import android.annotation.SuppressLint
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
-import android.content.pm.ServiceInfo
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
-import androidx.core.app.NotificationCompat
-import androidx.core.app.ServiceCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.ShuffleOrder
-import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
-import androidx.media3.session.SessionError
-import androidx.media3.session.SessionResult
-import com.google.common.util.concurrent.Futures
-import com.google.common.util.concurrent.ListenableFuture
-import com.google.common.util.concurrent.SettableFuture
 import com.mica.music.MainActivity
 import com.mica.music.MicaApp
-import com.mica.music.R
 import com.mica.music.isExternalAudioUriRestorableNow
 import com.mica.music.data.TransientPlaybackCatalog
 import com.mica.music.data.ReplayGainMode
@@ -76,11 +63,9 @@ import kotlinx.coroutines.launch
 class MicaMediaService : MediaSessionService() {
 
     companion object {
-        const val ACTION_WIDGET_PREVIOUS = "com.mica.music.action.WIDGET_PREVIOUS"
-        const val ACTION_WIDGET_PLAY_PAUSE = "com.mica.music.action.WIDGET_PLAY_PAUSE"
-        const val ACTION_WIDGET_NEXT = "com.mica.music.action.WIDGET_NEXT"
-
-        private const val WIDGET_RESTORE_TIMEOUT_MS = 10_000L
+        const val ACTION_WIDGET_PREVIOUS = PlaybackWidgetCommandCoordinator.ACTION_PREVIOUS
+        const val ACTION_WIDGET_PLAY_PAUSE = PlaybackWidgetCommandCoordinator.ACTION_PLAY_PAUSE
+        const val ACTION_WIDGET_NEXT = PlaybackWidgetCommandCoordinator.ACTION_NEXT
     }
 
     private var mediaSession: MediaSession? = null
@@ -123,18 +108,7 @@ class MicaMediaService : MediaSessionService() {
     private var usbBootstrapHandoff: PlaybackStackHandoff? = null
     private var sharedServiceQueueRestoreInFlight = false
     private var sharedServiceQueueRestoreFinished = false
-    private var pendingWidgetAction: String? = null
-    private var pendingWidgetStartId: Int = 0
-    private var temporaryWidgetForegroundActive = false
-    private val pendingWidgetActionTimeout = Runnable {
-        if (pendingWidgetAction == null) return@Runnable
-        DiagnosticLog.important(
-            "PlaybackWidget",
-            "cold-command-timeout action=$pendingWidgetAction items=${compositePlayer?.mediaItemCount ?: 0}",
-        )
-        pendingWidgetAction = null
-        finishTemporaryWidgetForegroundIfIdle(pendingWidgetStartId)
-    }
+    private lateinit var widgetCommandCoordinator: PlaybackWidgetCommandCoordinator
     @Volatile
     private var usbOutputDestroyed: Boolean = false
 
@@ -147,6 +121,17 @@ class MicaMediaService : MediaSessionService() {
             initialRequested = PlaybackUiPreferences.musicVideoEnabled(this),
         )
         sessionScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        widgetCommandCoordinator = PlaybackWidgetCommandCoordinator(
+            service = this,
+            mainHandler = mainHandler,
+            playerProvider = { compositePlayer },
+            sessionActivityPendingIntent = ::createSessionActivityPendingIntent,
+            restoreExhausted = {
+                UsbHybridPreferences.outputMode(this) == UsbHybridOutputMode.SharedPcm &&
+                    sharedServiceQueueRestoreFinished &&
+                    !sharedServiceQueueRestoreInFlight
+            },
+        )
         val libraryRepository = LibraryRepository(this)
         val remoteMediaItemProvider = TrustedRemoteMediaItemProvider(micaApp.remoteCatalogRepository)
         trustedMediaItemResolver = TrustedMediaItemResolver(
@@ -262,8 +247,8 @@ class MicaMediaService : MediaSessionService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         intent?.action
-            ?.takeIf(::isWidgetPlaybackAction)
-            ?.let { action -> handleWidgetPlaybackAction(action, startId) }
+            ?.takeIf(widgetCommandCoordinator::isPlaybackAction)
+            ?.let(widgetCommandCoordinator::handle)
         return super.onStartCommand(intent, flags, startId)
     }
 
@@ -279,135 +264,6 @@ class MicaMediaService : MediaSessionService() {
         }
     }
 
-    private fun isWidgetPlaybackAction(action: String): Boolean = when (action) {
-        ACTION_WIDGET_PREVIOUS,
-        ACTION_WIDGET_PLAY_PAUSE,
-        ACTION_WIDGET_NEXT -> true
-        else -> false
-    }
-
-    private fun handleWidgetPlaybackAction(action: String, startId: Int) {
-        startTemporaryWidgetForegroundIfNeeded()
-        val player = compositePlayer
-        if (player == null) {
-            finishTemporaryWidgetForegroundIfIdle(startId)
-            return
-        }
-        if (player.mediaItemCount == 0) {
-            pendingWidgetAction = action
-            pendingWidgetStartId = startId
-            mainHandler.removeCallbacks(pendingWidgetActionTimeout)
-            mainHandler.postDelayed(pendingWidgetActionTimeout, WIDGET_RESTORE_TIMEOUT_MS)
-            if (
-                UsbHybridPreferences.outputMode(this) == UsbHybridOutputMode.SharedPcm &&
-                sharedServiceQueueRestoreFinished &&
-                !sharedServiceQueueRestoreInFlight
-            ) {
-                failPendingWidgetAction("no-restorable-queue")
-            } else {
-            }
-            return
-        }
-        executeWidgetPlaybackAction(player, action)
-        finishTemporaryWidgetForegroundIfIdle(startId)
-    }
-
-    private fun executeWidgetPlaybackAction(player: MicaCompositePlayer, action: String) {
-        when (action) {
-            ACTION_WIDGET_PREVIOUS -> player.seekToPreviousMediaItem()
-            ACTION_WIDGET_PLAY_PAUSE -> {
-                if (player.playWhenReady) {
-                    player.pause()
-                } else {
-                    if (player.playbackState == Player.STATE_IDLE) player.prepare()
-                    player.play()
-                }
-            }
-            ACTION_WIDGET_NEXT -> player.seekToNextMediaItem()
-            else -> return
-        }
-    }
-
-    private fun drainPendingWidgetAction() {
-        val action = pendingWidgetAction ?: return
-        val startId = pendingWidgetStartId
-        val player = compositePlayer ?: return
-        if (player.mediaItemCount == 0) return
-        pendingWidgetAction = null
-        mainHandler.removeCallbacks(pendingWidgetActionTimeout)
-        executeWidgetPlaybackAction(player, action)
-        finishTemporaryWidgetForegroundIfIdle(startId)
-    }
-
-    private fun failPendingWidgetAction(reason: String) {
-        val action = pendingWidgetAction ?: return
-        val startId = pendingWidgetStartId
-        pendingWidgetAction = null
-        mainHandler.removeCallbacks(pendingWidgetActionTimeout)
-        DiagnosticLog.important(
-            "PlaybackWidget",
-            "cold-command-dropped action=$action reason=$reason",
-        )
-        finishTemporaryWidgetForegroundIfIdle(startId)
-    }
-
-    // The merged manifest declares mediaPlayback plus its Android 14 permission; lint cannot
-    // associate this ServiceCompat call with that MediaSessionService declaration.
-    @SuppressLint("ForegroundServiceType")
-    private fun startTemporaryWidgetForegroundIfNeeded() {
-        if (temporaryWidgetForegroundActive || compositePlayer?.playWhenReady == true) return
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val manager = getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(
-                NotificationChannel(
-                    DefaultMediaNotificationProvider.DEFAULT_CHANNEL_ID,
-                    getString(R.string.app_name),
-                    NotificationManager.IMPORTANCE_LOW,
-                ).apply {
-                    setShowBadge(false)
-                    setSound(null, null)
-                },
-            )
-        }
-        val notification = NotificationCompat.Builder(
-            this,
-            DefaultMediaNotificationProvider.DEFAULT_CHANNEL_ID,
-        )
-            .setSmallIcon(R.drawable.ic_widget_music)
-            .setContentTitle(getString(R.string.app_name))
-            .setContentIntent(createSessionActivityPendingIntent())
-            .setCategory(NotificationCompat.CATEGORY_TRANSPORT)
-            .setOnlyAlertOnce(true)
-            .setOngoing(true)
-            .setSilent(true)
-            .build()
-        runCatching {
-            ServiceCompat.startForeground(
-                this,
-                DefaultMediaNotificationProvider.DEFAULT_NOTIFICATION_ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK,
-            )
-        }.onSuccess {
-            temporaryWidgetForegroundActive = true
-        }.onFailure { error ->
-            DiagnosticLog.event(
-                "PlaybackWidget",
-                "temporary-foreground-failed error=${error.javaClass.simpleName}",
-                error,
-            )
-        }
-    }
-
-    private fun finishTemporaryWidgetForegroundIfIdle(startId: Int) {
-        if (!temporaryWidgetForegroundActive) return
-        if (compositePlayer?.playWhenReady == true) {
-            return
-        }
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        temporaryWidgetForegroundActive = false
-    }
-
     private fun restoreSharedServiceQueueIfNeeded(
         stack: ExoPlaybackStack,
         libraryRepository: LibraryRepository,
@@ -421,7 +277,7 @@ class MicaMediaService : MediaSessionService() {
         val snapshot = ServicePlaybackStateStore(this).load()
         if (snapshot == null || snapshot.queueSongIds.isEmpty()) {
             sharedServiceQueueRestoreFinished = true
-            failPendingWidgetAction("missing-snapshot")
+            widgetCommandCoordinator.fail("missing-snapshot")
             return
         }
         sharedServiceQueueRestoreInFlight = true
@@ -447,13 +303,13 @@ class MicaMediaService : MediaSessionService() {
                     )
                 }
                 if (stack.compositePlayer.mediaItemCount == 0) {
-                    failPendingWidgetAction("bootstrap-empty")
+                    widgetCommandCoordinator.fail("bootstrap-empty")
                 }
             }
         } ?: run {
             sharedServiceQueueRestoreInFlight = false
             sharedServiceQueueRestoreFinished = true
-            failPendingWidgetAction("scope-unavailable")
+            widgetCommandCoordinator.fail("scope-unavailable")
         }
     }
 
@@ -754,7 +610,7 @@ class MicaMediaService : MediaSessionService() {
                     if (handoff?.playWhenReady == true) {
                         stack.compositePlayer.playWhenReady = true
                     }
-                    drainPendingWidgetAction()
+                    widgetCommandCoordinator.drain()
                 }
             }
             coordinator.start()
@@ -870,9 +726,9 @@ class MicaMediaService : MediaSessionService() {
     }
 
     override fun onDestroy() {
-        mainHandler.removeCallbacks(pendingWidgetActionTimeout)
-        pendingWidgetAction = null
-        temporaryWidgetForegroundActive = false
+        if (::widgetCommandCoordinator.isInitialized) {
+            widgetCommandCoordinator.release()
+        }
         usbOutputDestroyed = true
         usbOutputCoordinator?.close()
         playbackRouteMonitor?.release()
@@ -906,224 +762,16 @@ class MicaMediaService : MediaSessionService() {
     }
 
     private fun createMediaSessionCallback(): MediaSession.Callback =
-        object : MediaSession.Callback {
-            override fun onConnect(
-                session: MediaSession,
-                controller: MediaSession.ControllerInfo,
-            ): MediaSession.ConnectionResult {
-                val identity = controllerIdentity(controller)
-                val capabilities = ControllerCapabilityPolicy.evaluate(identity, packageName)
-                DiagnosticLog.event(
-                    "MediaSession",
-                    "controller-connect package=${identity.packageName} uid=${identity.uid} " +
-                        "trusted=${identity.isTrusted} version=${identity.controllerVersion} " +
-                        "class=${capabilities.controllerClass} " +
-                        "hints=${identity.connectionHintKeys.sorted().joinToString(",")}",
-                )
-
-                // Media3's default callback preserves its standard trusted/untrusted player
-                // command rules. Mica-specific capabilities are handled below and are explicit.
-                val defaultResult = super.onConnect(session, controller)
-                if (!controller.isTrusted && controller.packageName != packageName) {
-                    return defaultResult.also {
-                        grantArtworkUriPermissions(
-                            targetPackage = controller.packageName,
-                            mediaItems = session.player.timelineMediaItems(),
-                        )
-                    }
-                }
-                val availableSessionCommands = defaultResult.availableSessionCommands
-                    .buildUpon()
-                    .add(ExternalLyricsSessionCommands.toggleDesktopLyrics)
-                    .add(ExternalLyricsSessionCommands.toggleDesktopLock)
-                    .add(PlaybackShuffleSessionCommand.command)
-                    .build()
-                return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
-                    .setAvailablePlayerCommands(defaultResult.availablePlayerCommands)
-                    .setAvailableSessionCommands(availableSessionCommands)
-                    .setMediaButtonPreferences(
-                        ExternalLyricsSessionCommands.mediaButtonPreferences(
-                            context = this@MicaMediaService,
-                            overlayAvailable = externalLyricsOverlayControl.canDrawOverlays(),
-                        ),
-                    )
-                    .build().also {
-                    grantArtworkUriPermissions(
-                        targetPackage = controller.packageName,
-                        mediaItems = session.player.timelineMediaItems(),
-                    )
-                }
-            }
-
-            override fun onCustomCommand(
-                session: MediaSession,
-                controller: MediaSession.ControllerInfo,
-                customCommand: androidx.media3.session.SessionCommand,
-                args: Bundle,
-            ): ListenableFuture<SessionResult> {
-                val identity = controllerIdentity(controller)
-                PlaybackShuffleSessionCommand.decode(customCommand, args)?.let { request ->
-                    if (identity.packageName != packageName) {
-                        return Futures.immediateFuture(SessionResult(SessionError.ERROR_NOT_SUPPORTED))
-                    }
-                    mainHandler.post { applyAppShuffleRequest(request) }
-                    return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
-                }
-                if (customCommand.customAction ==
-                    ExternalLyricsSessionCommands.TOGGLE_DESKTOP_LYRICS_ACTION &&
-                    isMediaNotificationController(session, controller)
-                ) {
-                    mainHandler.post {
-                        val currentMode = LyricsPreferences.externalLyricsMode(this@MicaMediaService)
-                        LyricsPreferences.setExternalLyricsMode(
-                            this@MicaMediaService,
-                            ExternalLyricsSessionCommands.nextModeAfterDesktopToggle(currentMode),
-                        )
-                        externalLyricsOverlayControl.sync()
-                        updateMediaButtonPreferences()
-                    }
-                    return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
-                }
-                if (customCommand.customAction ==
-                    ExternalLyricsSessionCommands.TOGGLE_DESKTOP_LOCK_ACTION &&
-                    isMediaNotificationController(session, controller)
-                ) {
-                    mainHandler.post {
-                        if (LyricsPreferences.externalLyricsMode(this@MicaMediaService) ==
-                            com.mica.music.data.ExternalLyricsMode.DESKTOP
-                        ) {
-                            LyricsPreferences.setDesktopLyricsLocked(
-                                this@MicaMediaService,
-                                !LyricsPreferences.desktopLyricsLocked(this@MicaMediaService),
-                            )
-                            externalLyricsOverlayControl.refreshSettings()
-                            updateMediaButtonPreferences()
-                        }
-                    }
-                    return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
-                }
-                if (!ControllerCapabilityPolicy.allowsIncomingCustomAction(
-                        identity = identity,
-                        ownPackageName = packageName,
-                        action = customCommand.customAction,
-                    )
-                ) {
-                    DiagnosticLog.event(
-                        "MediaSession",
-                        "custom-command-rejected package=${identity.packageName} " +
-                            "action=${customCommand.customAction}",
-                    )
-                    return Futures.immediateFuture(
-                        SessionResult(SessionError.ERROR_NOT_SUPPORTED),
-                    )
-                }
-                return Futures.immediateFuture(SessionResult(SessionError.ERROR_NOT_SUPPORTED))
-            }
-
-            override fun onAddMediaItems(
-                mediaSession: MediaSession,
-                controller: MediaSession.ControllerInfo,
-                mediaItems: MutableList<MediaItem>,
-            ): ListenableFuture<MutableList<MediaItem>> {
-                val identity = controllerIdentity(controller)
-                val capabilities = ControllerCapabilityPolicy.evaluate(identity, packageName)
-                if (!capabilities.resolveMediaItemsFromCatalog) {
-                    return Futures.immediateFuture(decorateOwnAppMediaItems(mediaItems))
-                }
-                return launchSessionFuture {
-                    val resolved = trustedMediaItemResolver
-                        ?.resolve(mediaItems)
-                        ?.mediaItems.orEmpty()
-                    grantArtworkUriPermissions(controller.packageName, resolved)
-                    resolved.toMutableList()
-                }
-            }
-
-            override fun onSetMediaItems(
-                mediaSession: MediaSession,
-                controller: MediaSession.ControllerInfo,
-                mediaItems: MutableList<MediaItem>,
-                startIndex: Int,
-                startPositionMs: Long,
-            ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
-                val identity = controllerIdentity(controller)
-                val capabilities = ControllerCapabilityPolicy.evaluate(identity, packageName)
-                if (!capabilities.resolveMediaItemsFromCatalog) {
-                    val decorated = decorateOwnAppMediaItems(mediaItems)
-                    return Futures.immediateFuture(
-                        MediaSession.MediaItemsWithStartPosition(
-                            decorated,
-                            startIndex.coerceIn(0, (decorated.size - 1).coerceAtLeast(0)),
-                            startPositionMs,
-                        ),
-                    )
-                }
-                if (mediaItems.size == 1 &&
-                    MediaItemRequestPolicy.isEmptyRequest(mediaItems.single())
-                ) {
-                    val current = mediaSession.player.currentMediaItem
-                    if (current != null) {
-                        grantArtworkUriPermissions(controller.packageName, listOf(current))
-                        DiagnosticLog.event(
-                            "MediaSession",
-                            "empty-set-request-preserved-current package=${controller.packageName}",
-                        )
-                        return Futures.immediateFuture(
-                            MediaSession.MediaItemsWithStartPosition(
-                                listOf(current),
-                                0,
-                                startPositionMs,
-                            ),
-                        )
-                    }
-                }
-                return launchSessionFuture {
-                    val resolution = trustedMediaItemResolver?.resolve(mediaItems, startIndex)
-                        ?: TrustedMediaItemsResolution(emptyList(), null)
-                    grantArtworkUriPermissions(controller.packageName, resolution.mediaItems)
-                    MediaSession.MediaItemsWithStartPosition(
-                        resolution.mediaItems.toMutableList(),
-                        resolution.resolvedStartIndex ?: 0,
-                        startPositionMs,
-                    )
-                }
-            }
-        }
-
-    private fun decorateOwnAppMediaItems(mediaItems: MutableList<MediaItem>): MutableList<MediaItem> =
-        mediaItems.map { item ->
-            SongMediaItemCodec.decode(item)?.let { song -> decorateResolvedSong(song, item) } ?: item
-        }.toMutableList()
-
-    private fun grantArtworkUriPermissions(targetPackage: String, mediaItems: List<MediaItem>) {
-        val targetPackages = ArtworkUriGrantPolicy.targetPackages(targetPackage)
-        if (targetPackages.isEmpty()) return
-        mediaItems.forEach { mediaItem ->
-            val artworkUri = mediaItem.mediaMetadata.artworkUri ?: return@forEach
-            if (!ArtworkUriGrantPolicy.isGrantable(packageName, artworkUri)) return@forEach
-            targetPackages.forEach { grantPackage ->
-                runCatching {
-                    grantUriPermission(grantPackage, artworkUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }.onFailure { error ->
-                    DiagnosticLog.important(
-                        "MediaSession",
-                        "artwork-grant-failed package=$grantPackage uri=$artworkUri " +
-                            "error=${error.javaClass.simpleName}",
-                    )
-                }
-            }
-        }
-    }
-
-    private fun isMediaNotificationController(
-        session: MediaSession,
-        controller: MediaSession.ControllerInfo,
-    ): Boolean {
-        val notificationController = session.getMediaNotificationControllerInfo()
-            ?: return false
-        return notificationController.packageName == controller.packageName &&
-            notificationController.uid == controller.uid
-    }
+        MicaMediaSessionCallback(
+            context = this,
+            mainHandler = mainHandler,
+            externalLyricsOverlayControl = externalLyricsOverlayControl,
+            sessionScopeProvider = { sessionScope },
+            trustedMediaItemResolverProvider = { trustedMediaItemResolver },
+            decorateResolvedSong = ::decorateResolvedSong,
+            applyAppShuffleRequest = ::applyAppShuffleRequest,
+            updateMediaButtonPreferences = ::updateMediaButtonPreferences,
+        )
 
     private fun applyAppShuffleRequest(request: PlaybackShuffleRequest) {
         val exo = exoPlayer ?: return
@@ -1152,33 +800,6 @@ class MicaMediaService : MediaSessionService() {
                 overlayAvailable = externalLyricsOverlayControl.canDrawOverlays(),
             ),
         )
-    }
-
-    private fun Player.timelineMediaItems(): List<MediaItem> =
-        List(mediaItemCount) { index -> getMediaItemAt(index) }
-
-    private fun controllerIdentity(controller: MediaSession.ControllerInfo): ControllerIdentity =
-        ControllerIdentity(
-            packageName = controller.packageName,
-            uid = controller.uid,
-            isTrusted = controller.isTrusted,
-            controllerVersion = controller.controllerVersion,
-            connectionHintKeys = controller.connectionHints.keySet(),
-        )
-
-    private fun <T> launchSessionFuture(block: suspend () -> T): ListenableFuture<T> {
-        val future = SettableFuture.create<T>()
-        val scope = sessionScope
-        if (scope == null) {
-            future.setException(IllegalStateException("MediaSession scope is not active"))
-            return future
-        }
-        scope.launch {
-            runCatching { block() }
-                .onSuccess(future::set)
-                .onFailure(future::setException)
-        }
-        return future
     }
 
     private fun wireEqualizerAndSpectrumHandlers() {

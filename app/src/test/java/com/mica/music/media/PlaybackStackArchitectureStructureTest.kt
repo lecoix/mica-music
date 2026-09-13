@@ -8,6 +8,30 @@ import org.junit.Test
 
 class PlaybackStackArchitectureStructureTest {
     @Test
+    fun mediaSessionControllerPolicyLivesOutsideService() {
+        val service = source("com/mica/music/media/MicaMediaService.kt")
+        val callback = source("com/mica/music/media/MicaMediaSessionCallback.kt")
+
+        assertTrue(service.contains("MicaMediaSessionCallback("))
+        assertFalse(service.contains("object : MediaSession.Callback"))
+        assertTrue(callback.contains("override fun onConnect("))
+        assertTrue(callback.contains("override fun onCustomCommand("))
+        assertTrue(callback.contains("override fun onSetMediaItems("))
+    }
+
+    @Test
+    fun widgetColdStartCommandStateLivesOutsideService() {
+        val service = source("com/mica/music/media/MicaMediaService.kt")
+        val widget = source("com/mica/music/media/PlaybackWidgetCommandCoordinator.kt")
+
+        assertTrue(service.contains("PlaybackWidgetCommandCoordinator("))
+        assertFalse(service.contains("pendingWidgetAction"))
+        assertFalse(service.contains("temporaryWidgetForegroundActive"))
+        assertTrue(widget.contains("private var pendingAction: String?"))
+        assertTrue(widget.contains("private var temporaryForegroundActive"))
+    }
+
+    @Test
     fun serviceHasSingleMutablePlaybackStackAuthority() {
         val service = source("com/mica/music/media/MicaMediaService.kt")
 
