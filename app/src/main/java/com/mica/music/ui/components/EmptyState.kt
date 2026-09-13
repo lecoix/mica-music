@@ -224,13 +224,13 @@ object EmptyStatePresets {
 
             title = "还没有导入音乐",
 
-            subtitle = "选择曲库文件夹，只扫描该目录；\n或扫描本机全部音频（需读取权限）。",
+            subtitle = "选择曲库文件夹，直接扫描目录及子目录；\n或读取系统已收录的音乐（需读取权限）。",
 
             primaryActionLabel = "选择曲库文件夹",
 
             onPrimaryAction = onPickFolderClick,
 
-            secondaryActionLabel = "扫描全部音乐",
+            secondaryActionLabel = "扫描系统音乐库",
 
             onSecondaryAction = onScanAllClick,
 
@@ -334,11 +334,11 @@ object EmptyStatePresets {
 
         val subtitle = if (!folderLabel.isNullOrBlank()) {
 
-            "在「$folderLabel」中未找到符合条件的音频，\n可换目录或改用扫描全部音乐。"
+            "在「$folderLabel」中未找到符合条件的音频，\n请检查文件与时长过滤，或更换曲库文件夹。"
 
         } else {
 
-            "在本机存储中未找到符合条件的音频，\n可添加音乐后重新扫描。"
+            "系统音乐库中未找到符合条件的音频。\n若文件已下载，请选择曲库文件夹直接扫描。"
 
         }
 
@@ -354,7 +354,9 @@ object EmptyStatePresets {
 
             onPrimaryAction = onRescanClick,
 
-            secondaryActionLabel = onPickFolderClick?.let { "更换曲库文件夹" },
+            secondaryActionLabel = onPickFolderClick?.let {
+                if (folderLabel.isNullOrBlank()) "选择曲库文件夹" else "更换曲库文件夹"
+            },
 
             onSecondaryAction = onPickFolderClick,
 
@@ -363,4 +365,3 @@ object EmptyStatePresets {
     }
 
 }
-

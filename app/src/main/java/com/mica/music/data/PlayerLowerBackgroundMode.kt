@@ -29,6 +29,10 @@ enum class PlayerLowerBackgroundMode(
             this == DYNAMIC_LIGHT ||
             this == DYNAMIC_ARTWORK
 
+    /** 标准封面模式下可把播放进度/频谱移到封面底边的背景。 */
+    val supportsStandardCoverEdgeProgress: Boolean
+        get() = this == THEME || usesBlurredArtwork || this == STAR_MAP
+
     companion object {
         fun fromStorage(value: String?): PlayerLowerBackgroundMode =
             when (value) {

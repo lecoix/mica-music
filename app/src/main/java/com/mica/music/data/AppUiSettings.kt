@@ -970,12 +970,9 @@ class AppUiSettings(context: Context) {
         updateLyricsPageImmersive(!lyricsPageImmersive)
     }
 
-    /** 当前背景下是否使用封面底边进度（仅主题色 / 封面模糊）。 */
-    fun useCoverEdgeProgressNow(): Boolean {
-        if (!coverEdgeProgress) return false
-        return playerLowerBackground == PlayerLowerBackgroundMode.THEME ||
-            playerLowerBackground.usesBlurredArtwork
-    }
+    /** 当前背景下是否使用封面底边进度。 */
+    fun useCoverEdgeProgressNow(): Boolean =
+        coverEdgeProgress && playerLowerBackground.supportsStandardCoverEdgeProgress
 
     @Composable
     fun isDarkTheme(): Boolean = when (themeMode) {

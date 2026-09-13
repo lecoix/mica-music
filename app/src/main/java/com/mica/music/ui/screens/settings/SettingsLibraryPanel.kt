@@ -52,7 +52,7 @@ internal fun LibraryScanSettingsPanel(
             } else {
                 "当前：$label"
             }
-        } ?: "未选择 · 通过系统文件选择器授权目录",
+        } ?: "直接扫描目录及子目录 · 可发现系统尚未收录的音乐",
         onClick = onChooseLibraryFolder,
         enabled = !library.isUserVisibleScanning,
     )
@@ -73,8 +73,8 @@ internal fun LibraryScanSettingsPanel(
     )
 
     SettingsActionRow(
-        title = "扫描全部音乐",
-        subtitle = "扫描本机全部音频 · 需要读取音频权限",
+        title = "扫描系统音乐库",
+        subtitle = "读取系统已收录的音乐 · 缺少歌曲时请选择曲库文件夹",
         onClick = onScanAllMusic,
         enabled = !library.isUserVisibleScanning,
     )

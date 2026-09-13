@@ -133,8 +133,7 @@ internal fun PlaybackSettingsPanel(
     val coverEdgeProgressAvailable = uiSettings.playerCoverFlowMode != PlayerCoverFlowMode.CUSTOM_STANDARD &&
         !uiSettings.playerCoverFlowMode.usesPhotoStack &&
         (uiSettings.playerCoverFlowMode != PlayerCoverFlowMode.STANDARD ||
-            uiSettings.playerLowerBackground == PlayerLowerBackgroundMode.THEME ||
-            uiSettings.playerLowerBackground.usesBlurredArtwork)
+            uiSettings.playerLowerBackground.supportsStandardCoverEdgeProgress)
     if (coverEdgeProgressAvailable) {
         SettingsToggleRow(
             title = "封面底边进度",
