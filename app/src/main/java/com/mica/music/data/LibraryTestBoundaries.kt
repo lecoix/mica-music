@@ -30,6 +30,8 @@ import com.mica.music.data.scanner.DiscoveryReport
 import com.mica.music.data.scanner.DiscoveryPartitions
 import com.mica.music.data.scanner.DiscoveryPartitionStatus
 import com.mica.music.data.scanner.DiscoveryCompleteness
+import com.mica.music.data.scanner.SafIndependentMissingVerificationResult
+import com.mica.music.data.scanner.SafMissingVerificationBudget
 import com.mica.music.data.scanner.SafTreeMetadataSnapshot
 import com.mica.music.data.scanner.VideoCoverPosterPrefetcher
 
@@ -68,6 +70,25 @@ internal interface LibraryScanner {
                 detail = "folder-metadata-observer-not-implemented",
             ),
         ),
+    )
+
+    /** Independent object-level recheck used only after mass-deletion quarantine. */
+    suspend fun verifyFolderObjectsMissing(
+        treeUri: Uri,
+        songs: Collection<Song>,
+        startCursor: Int = 0,
+        budget: SafMissingVerificationBudget = SafMissingVerificationBudget.Default,
+    ): SafIndependentMissingVerificationResult = SafIndependentMissingVerificationResult(
+        verifiedMissingStableObjectKeys = emptySet(),
+        presentStableObjectKeys = emptySet(),
+        indeterminateStableObjectKeys = songs
+            .distinctBy(Song::id)
+            .sortedBy(Song::id)
+            .drop(startCursor.coerceAtLeast(0))
+            .take(budget.maxObjects)
+            .mapTo(linkedSetOf(), Song::id),
+        nextCursor = (startCursor + minOf(songs.size, budget.maxObjects)).coerceAtMost(songs.size),
+        hasMore = startCursor + budget.maxObjects < songs.size,
     )
 
     suspend fun scanFolder(
@@ -499,6 +520,19 @@ internal class AndroidLibraryScanner(
         context = context,
         treeUri = treeUri,
         options = LibraryScanSettings.scanOptions(context),
+    )
+
+    override suspend fun verifyFolderObjectsMissing(
+        treeUri: Uri,
+        songs: Collection<Song>,
+        startCursor: Int,
+        budget: SafMissingVerificationBudget,
+    ): SafIndependentMissingVerificationResult = FolderScanner.verifyMissingObjects(
+        context = context,
+        treeUri = treeUri,
+        songs = songs,
+        startCursor = startCursor,
+        budget = budget,
     )
 
     override suspend fun scanFolder(

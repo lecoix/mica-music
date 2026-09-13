@@ -185,7 +185,12 @@ internal data class LibraryRetryItem(
     val failureKind: String,
     val attemptCount: Int,
     val nextRetryAtMs: Long,
-)
+    val continuationCursor: Int = 0,
+) {
+    init {
+        require(continuationCursor >= 0)
+    }
+}
 
 internal data class LibraryAutoSyncStateMutation(
     val sourceIdentity: SourceIdentityKey,

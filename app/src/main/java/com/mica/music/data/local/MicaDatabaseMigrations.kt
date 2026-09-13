@@ -558,3 +558,13 @@ val MIGRATION_29_30 = object : Migration(29, 30) {
         db.execSQL("INSERT OR IGNORE INTO playlist_state(id, revision) VALUES (1, 0)")
     }
 }
+
+
+val MIGRATION_30_31 = object : Migration(30, 31) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "ALTER TABLE library_retry_items " +
+                "ADD COLUMN continuationCursor INTEGER NOT NULL DEFAULT 0",
+        )
+    }
+}

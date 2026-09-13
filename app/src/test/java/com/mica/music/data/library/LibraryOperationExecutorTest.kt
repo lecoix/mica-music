@@ -34,6 +34,8 @@ import com.mica.music.data.scanner.DeviceMediaStoreDeltaBatch
 import com.mica.music.data.scanner.DeviceMediaStorePresenceCapabilityProfile
 import com.mica.music.data.scanner.DeviceVolumeGeneration
 import com.mica.music.data.scanner.DiscoveryCompleteness
+import com.mica.music.data.scanner.SafIndependentMissingVerificationResult
+import com.mica.music.data.scanner.SafMissingVerificationBudget
 import com.mica.music.data.scanner.SafTreeMetadataSnapshot
 import com.mica.music.data.scanner.SafTreeMetadataObservationStats
 import com.mica.music.data.scanner.SafTreeMetadataEntry
@@ -1770,6 +1772,392 @@ class LibraryOperationExecutorTest {
         harness.backing.release()
         advanceUntilIdle()
     }
+
+    @Test
+    fun s4SafMassDeletionQuarantinePersistsDebtThenIndependentRetryPublishesRemoval() = runTest {
+        var nowMs = 1_000L
+        val environment = FakeScanEnvironment(
+            nowMsProvider = { nowMs },
+            elapsedMsProvider = { nowMs },
+        )
+        val scanner = ControlledScanner()
+        val store = FakeLibraryStore()
+        val tree = Uri.parse("content://provider/tree/mass-delete-production")
+        val current = List(100) { index ->
+            SongFixtures.song("saf-mass-${index + 1}").copy(
+                mediaUri = "content://provider/document/saf-mass-${index + 1}",
+                fileName = "song-${index + 1}.flac",
+                folderPath = "Album",
+                filePath = "Album/song-${index + 1}.flac",
+                sizeBytes = 10_000L + index,
+                dateModifiedMs = 20_000L + index,
+            )
+        }
+        val kept = current.last()
+        val removedIds = current.dropLast(1).mapTo(linkedSetOf(), Song::id)
+        val keptEntry = SafTreeMetadataEntry(
+            stableObjectKey = kept.id,
+            mediaUri = kept.mediaUri,
+            fileName = kept.fileName,
+            folderPath = kept.folderPath,
+            filePath = kept.filePath,
+            mimeType = kept.metadata.playbackMimeType,
+            sizeBytes = kept.sizeBytes,
+            lastModifiedMs = kept.dateModifiedMs,
+            externalLyricsSignature = kept.externalLyricsSignature,
+        )
+        scanner.folderMetadataSnapshot = SafTreeMetadataSnapshot(
+            entries = listOf(keptEntry),
+            discoveryReport = DiscoveryReport.of(
+                DiscoveryPartitionStatus(
+                    partitionKey = DiscoveryPartitions.SAF_TREE,
+                    completeness = DiscoveryCompleteness.COMPLETE,
+                ),
+            ),
+        )
+        val harness = scanHarness(
+            scanner = scanner,
+            store = store,
+            environment = environment,
+        )
+        activateFolderSource(harness.backing, tree, "Mass delete")
+        harness.backing.replaceSongs(current)
+        harness.backing.lastScanAtMs = 500L
+        harness.backing.lastScanSource = ScanSource.FOLDER
+
+        harness.orchestrator.executeScheduled(
+            ScheduledLibraryOperation(
+                request = LibraryOperationRequest.AutoSync(
+                    LibraryOperationCause.SAF_TREE_DIRTY,
+                ),
+                requestSequence = 1941L,
+                dirtySequenceAtStart = 591L,
+            ),
+        )
+
+        assertEquals(100, harness.backing.songs.size)
+        assertTrue(scanner.folderMissingVerificationRequests.isEmpty())
+        val firstRetry = store.retryItems.single {
+            it.retryKey == LibraryRetryKey.safMassDeletionVerify()
+        }
+        assertEquals(LibraryRetryKind.DISCOVERY_PARTITION, firstRetry.retryKind)
+        assertEquals(1, firstRetry.attemptCount)
+        assertEquals(31_000L, firstRetry.nextRetryAtMs)
+        assertEquals(0, store.autoSyncSnapshotCommitCount)
+
+        scanner.folderMissingVerificationResult = SafIndependentMissingVerificationResult(
+            verifiedMissingStableObjectKeys = removedIds,
+            presentStableObjectKeys = emptySet(),
+            indeterminateStableObjectKeys = emptySet(),
+            providerQueryCount = removedIds.size,
+            wallTimeMs = 123L,
+        )
+        nowMs = firstRetry.nextRetryAtMs
+        harness.orchestrator.executeScheduled(
+            ScheduledLibraryOperation(
+                request = LibraryOperationRequest.AutoSync(
+                    LibraryOperationCause.SAF_RETRY_DUE,
+                ),
+                requestSequence = 1942L,
+                dirtySequenceAtStart = 592L,
+            ),
+        )
+
+        assertEquals(1, scanner.folderMissingVerificationRequests.size)
+        assertEquals(removedIds, scanner.folderMissingVerificationRequests.single().toSet())
+        assertEquals(listOf(kept.id), harness.backing.songs.map(Song::id))
+        assertEquals(1, store.autoSyncSnapshotCommitCount)
+        assertTrue(store.retryItems.none { it.retryKey == LibraryRetryKey.safMassDeletionVerify() })
+        assertEquals(removedIds, harness.backing.lastLibraryChangeSet?.membershipChanges
+            ?.mapTo(linkedSetOf(), MembershipChange::stableObjectKey))
+        assertEquals(removedIds, harness.backing.lastLibraryChangeSet?.membershipChanges
+            ?.filter { it.reason == MembershipRemovalReason.CONFIRMED_MISSING }
+            ?.mapTo(linkedSetOf(), MembershipChange::stableObjectKey))
+
+        clearFolderPrefs(harness.backing)
+        harness.backing.release()
+        advanceUntilIdle()
+    }
+
+    @Test
+    fun s4SafMassDeletionPartialRetryPreservesDurableDebtContinuity() = runTest {
+        var nowMs = 1_000L
+        val environment = FakeScanEnvironment(
+            nowMsProvider = { nowMs },
+            elapsedMsProvider = { nowMs },
+        )
+        val scanner = ControlledScanner()
+        val store = FakeLibraryStore()
+        val tree = Uri.parse("content://provider/tree/mass-delete-partial")
+        val current = List(100) { index ->
+            SongFixtures.song("saf-partial-${index + 1}").copy(
+                mediaUri = "content://provider/document/saf-partial-${index + 1}",
+                fileName = "song-${index + 1}.flac",
+                folderPath = "Album",
+                filePath = "Album/song-${index + 1}.flac",
+                sizeBytes = 10_000L + index,
+                dateModifiedMs = 20_000L + index,
+            )
+        }
+        val kept = current.last()
+        val keptEntry = SafTreeMetadataEntry(
+            stableObjectKey = kept.id, mediaUri = kept.mediaUri, fileName = kept.fileName,
+            folderPath = kept.folderPath, filePath = kept.filePath,
+            mimeType = kept.metadata.playbackMimeType, sizeBytes = kept.sizeBytes,
+            lastModifiedMs = kept.dateModifiedMs,
+            externalLyricsSignature = kept.externalLyricsSignature,
+        )
+        scanner.folderMetadataSnapshot = SafTreeMetadataSnapshot(
+            entries = listOf(keptEntry),
+            discoveryReport = DiscoveryReport.of(
+                DiscoveryPartitionStatus(
+                    partitionKey = DiscoveryPartitions.SAF_TREE,
+                    completeness = DiscoveryCompleteness.COMPLETE,
+                ),
+            ),
+        )
+        val harness = scanHarness(scanner, store, environment)
+        activateFolderSource(harness.backing, tree, "Mass delete partial")
+        harness.backing.replaceSongs(current)
+        harness.backing.lastScanAtMs = 500L
+        harness.backing.lastScanSource = ScanSource.FOLDER
+
+        harness.orchestrator.executeScheduled(
+            ScheduledLibraryOperation(
+                LibraryOperationRequest.AutoSync(LibraryOperationCause.SAF_TREE_DIRTY),
+                requestSequence = 19421L,
+                dirtySequenceAtStart = 5921L,
+            ),
+        )
+        val firstRetry = store.retryItems.single {
+            it.retryKey == LibraryRetryKey.safMassDeletionVerify()
+        }.copy(attemptCount = 4, continuationCursor = 64, nextRetryAtMs = 31_000L)
+        store.retryItems.removeAll { it.retryKey == LibraryRetryKey.safMassDeletionVerify() }
+        store.retryItems += firstRetry
+
+        scanner.folderMetadataSnapshot = SafTreeMetadataSnapshot(
+            entries = listOf(keptEntry),
+            discoveryReport = DiscoveryReport.of(
+                DiscoveryPartitionStatus(
+                    partitionKey = DiscoveryPartitions.SAF_TREE,
+                    completeness = DiscoveryCompleteness.PARTIAL,
+                    detail = "provider-temporarily-incomplete",
+                ),
+            ),
+        )
+        nowMs = firstRetry.nextRetryAtMs
+        harness.orchestrator.executeScheduled(
+            ScheduledLibraryOperation(
+                LibraryOperationRequest.AutoSync(LibraryOperationCause.SAF_RETRY_DUE),
+                requestSequence = 19422L,
+                dirtySequenceAtStart = 5922L,
+            ),
+        )
+
+        val preserved = store.retryItems.single {
+            it.retryKey == LibraryRetryKey.safMassDeletionVerify()
+        }
+        assertEquals(firstRetry, preserved)
+        assertEquals(100, harness.backing.songs.size)
+        assertTrue(scanner.folderMissingVerificationRequests.isEmpty())
+
+        clearFolderPrefs(harness.backing)
+        harness.backing.release()
+        advanceUntilIdle()
+    }
+
+    @Test
+    fun s4SafMassDeletionConfirmationContinuesInBoundedBatchesWithoutAttemptInflation() = runTest {
+        var nowMs = 1_000L
+        val environment = FakeScanEnvironment(
+            nowMsProvider = { nowMs },
+            elapsedMsProvider = { nowMs },
+        )
+        val scanner = ControlledScanner()
+        val store = FakeLibraryStore()
+        val tree = Uri.parse("content://provider/tree/mass-delete-batched")
+        val current = List(100) { index ->
+            SongFixtures.song("saf-batched-${index + 1}").copy(
+                mediaUri = "content://provider/document/saf-batched-${index + 1}",
+                fileName = "song-${index + 1}.flac",
+                folderPath = "Album",
+                filePath = "Album/song-${index + 1}.flac",
+                sizeBytes = 50_000L + index,
+                dateModifiedMs = 60_000L + index,
+            )
+        }
+        val kept = current.last()
+        val removedSongs = current.dropLast(1).sortedBy(Song::id)
+        val keptEntry = SafTreeMetadataEntry(
+            stableObjectKey = kept.id, mediaUri = kept.mediaUri, fileName = kept.fileName,
+            folderPath = kept.folderPath, filePath = kept.filePath,
+            mimeType = kept.metadata.playbackMimeType, sizeBytes = kept.sizeBytes,
+            lastModifiedMs = kept.dateModifiedMs,
+            externalLyricsSignature = kept.externalLyricsSignature,
+        )
+        scanner.folderMetadataSnapshot = SafTreeMetadataSnapshot(
+            entries = listOf(keptEntry),
+            discoveryReport = DiscoveryReport.of(
+                DiscoveryPartitionStatus(
+                    partitionKey = DiscoveryPartitions.SAF_TREE,
+                    completeness = DiscoveryCompleteness.COMPLETE,
+                ),
+            ),
+        )
+        val harness = scanHarness(scanner, store, environment)
+        activateFolderSource(harness.backing, tree, "Mass delete batched")
+        harness.backing.replaceSongs(current)
+        harness.backing.lastScanAtMs = 500L
+        harness.backing.lastScanSource = ScanSource.FOLDER
+
+        harness.orchestrator.executeScheduled(
+            ScheduledLibraryOperation(
+                LibraryOperationRequest.AutoSync(LibraryOperationCause.SAF_TREE_DIRTY),
+                requestSequence = 19431L,
+                dirtySequenceAtStart = 5931L,
+            ),
+        )
+        val firstRetry = store.retryItems.single { it.retryKey == LibraryRetryKey.safMassDeletionVerify() }
+        assertEquals(1, firstRetry.attemptCount)
+        assertEquals(0, firstRetry.continuationCursor)
+
+        val firstBatch = removedSongs.take(SafMissingVerificationBudget.DEFAULT_MAX_OBJECTS)
+            .mapTo(linkedSetOf(), Song::id)
+        scanner.folderMissingVerificationResult = SafIndependentMissingVerificationResult(
+            verifiedMissingStableObjectKeys = firstBatch,
+            presentStableObjectKeys = emptySet(),
+            indeterminateStableObjectKeys = emptySet(),
+            providerQueryCount = firstBatch.size,
+            wallTimeMs = 200L,
+            nextCursor = firstBatch.size,
+            hasMore = true,
+            budgetExhausted = true,
+        )
+        nowMs = firstRetry.nextRetryAtMs
+        harness.orchestrator.executeScheduled(
+            ScheduledLibraryOperation(
+                LibraryOperationRequest.AutoSync(LibraryOperationCause.SAF_RETRY_DUE),
+                requestSequence = 19432L,
+                dirtySequenceAtStart = 5932L,
+            ),
+        )
+
+        assertEquals(100, harness.backing.songs.size)
+        val continued = store.retryItems.single { it.retryKey == LibraryRetryKey.safMassDeletionVerify() }
+        assertEquals(1, continued.attemptCount)
+        assertEquals(firstBatch.size, continued.continuationCursor)
+        assertEquals(firstRetry.observedFingerprint, continued.observedFingerprint)
+        assertEquals(listOf(0), scanner.folderMissingVerificationCursors)
+
+        val secondBatch = removedSongs.drop(firstBatch.size).mapTo(linkedSetOf(), Song::id)
+        scanner.folderMissingVerificationResult = SafIndependentMissingVerificationResult(
+            verifiedMissingStableObjectKeys = secondBatch,
+            presentStableObjectKeys = emptySet(),
+            indeterminateStableObjectKeys = emptySet(),
+            providerQueryCount = secondBatch.size,
+            wallTimeMs = 120L,
+            nextCursor = removedSongs.size,
+            hasMore = false,
+        )
+        harness.orchestrator.executeScheduled(
+            ScheduledLibraryOperation(
+                LibraryOperationRequest.AutoSync(LibraryOperationCause.SAF_BUDGET_CONTINUATION),
+                requestSequence = 19433L,
+                dirtySequenceAtStart = 5933L,
+            ),
+        )
+
+        assertEquals(listOf(0, firstBatch.size), scanner.folderMissingVerificationCursors)
+        assertEquals(listOf(kept.id), harness.backing.songs.map(Song::id))
+        assertTrue(store.retryItems.none { it.retryKey == LibraryRetryKey.safMassDeletionVerify() })
+        assertEquals(1, store.autoSyncSnapshotCommitCount)
+
+        clearFolderPrefs(harness.backing)
+        harness.backing.release()
+        advanceUntilIdle()
+    }
+
+    @Test
+    fun s4SafMassDeletionIndependentRetryIndeterminateStaysQuarantinedAndBacksOff() = runTest {
+        var nowMs = 2_000L
+        val environment = FakeScanEnvironment(
+            nowMsProvider = { nowMs },
+            elapsedMsProvider = { nowMs },
+        )
+        val scanner = ControlledScanner()
+        val store = FakeLibraryStore()
+        val tree = Uri.parse("content://provider/tree/mass-delete-indeterminate")
+        val current = List(100) { index ->
+            SongFixtures.song("saf-indeterminate-${index + 1}").copy(
+                mediaUri = "content://provider/document/saf-indeterminate-${index + 1}",
+                fileName = "song-${index + 1}.flac",
+                folderPath = "Album",
+                filePath = "Album/song-${index + 1}.flac",
+                sizeBytes = 30_000L + index,
+                dateModifiedMs = 40_000L + index,
+            )
+        }
+        val kept = current.last()
+        val removedIds = current.dropLast(1).mapTo(linkedSetOf(), Song::id)
+        scanner.folderMetadataSnapshot = SafTreeMetadataSnapshot(
+            entries = listOf(
+                SafTreeMetadataEntry(
+                    stableObjectKey = kept.id, mediaUri = kept.mediaUri, fileName = kept.fileName,
+                    folderPath = kept.folderPath, filePath = kept.filePath,
+                    mimeType = kept.metadata.playbackMimeType, sizeBytes = kept.sizeBytes,
+                    lastModifiedMs = kept.dateModifiedMs,
+                    externalLyricsSignature = kept.externalLyricsSignature,
+                ),
+            ),
+            discoveryReport = DiscoveryReport.of(
+                DiscoveryPartitionStatus(
+                    partitionKey = DiscoveryPartitions.SAF_TREE,
+                    completeness = DiscoveryCompleteness.COMPLETE,
+                ),
+            ),
+        )
+        val harness = scanHarness(scanner, store, environment)
+        activateFolderSource(harness.backing, tree, "Mass delete indeterminate")
+        harness.backing.replaceSongs(current)
+        harness.backing.lastScanAtMs = 500L
+        harness.backing.lastScanSource = ScanSource.FOLDER
+
+        harness.orchestrator.executeScheduled(
+            ScheduledLibraryOperation(
+                LibraryOperationRequest.AutoSync(LibraryOperationCause.SAF_TREE_DIRTY),
+                requestSequence = 1943L,
+                dirtySequenceAtStart = 593L,
+            ),
+        )
+        val firstRetry = store.retryItems.single { it.retryKey == LibraryRetryKey.safMassDeletionVerify() }
+        scanner.folderMissingVerificationResult = SafIndependentMissingVerificationResult(
+            verifiedMissingStableObjectKeys = removedIds.drop(1).toSet(),
+            presentStableObjectKeys = emptySet(),
+            indeterminateStableObjectKeys = setOf(removedIds.first()),
+            providerQueryCount = removedIds.size,
+            wallTimeMs = 150L,
+        )
+        nowMs = firstRetry.nextRetryAtMs
+
+        harness.orchestrator.executeScheduled(
+            ScheduledLibraryOperation(
+                LibraryOperationRequest.AutoSync(LibraryOperationCause.SAF_RETRY_DUE),
+                requestSequence = 1944L,
+                dirtySequenceAtStart = 594L,
+            ),
+        )
+
+        assertEquals(100, harness.backing.songs.size)
+        assertEquals(0, store.autoSyncSnapshotCommitCount)
+        val secondRetry = store.retryItems.single { it.retryKey == LibraryRetryKey.safMassDeletionVerify() }
+        assertEquals(2, secondRetry.attemptCount)
+        assertEquals(nowMs + 60_000L, secondRetry.nextRetryAtMs)
+
+        clearFolderPrefs(harness.backing)
+        harness.backing.release()
+        advanceUntilIdle()
+    }
+
 
     @Test
     fun s4SafShadowRetryCompensationPlanDoesNotWriteProductionState() = runTest {
@@ -5156,6 +5544,9 @@ class LibraryOperationExecutorTest {
         val deviceRequests = mutableListOf<ScanRequest>()
         val folderRequests = mutableListOf<ScanRequest>()
         val folderMetadataRequests = mutableListOf<Uri>()
+        val folderMissingVerificationRequests = mutableListOf<List<String>>()
+        val folderMissingVerificationCursors = mutableListOf<Int>()
+        var folderMissingVerificationResult: SafIndependentMissingVerificationResult? = null
         var onObserveFolderMetadata: (() -> Unit)? = null
         var folderMetadataSnapshot = SafTreeMetadataSnapshot(
             entries = emptyList(),
@@ -5172,6 +5563,24 @@ class LibraryOperationExecutorTest {
             folderMetadataRequests += treeUri
             onObserveFolderMetadata?.invoke()
             return folderMetadataSnapshot
+        }
+
+        override suspend fun verifyFolderObjectsMissing(
+            treeUri: Uri,
+            songs: Collection<Song>,
+            startCursor: Int,
+            budget: SafMissingVerificationBudget,
+        ): SafIndependentMissingVerificationResult {
+            val ids = songs.map(Song::id)
+            folderMissingVerificationRequests += ids
+            folderMissingVerificationCursors += startCursor
+            return folderMissingVerificationResult ?: SafIndependentMissingVerificationResult(
+                verifiedMissingStableObjectKeys = emptySet(),
+                presentStableObjectKeys = emptySet(),
+                indeterminateStableObjectKeys = ids.drop(startCursor).take(1).toSet(),
+                nextCursor = (startCursor + 1).coerceAtMost(ids.size),
+                hasMore = startCursor + 1 < ids.size,
+            )
         }
 
         override suspend fun scanDevice(

@@ -54,6 +54,7 @@ data class LibraryRetryItemEntity(
     val failureKind: String,
     val attemptCount: Int,
     val nextRetryAtMs: Long,
+    val continuationCursor: Int,
 )
 
 @Entity(
@@ -309,6 +310,7 @@ internal fun LibraryRetryItem.toEntity() = LibraryRetryItemEntity(
     failureKind = failureKind,
     attemptCount = attemptCount,
     nextRetryAtMs = nextRetryAtMs,
+    continuationCursor = continuationCursor,
 )
 
 internal fun LibraryRetryItemEntity.toModel() = LibraryRetryItem(
@@ -322,6 +324,7 @@ internal fun LibraryRetryItemEntity.toModel() = LibraryRetryItem(
     failureKind = failureKind,
     attemptCount = attemptCount,
     nextRetryAtMs = nextRetryAtMs,
+    continuationCursor = continuationCursor,
 )
 
 internal fun LibraryFollowupOutboxItem.toEntity() = LibraryFollowupOutboxEntity(

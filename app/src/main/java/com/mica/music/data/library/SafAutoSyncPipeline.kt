@@ -489,7 +489,7 @@ internal class SafAutoSyncPipeline(
             )
             return
         }
-        val publicationPlan = SafAutoSyncPublicationPlanner.plan(
+        var publicationPlan = SafAutoSyncPublicationPlanner.plan(
             minDurationMs = LibraryScanSettings.scanOptions(backing.context).minDurationMs,
             sourceIdentity = token.sourceIdentity,
             activationEpoch = token.activationEpoch,
@@ -505,6 +505,90 @@ internal class SafAutoSyncPipeline(
             unknownDebtPlan = unknownDebtPlan,
             excludedStableObjectKeys = excludedStableObjectKeys,
         )
+        var massDeletionVerification: SafIndependentMissingVerificationResult? = null
+        var massDeletionRetryPlan = SafMassDeletionRetryPlan()
+        var massDeletionRetryExisting: LibraryRetryItem? = null
+        var massDeletionVerificationDue = false
+        val massDeletionDiscoveryComplete =
+            snapshot.discoveryReport.isComplete(DiscoveryPartitions.SAF_TREE)
+        if (
+            publishAuthority &&
+            (publicationPlan.quarantineReason != null ||
+                operation.request.cause == LibraryOperationCause.SAF_RETRY_DUE)
+        ) {
+            massDeletionRetryExisting = withContext(backing.ioDispatcher) {
+                backing.libraryStore.loadRetryItemsForStableObjectKeys(
+                    sourceIdentity = token.sourceIdentity,
+                    stableObjectKeys = listOf(LibraryRetryKey.SAF_MASS_DELETION_STABLE_OBJECT_KEY),
+                )
+            }.let(SafMassDeletionConfirmationPlanner::selectExisting)
+            massDeletionVerificationDue =
+                massDeletionDiscoveryComplete &&
+                    publicationPlan.quarantineReason != null &&
+                    SafMassDeletionConfirmationPlanner.isDueFor(
+                        existing = massDeletionRetryExisting,
+                        removedStableObjectKeys = plan.removedStableObjectKeys,
+                        nowMs = retryPlanNowMs,
+                    )
+
+            if (massDeletionVerificationDue) {
+                val removedSongs = currentSongs.filter { song ->
+                    song.id in plan.removedStableObjectKeys
+                }
+                val confirmationCursor = SafMassDeletionConfirmationPlanner.continuationCursor(
+                    existing = massDeletionRetryExisting,
+                    removedStableObjectKeys = plan.removedStableObjectKeys,
+                )
+                massDeletionVerification = withContext(backing.ioDispatcher) {
+                    backing.libraryScanner.verifyFolderObjectsMissing(
+                        treeUri = treeUri,
+                        songs = removedSongs,
+                        startCursor = confirmationCursor,
+                        budget = SafMissingVerificationBudget.Default,
+                    )
+                }
+                val afterIndependentVerify = backing.captureShadowObservationStamp(ScanSource.FOLDER)
+                if (afterIndependentVerify != before || !before.matchesOperationToken(token)) {
+                    DiagnosticLog.event(
+                        "LibraryAutoSync",
+                        "saf auto stale-drop-mass-delete-verify request=${operation.requestSequence}",
+                    )
+                    return
+                }
+
+                if (massDeletionVerification.batchSucceeded && !massDeletionVerification.hasMore) {
+                    publicationPlan = SafAutoSyncPublicationPlanner.plan(
+                        minDurationMs = LibraryScanSettings.scanOptions(backing.context).minDurationMs,
+                        sourceIdentity = token.sourceIdentity,
+                        activationEpoch = token.activationEpoch,
+                        configFingerprint = token.configFingerprint,
+                        nowMs = retryPlanNowMs,
+                        currentSongs = currentSongs,
+                        snapshot = snapshot,
+                        verifyPlan = plan,
+                        probePlan = probePlan,
+                        validation = validation,
+                        relationValidation = relationValidation,
+                        retryPlan = shadowRetryPlan,
+                        unknownDebtPlan = unknownDebtPlan,
+                        excludedStableObjectKeys = excludedStableObjectKeys,
+                        independentlyVerifiedMissingKeys = plan.removedStableObjectKeys,
+                    )
+                }
+            }
+
+            massDeletionRetryPlan = SafMassDeletionConfirmationPlanner.plan(
+                sourceIdentity = token.sourceIdentity,
+                activationEpoch = token.activationEpoch,
+                nowMs = retryPlanNowMs,
+                discoveryComplete = massDeletionDiscoveryComplete,
+                quarantineReason = publicationPlan.quarantineReason,
+                removedStableObjectKeys = plan.removedStableObjectKeys,
+                existing = massDeletionRetryExisting,
+                verification = massDeletionVerification,
+            )
+            publicationPlan = publicationPlan.withMassDeletionRetryPlan(massDeletionRetryPlan)
+        }
         val unresolvedAudioResourceKeys = audioWorkEntries.asSequence()
             .filter {
                 it.fingerprintReliability ==
@@ -575,9 +659,11 @@ internal class SafAutoSyncPipeline(
         } else {
             null
         }
+        val massDeletionContinuationFallbackDelayMs =
+            if (massDeletionRetryPlan.requestBudgetContinuation && !scheduleBudgetContinuation) 0L else null
         val nextRetryWakeDelayMs = earlierRetryDelay(
-            providerRetryDelayMs,
-            ledgerRetryDelayMs,
+            earlierRetryDelay(providerRetryDelayMs, ledgerRetryDelayMs),
+            massDeletionContinuationFallbackDelayMs,
         )
         val retryWakeRequested = if (publishAuthority) {
             requestSafRetryWake(postCommit, token, publishAuthority = true, delayMs = nextRetryWakeDelayMs)
@@ -595,10 +681,13 @@ internal class SafAutoSyncPipeline(
             !publishAuthority &&
             probePlan.shouldRequestBudgetContinuation(execution) &&
                 !hasNonUnknownBudgetDebt
+        val safBudgetContinuationNeeded =
+            probePlan.shouldRequestBudgetContinuation(execution) ||
+                massDeletionRetryPlan.requestBudgetContinuation
         val budgetContinuationRequested =
             scheduleBudgetContinuation &&
                 (publishAuthority || hasNonUnknownBudgetDebt) &&
-                probePlan.shouldRequestBudgetContinuation(execution) &&
+                safBudgetContinuationNeeded &&
                 backing.isCurrentOperationToken(token) &&
                 requestSafBudgetContinuation(postCommit)
         val issueKinds = validation.issues
@@ -656,6 +745,18 @@ internal class SafAutoSyncPipeline(
                 "publicationPlanRetryDeletes=${publicationPlan.autoSyncStateMutation.retryDeleteKeys.size} " +
                 "publicationPlanCheckpoint=${publicationPlan.checkpointIncluded} " +
                 "publicationPlanQuarantine=${publicationPlan.quarantineReason ?: "none"} " +
+                "massDeleteVerifyDue=$massDeletionVerificationDue " +
+                "massDeleteVerifyMissing=${massDeletionVerification?.verifiedMissingStableObjectKeys?.size ?: 0} " +
+                "massDeleteVerifyPresent=${massDeletionVerification?.presentStableObjectKeys?.size ?: 0} " +
+                "massDeleteVerifyIndeterminate=${massDeletionVerification?.indeterminateStableObjectKeys?.size ?: 0} " +
+                "massDeleteVerifyQueries=${massDeletionVerification?.providerQueryCount ?: 0} " +
+                "massDeleteVerifyWallMs=${massDeletionVerification?.wallTimeMs ?: 0L} " +
+                "massDeleteVerifyNextCursor=${massDeletionVerification?.nextCursor ?: massDeletionRetryExisting?.continuationCursor ?: 0} " +
+                "massDeleteVerifyHasMore=${massDeletionVerification?.hasMore ?: false} " +
+                "massDeleteVerifyBudgetExhausted=${massDeletionVerification?.budgetExhausted ?: false} " +
+                "massDeleteRetryAttempt=${massDeletionRetryPlan.retryUpserts.singleOrNull()?.attemptCount ?: massDeletionRetryExisting?.attemptCount ?: 0} " +
+                "massDeleteRetryCursor=${massDeletionRetryPlan.retryUpserts.singleOrNull()?.continuationCursor ?: massDeletionRetryExisting?.continuationCursor ?: 0} " +
+                "massDeleteRetryDelayMs=${massDeletionRetryPlan.nextRetryDelayMs ?: -1L} " +
                 "publicationPlanShadowOnly=${!publishAuthority} " +
                 "publicationCommitted=${publicationResult != null} " +
                 "postWalk=${postSnapshot != null} " +

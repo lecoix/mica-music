@@ -51,6 +51,7 @@ internal object SafAutoSyncPublicationPlanner {
         retryPlan: SafShadowRetryPlan,
         unknownDebtPlan: SafUnknownFingerprintDebtPlan,
         excludedStableObjectKeys: Set<String> = emptySet(),
+        independentlyVerifiedMissingKeys: Set<String> = emptySet(),
         minDurationMs: Long = 60_000L,
     ): SafAutoSyncPublicationPlan {
         require(sourceIdentity.source == ScanSource.FOLDER)
@@ -67,6 +68,7 @@ internal object SafAutoSyncPublicationPlanner {
                 .mapTo(linkedSetOf()) { it.stableObjectKey },
             discoveryComplete = discoveryComplete,
             absenceEvidenceRevision = membershipEvidenceRevision,
+            independentlyVerifiedMissingKeys = independentlyVerifiedMissingKeys,
         )
         val membershipChanges = when (membershipPlan) {
             is AutoSyncMembershipPlan.Apply -> membershipPlan.membershipChanges

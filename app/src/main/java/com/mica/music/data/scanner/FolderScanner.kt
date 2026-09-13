@@ -20,7 +20,9 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.Closeable
+import java.io.FileNotFoundException
 import java.util.concurrent.Future
 import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.SynchronousQueue
@@ -37,6 +39,7 @@ import kotlin.coroutines.resumeWithException
 internal object FolderScanner {
 
     private const val PROBE_PARALLELISM = MediaStoreScanner.PROBE_PARALLELISM
+    private const val SYSTEM_EXTERNAL_STORAGE_AUTHORITY = "com.android.externalstorage.documents"
 
     /**
      * One process-wide lane for automatic SAF metadata queries.
@@ -67,6 +70,141 @@ internal object FolderScanner {
     internal fun shouldIgnoreSafArtifact(name: String, isDirectory: Boolean): Boolean =
         name.startsWith(".trashed-") ||
             (isDirectory && name == ".MicaRecycle")
+
+    internal suspend fun verifyMissingObjects(
+        context: Context,
+        treeUri: Uri,
+        songs: Collection<Song>,
+        startCursor: Int = 0,
+        budget: SafMissingVerificationBudget = SafMissingVerificationBudget.Default,
+    ): SafIndependentMissingVerificationResult = withContext(Dispatchers.IO) {
+        SafAutoQuerySession(context).use { querySession ->
+            verifyMissingObjectsBounded(
+                treeAuthority = treeUri.authority,
+                songs = songs,
+                startCursor = startCursor,
+                budget = budget,
+                queryDocumentExists = querySession::queryDocumentExists,
+            )
+        }
+    }
+
+    internal suspend fun verifyMissingObjectsBounded(
+        treeAuthority: String?,
+        songs: Collection<Song>,
+        startCursor: Int = 0,
+        budget: SafMissingVerificationBudget = SafMissingVerificationBudget.Default,
+        elapsedRealtimeMs: () -> Long = SystemClock::elapsedRealtime,
+        queryDocumentExists: suspend (Uri) -> Boolean,
+    ): SafIndependentMissingVerificationResult {
+        val startedAtMs = elapsedRealtimeMs()
+        val targets = songs.distinctBy(Song::id).sortedBy(Song::id)
+        val cursor = startCursor.coerceIn(0, targets.size)
+        val missing = linkedSetOf<String>()
+        val present = linkedSetOf<String>()
+        val indeterminate = linkedSetOf<String>()
+        var queryCount = 0
+        var processedCount = 0
+        var budgetExhausted = false
+        if (cursor >= targets.size) {
+            return SafIndependentMissingVerificationResult(
+                verifiedMissingStableObjectKeys = emptySet(),
+                presentStableObjectKeys = emptySet(),
+                indeterminateStableObjectKeys = emptySet(),
+                wallTimeMs = 0L,
+                nextCursor = targets.size,
+            )
+        }
+
+        fun elapsedMs(): Long =
+            (elapsedRealtimeMs() - startedAtMs).coerceAtLeast(0L)
+
+        for (index in cursor until targets.size) {
+            if (
+                processedCount >= budget.maxObjects ||
+                queryCount >= budget.maxQueries ||
+                elapsedMs() >= budget.maxWallTimeMs
+            ) {
+                budgetExhausted = true
+                break
+            }
+
+            val song = targets[index]
+            val uri = runCatching { Uri.parse(song.mediaUri) }.getOrNull()
+            if (uri == null || uri.authority != treeAuthority) {
+                indeterminate += song.id
+                processedCount += 1
+                break
+            }
+
+            val remainingMs = (budget.maxWallTimeMs - elapsedMs()).coerceAtLeast(0L)
+            if (remainingMs == 0L) {
+                budgetExhausted = true
+                break
+            }
+            try {
+                queryCount += 1
+                val exists = withTimeoutOrNull(remainingMs) {
+                    queryDocumentExists(uri)
+                }
+                if (exists == null) {
+                    budgetExhausted = true
+                    break
+                }
+                if (exists) {
+                    present += song.id
+                } else {
+                    missing += song.id
+                }
+                processedCount += 1
+                if (exists) break
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                if (isConfirmedMissingDocumentFailure(uri.authority, error)) {
+                    missing += song.id
+                    processedCount += 1
+                } else {
+                    indeterminate += song.id
+                    processedCount += 1
+                    break
+                }
+            }
+        }
+
+        val nextCursor = cursor + processedCount
+        val hasMore = nextCursor < targets.size
+        return SafIndependentMissingVerificationResult(
+            verifiedMissingStableObjectKeys = missing,
+            presentStableObjectKeys = present,
+            indeterminateStableObjectKeys = indeterminate,
+            providerQueryCount = queryCount,
+            wallTimeMs = elapsedMs(),
+            nextCursor = nextCursor,
+            hasMore = hasMore,
+            budgetExhausted = budgetExhausted && hasMore,
+        )
+    }
+
+    internal fun isConfirmedMissingDocumentFailure(
+        authority: String?,
+        error: Throwable,
+    ): Boolean {
+        var current: Throwable? = error
+        val seen = java.util.Collections.newSetFromMap(
+            java.util.IdentityHashMap<Throwable, Boolean>(),
+        )
+        while (current != null && seen.add(current)) {
+            if (current is FileNotFoundException) return true
+            current = current.cause
+        }
+        if (authority != SYSTEM_EXTERNAL_STORAGE_AUTHORITY) return false
+        val message = error.message.orEmpty()
+        return error is IllegalArgumentException &&
+            "FileNotFoundException" in message &&
+            "Missing file for " in message &&
+            "Failed to determine if " in message
+    }
 
     internal suspend fun observeMetadata(
         context: Context,
@@ -474,6 +612,18 @@ internal object FolderScanner {
             uri: Uri,
             projection: Array<String>,
         ): List<SafDocumentRow> = queryOnWorker(uri, projection)
+
+        suspend fun queryDocumentExists(uri: Uri): Boolean =
+            queryOnWorker(
+                uri = uri,
+                projection = arrayOf(
+                    DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                    DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                    DocumentsContract.Document.COLUMN_MIME_TYPE,
+                    DocumentsContract.Document.COLUMN_SIZE,
+                    DocumentsContract.Document.COLUMN_LAST_MODIFIED,
+                ),
+            ).isNotEmpty()
 
         private suspend fun queryOnWorker(
             uri: Uri,
