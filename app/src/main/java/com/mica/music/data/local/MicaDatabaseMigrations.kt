@@ -568,3 +568,12 @@ val MIGRATION_30_31 = object : Migration(30, 31) {
         )
     }
 }
+
+val MIGRATION_31_32 = object : Migration(31, 32) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "ALTER TABLE library_retry_items " +
+                "ADD COLUMN confirmedMissingKeysPayload TEXT NOT NULL DEFAULT ''",
+        )
+    }
+}

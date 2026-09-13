@@ -25,7 +25,7 @@ import androidx.room.RoomDatabase
         RemoteSourceEntity::class,
         RemoteTrackEntity::class,
     ],
-    version = 31,
+    version = 32,
     exportSchema = true,
 )
 abstract class MicaDatabase : RoomDatabase() {
@@ -103,6 +103,7 @@ abstract class MicaDatabase : RoomDatabase() {
                             MIGRATION_28_29,
                             MIGRATION_29_30,
                             MIGRATION_30_31,
+                            MIGRATION_31_32,
                         )
                         .build()
                         .also {

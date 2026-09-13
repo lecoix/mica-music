@@ -186,6 +186,8 @@ internal data class LibraryRetryItem(
     val attemptCount: Int,
     val nextRetryAtMs: Long,
     val continuationCursor: Int = 0,
+    /** Durable object-level missing proof accumulated across confirmation batches. */
+    val confirmedMissingKeysPayload: String = "",
 ) {
     init {
         require(continuationCursor >= 0)
@@ -291,6 +293,8 @@ internal sealed interface LibraryOperationRequest {
     data class AutoSync(
         override val cause: LibraryOperationCause,
         val coalescedCauses: Set<LibraryOperationCause> = setOf(cause),
+        val mediaStoreUriHints: Set<String> = emptySet(),
+        val mediaStoreHintIncomplete: Boolean = false,
     ) : LibraryOperationRequest {
         override val mode = LibraryOperationMode.AUTO_SYNC
     }

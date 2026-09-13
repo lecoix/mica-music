@@ -103,6 +103,13 @@ Mass-deletion protection quarantines inventory collapse and large unexplained re
 Independently revalidated object-level missing evidence may still remove the final song and produce a
 legitimate zero-song active library.
 
+Independent confirmation progress is scoped to one quarantine round: the persisted cursor and
+confirmed-missing key payload are reusable only under the same source activation and the same
+removal set, and any complete SAF observation that shows no quarantine deletes them. The cursor is
+only a resume offset; destructive publication requires the accumulated object-level confirmed-
+missing keys to cover the full quarantined set. A verification batch that processes zero objects is
+a failed attempt (backoff, attempt+1), never a successful continuation.
+
 MEDIA_MOUNTED, MEDIA_SCANNER_FINISHED, permission restoration and foreground resume are dirty signals,
 not deletion proof.
 

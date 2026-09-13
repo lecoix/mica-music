@@ -204,6 +204,35 @@ class RoomMigrationContractTest {
     }
 
     @Test
+    fun migrationThirtyOneToThirtyTwoAddsConfirmedMissingKeysPayload() {
+        helper.createDatabase(THIRTY_ONE_TO_THIRTY_TWO_DB, 31).apply {
+            execSQL(
+                "INSERT INTO library_retry_items(" +
+                    "source, stableIdentity, retryKey, activationEpoch, stableObjectKey, " +
+                    "observedFingerprint, retryKind, failureKind, attemptCount, nextRetryAtMs, " +
+                    "continuationCursor" +
+                    ") VALUES ('FOLDER', 'tree', 'mass', 7, 'mass', 'fp', " +
+                    "'DISCOVERY_PARTITION', 'MASS', 3, 1000, 64)",
+            )
+            close()
+        }
+
+        helper.runMigrationsAndValidate(
+            THIRTY_ONE_TO_THIRTY_TWO_DB,
+            32,
+            true,
+            MIGRATION_31_32,
+        ).use { database ->
+            database.query(
+                "SELECT confirmedMissingKeysPayload FROM library_retry_items WHERE retryKey = 'mass'",
+            ).use { cursor ->
+                check(cursor.moveToFirst())
+                assertEquals("", cursor.getString(0))
+            }
+        }
+    }
+
+    @Test
     fun migrationSeventeenToEighteenAddsSongLyricsOffsets() {
         helper.createDatabase(SEVENTEEN_TO_EIGHTEEN_DB, 17).close()
 
@@ -254,6 +283,7 @@ class RoomMigrationContractTest {
         const val SEVENTEEN_TO_EIGHTEEN_DB = "room-migration-17-18"
         const val TWENTY_NINE_TO_THIRTY_DB = "room-migration-29-30"
         const val THIRTY_TO_THIRTY_ONE_DB = "room-migration-30-31"
+        const val THIRTY_ONE_TO_THIRTY_TWO_DB = "room-migration-31-32"
         val MIGRATIONS_TWO_TO_CURRENT = arrayOf(
             MIGRATION_2_3,
             MIGRATION_3_4,
@@ -284,6 +314,7 @@ class RoomMigrationContractTest {
             MIGRATION_28_29,
             MIGRATION_29_30,
             MIGRATION_30_31,
+            MIGRATION_31_32,
         )
     }
 }
