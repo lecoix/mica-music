@@ -49,4 +49,11 @@ internal data class SafIndependentMissingVerificationResult(
 
     val batchSucceeded: Boolean
         get() = presentStableObjectKeys.isEmpty() && indeterminateStableObjectKeys.isEmpty()
+
+    /**
+     * True when targets remained but none was processed, e.g. the very first provider query hit the
+     * wall-time budget. Such a batch carries no evidence and must be treated as a failed attempt.
+     */
+    val madeNoProgress: Boolean
+        get() = hasMore && processedObjectCount == 0
 }

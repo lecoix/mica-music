@@ -4,6 +4,7 @@ import com.mica.music.data.Song
 import com.mica.music.data.scanner.DiscoveryPartitions
 import com.mica.music.data.scanner.MusicVideoMatcher
 import com.mica.music.data.scanner.SafFastVerifyPlan
+import com.mica.music.data.scanner.SafTargetedMetadataSnapshot
 import com.mica.music.data.scanner.SafTreeMetadataEntry
 import com.mica.music.data.scanner.SafTreeMetadataSnapshot
 import com.mica.music.data.scanner.VideoCoverFile
@@ -199,6 +200,52 @@ internal object SafShadowRelationRematcher {
 internal object SafShadowRelationPostValidator {
     fun validate(
         initialSnapshot: SafTreeMetadataSnapshot,
+        postSnapshot: SafTargetedMetadataSnapshot,
+        provisional: SafShadowRelationRematchResult,
+    ): SafShadowRelationRematchResult {
+        if (!provisional.hasWork) return provisional
+
+        val issues = provisional.issues.toMutableList()
+        val invalidFolders = linkedSetOf<String>()
+        provisional.resolvedFolderPaths.forEach { folder ->
+            when {
+                !initialSnapshot.discoveryReport.isComplete(DiscoveryPartitions.SAF_TREE) ||
+                    !postSnapshot.isFolderComplete(folder) -> {
+                    invalidFolders += folder
+                    issues += SafShadowRelationIssue(
+                        folderPath = folder,
+                        kind = SafShadowRelationIssueKind.INCOMPLETE_INVENTORY,
+                        detail = "targeted post-rematch SAF folder inventory is incomplete",
+                    )
+                }
+                !sameFolderObservation(initialSnapshot, postSnapshot, folder) -> {
+                    invalidFolders += folder
+                    issues += SafShadowRelationIssue(
+                        folderPath = folder,
+                        kind = SafShadowRelationIssueKind.FOLDER_OBSERVATION_CHANGED,
+                        detail = "audio/video inventory changed during relation rematch window",
+                    )
+                }
+            }
+        }
+
+        val invalidatedKeys = provisional.resolvedSongsByStableObjectKey.values.asSequence()
+            .filter { it.folderPath in invalidFolders }
+            .mapTo(linkedSetOf(), Song::id)
+        return SafShadowRelationRematchResult(
+            resolvedSongsByStableObjectKey =
+                provisional.resolvedSongsByStableObjectKey.filterValues {
+                    it.folderPath !in invalidFolders
+                },
+            resolvedFolderPaths = provisional.resolvedFolderPaths - invalidFolders,
+            unresolvedStableObjectKeys =
+                provisional.unresolvedStableObjectKeys + invalidatedKeys,
+            issues = issues.toList(),
+        )
+    }
+
+    fun validate(
+        initialSnapshot: SafTreeMetadataSnapshot,
         postSnapshot: SafTreeMetadataSnapshot,
         provisional: SafShadowRelationRematchResult,
     ): SafShadowRelationRematchResult {
@@ -241,6 +288,30 @@ internal object SafShadowRelationPostValidator {
                 provisional.unresolvedStableObjectKeys + invalidatedKeys,
             issues = issues.toList(),
         )
+    }
+
+    private fun sameFolderObservation(
+        initial: SafTreeMetadataSnapshot,
+        post: SafTargetedMetadataSnapshot,
+        folderPath: String,
+    ): Boolean {
+        val initialEntries = initial.entries
+            .asSequence()
+            .filter { it.folderPath == folderPath }
+            .associateBy(SafTreeMetadataEntry::stableObjectKey)
+        val postEntries = post.entries
+            .asSequence()
+            .filter { it.folderPath == folderPath }
+            .associateBy(SafTreeMetadataEntry::stableObjectKey)
+        if (initialEntries.keys != postEntries.keys) return false
+        if (initialEntries.any { (key, entry) ->
+                !entry.hasSameObservedRevision(postEntries.getValue(key))
+            }
+        ) {
+            return false
+        }
+        return videoObservation(initial.videoCovers, folderPath) ==
+            videoObservation(post.videoCovers, folderPath)
     }
 
     private fun sameFolderObservation(

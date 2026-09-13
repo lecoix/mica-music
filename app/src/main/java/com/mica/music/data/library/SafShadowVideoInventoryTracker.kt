@@ -18,6 +18,21 @@ internal class SafShadowVideoInventoryTracker {
     }
 
     @Synchronized
+    fun hasBaseline(): Boolean = baselineByFolder != null
+
+    @Synchronized
+    fun changedFoldersWithin(
+        files: List<VideoCoverFile>,
+        folderPaths: Set<String>,
+    ): Set<String> {
+        val baseline = baselineByFolder ?: return folderPaths.toSortedSet()
+        val observed = normalize(files)
+        return folderPaths.filterTo(sortedSetOf()) { folder ->
+            baseline[folder].orEmpty() != observed[folder].orEmpty()
+        }
+    }
+
+    @Synchronized
     fun changedFolders(
         files: List<VideoCoverFile>,
         conservativeFoldersWhenUnseeded: Set<String> = emptySet(),

@@ -6,6 +6,7 @@ import com.mica.music.data.scanner.DiscoveryPartitionStatus
 import com.mica.music.data.scanner.DiscoveryPartitions
 import com.mica.music.data.scanner.DiscoveryReport
 import com.mica.music.data.scanner.SafFastVerifyPlan
+import com.mica.music.data.scanner.SafTargetedMetadataSnapshot
 import com.mica.music.data.scanner.SafTreeMetadataEntry
 import com.mica.music.data.scanner.SafTreeMetadataSnapshot
 import com.mica.music.data.scanner.VideoCoverFile
@@ -188,6 +189,89 @@ class SafShadowRelationRematcherTest {
         assertEquals(setOf(song.id), validated.unresolvedStableObjectKeys)
         assertEquals(
             SafShadowRelationIssueKind.FOLDER_OBSERVATION_CHANGED,
+            validated.issues.single().kind,
+        )
+    }
+
+    @Test
+    fun targetedPostWalkVideoRevisionChangeDiscardsProvisionalRelations() {
+        val song = song("targeted-track").copy(album = "targeted-track")
+        val entry = entry(song)
+        val initialVideo = VideoCoverFile(
+            uri = "content://provider/document/targeted-track.mp4",
+            folderPath = song.folderPath,
+            baseName = "targeted-track",
+            sizeBytes = 100L,
+            lastModifiedMs = 200L,
+        )
+        val initial = snapshot(listOf(entry), listOf(initialVideo))
+        val provisional = SafShadowRelationRematcher.rematch(
+            snapshot = initial,
+            currentSongs = listOf(song),
+            audioWorkEntries = emptyList(),
+            removedStableObjectKeys = emptySet(),
+            resolvedAudioSongsByStableObjectKey = emptyMap(),
+            affectedFolderPaths = setOf(song.folderPath),
+        )
+        val post = SafTargetedMetadataSnapshot(
+            entries = listOf(entry),
+            videoCovers = listOf(initialVideo.copy(lastModifiedMs = 201L)),
+            requestedFolderPaths = setOf(song.folderPath),
+            completeFolderPaths = setOf(song.folderPath),
+        )
+
+        val validated = SafShadowRelationPostValidator.validate(
+            initialSnapshot = initial,
+            postSnapshot = post,
+            provisional = provisional,
+        )
+
+        assertTrue(validated.resolvedSongsByStableObjectKey.isEmpty())
+        assertEquals(setOf(song.id), validated.unresolvedStableObjectKeys)
+        assertEquals(
+            SafShadowRelationIssueKind.FOLDER_OBSERVATION_CHANGED,
+            validated.issues.single().kind,
+        )
+    }
+
+    @Test
+    fun targetedPostWalkIncompleteFolderDiscardsProvisionalRelations() {
+        val song = song("targeted-incomplete").copy(album = "targeted-incomplete")
+        val entry = entry(song)
+        val video = VideoCoverFile(
+            uri = "content://provider/document/targeted-incomplete.mp4",
+            folderPath = song.folderPath,
+            baseName = "targeted-incomplete",
+            sizeBytes = 100L,
+            lastModifiedMs = 200L,
+        )
+        val initial = snapshot(listOf(entry), listOf(video))
+        val provisional = SafShadowRelationRematcher.rematch(
+            snapshot = initial,
+            currentSongs = listOf(song),
+            audioWorkEntries = emptyList(),
+            removedStableObjectKeys = emptySet(),
+            resolvedAudioSongsByStableObjectKey = emptyMap(),
+            affectedFolderPaths = setOf(song.folderPath),
+        )
+        val post = SafTargetedMetadataSnapshot(
+            entries = listOf(entry),
+            videoCovers = listOf(video),
+            requestedFolderPaths = setOf(song.folderPath),
+            completeFolderPaths = emptySet(),
+            failedFolderPaths = setOf(song.folderPath),
+        )
+
+        val validated = SafShadowRelationPostValidator.validate(
+            initialSnapshot = initial,
+            postSnapshot = post,
+            provisional = provisional,
+        )
+
+        assertTrue(validated.resolvedSongsByStableObjectKey.isEmpty())
+        assertEquals(setOf(song.id), validated.unresolvedStableObjectKeys)
+        assertEquals(
+            SafShadowRelationIssueKind.INCOMPLETE_INVENTORY,
             validated.issues.single().kind,
         )
     }

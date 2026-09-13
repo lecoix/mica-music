@@ -6,6 +6,7 @@ import com.mica.music.data.Song
 import com.mica.music.data.scanner.AudioMetadataProbe
 import com.mica.music.data.scanner.AudioMetadataProbeArtifactPolicy
 import com.mica.music.data.scanner.SafFingerprintReliability
+import com.mica.music.data.scanner.SafTargetedMetadataSnapshot
 import com.mica.music.data.scanner.SafTreeMetadataEntry
 import com.mica.music.data.scanner.SafTreeMetadataSnapshot
 import com.mica.music.data.scanner.ScanOptions
@@ -13,6 +14,10 @@ import com.mica.music.data.scanner.ScannedSong
 import com.mica.music.data.scanner.hasSameObservedRevision
 import com.mica.music.data.scanner.retainScannedSong
 import java.security.MessageDigest
+import java.util.concurrent.Callable
+import java.util.concurrent.Executors
+import java.util.concurrent.ThreadFactory
+import java.util.concurrent.atomic.AtomicInteger
 
 internal data class SafShadowProbeRequest(
     val probePlan: SafAutoProbePlan,
@@ -107,6 +112,27 @@ internal data class SafShadowPostValidationResult(
 }
 
 internal object SafShadowObjectProbeExecutor {
+    private val autoProbeThreadIds = AtomicInteger(0)
+    private val autoProbeExecutor = Executors.newFixedThreadPool(
+        SafAutoProbePlanner.SYSTEM_EXTERNAL_STORAGE_HEAVY_PROBE_PARALLELISM,
+        ThreadFactory { runnable ->
+            Thread(
+                runnable,
+                "mica-saf-auto-probe-${autoProbeThreadIds.incrementAndGet()}",
+            ).apply { isDaemon = true }
+        },
+    )
+
+    private data class ObjectProbeResult(
+        val stableObjectKey: String,
+        val provisionalSong: Song? = null,
+        val provisionalLyrics: ScannedSongLyrics? = null,
+        val strongValidatedFingerprint: String? = null,
+        val issue: SafShadowProbeIssue? = null,
+        val attempted: Boolean = false,
+        val unknownVerifyWallTimeMs: Long = 0L,
+    )
+
     fun execute(
         request: SafShadowProbeRequest,
         audioProbeApi: SafShadowAudioProbeApi,
@@ -114,143 +140,67 @@ internal object SafShadowObjectProbeExecutor {
             NoopSafStrongResourceFingerprintApi,
     ): SafShadowProbeExecutionResult {
         val cachedById = request.currentSongs.associateBy(Song::id)
+        val concreteReady = request.probePlan.ready.filterNot { plan ->
+            SafAutoProbeReason.UNKNOWN_FINGERPRINT_VERIFY in plan.reasons
+        }
+        val unknownReady = request.probePlan.ready.filter { plan ->
+            SafAutoProbeReason.UNKNOWN_FINGERPRINT_VERIFY in plan.reasons
+        }
+
+        val concreteResults = executeConcreteBatch(
+            plans = concreteReady,
+            parallelism = request.probePlan.heavyProbeParallelism,
+            request = request,
+            cachedById = cachedById,
+            audioProbeApi = audioProbeApi,
+        )
+
+        // UNKNOWN strong verification intentionally remains serialized. Its before/after fingerprint
+        // pair and cumulative wall-time budget are a separate safety contract from ordinary
+        // NEW/CHANGED burst probing.
+        var unknownVerifyWallTimeMs = 0L
+        val unknownResults = unknownReady.map { plan ->
+            if (unknownVerifyWallTimeMs >= request.unknownVerifyWallTimeBudgetMs) {
+                ObjectProbeResult(
+                    stableObjectKey = plan.stableObjectKey,
+                    issue = SafShadowProbeIssue(
+                        stableObjectKey = plan.stableObjectKey,
+                        kind = SafShadowProbeIssueKind.UNKNOWN_VERIFY_BUDGET_DEFERRED,
+                        detail = "unknown deep-verify wall-time budget exhausted",
+                    ),
+                )
+            } else {
+                probeOne(
+                    plan = plan,
+                    request = request,
+                    cachedSong = cachedById[plan.stableObjectKey],
+                    audioProbeApi = audioProbeApi,
+                    strongFingerprintApi = strongFingerprintApi,
+                ).also { result ->
+                    unknownVerifyWallTimeMs += result.unknownVerifyWallTimeMs
+                }
+            }
+        }
+
         val provisional = linkedMapOf<String, Song>()
         val provisionalLyrics = linkedMapOf<String, ScannedSongLyrics>()
         val strongValidated = linkedMapOf<String, String>()
-        // Budget-deferred work already lives in probePlan.budgetDeferred. Do not allocate one
-        // shadow issue per deferred object: on a 10k dirty pass that would create ~10k transient
-        // objects every round even though RetryLedger intentionally ignores this condition.
         val issues = mutableListOf<SafShadowProbeIssue>()
         var attempted = 0
-        var unknownVerifyWallTimeMs = 0L
 
+        // Merge in planner order so result ordering stays deterministic even when concrete probes ran
+        // concurrently.
+        val resultsByKey = (concreteResults + unknownResults)
+            .associateBy(ObjectProbeResult::stableObjectKey)
         request.probePlan.ready.forEach { plan ->
-            val entry = plan.entry
-            if (
-                request.playbackSnapshotProvider().blocksHeavyProbe(
-                    stableObjectKey = entry.stableObjectKey,
-                    mediaUri = entry.mediaUri,
-                )
-            ) {
-                issues += SafShadowProbeIssue(
-                    stableObjectKey = entry.stableObjectKey,
-                    kind = SafShadowProbeIssueKind.PLAYBACK_DEFERRED,
-                )
-                return@forEach
+            val result = resultsByKey[plan.stableObjectKey] ?: return@forEach
+            if (result.attempted) attempted += 1
+            result.provisionalSong?.let { provisional[plan.stableObjectKey] = it }
+            result.provisionalLyrics?.let { provisionalLyrics[plan.stableObjectKey] = it }
+            result.strongValidatedFingerprint?.let {
+                strongValidated[plan.stableObjectKey] = it
             }
-            if (entry.probeDraft == null) {
-                issues += SafShadowProbeIssue(
-                    stableObjectKey = entry.stableObjectKey,
-                    kind = SafShadowProbeIssueKind.DRAFT_UNAVAILABLE,
-                    detail = "metadata snapshot did not retain transient probe draft",
-                )
-                return@forEach
-            }
-
-            val requiresStrongValidation =
-                SafAutoProbeReason.UNKNOWN_FINGERPRINT_VERIFY in plan.reasons
-            if (
-                requiresStrongValidation &&
-                unknownVerifyWallTimeMs >= request.unknownVerifyWallTimeBudgetMs
-            ) {
-                issues += SafShadowProbeIssue(
-                    stableObjectKey = entry.stableObjectKey,
-                    kind = SafShadowProbeIssueKind.UNKNOWN_VERIFY_BUDGET_DEFERRED,
-                    detail = "unknown deep-verify wall-time budget exhausted",
-                )
-                return@forEach
-            }
-
-            val unknownStartedAtMs = if (requiresStrongValidation) {
-                request.monotonicTimeMsProvider()
-            } else {
-                null
-            }
-            try {
-                val strongBefore = if (requiresStrongValidation) {
-                    runCatching { strongFingerprintApi.fingerprint(entry) }.getOrNull()
-                } else {
-                    null
-                }
-                if (requiresStrongValidation && strongBefore == null) {
-                    issues += SafShadowProbeIssue(
-                        stableObjectKey = entry.stableObjectKey,
-                        kind = SafShadowProbeIssueKind.PROBE_FAILED,
-                        detail = "strong-fingerprint-before-unavailable",
-                    )
-                    return@forEach
-                }
-
-                attempted += 1
-                val scanned = runCatching {
-                    audioProbeApi.probe(entry, cachedById[entry.stableObjectKey])
-                }.getOrElse { error ->
-                    issues += SafShadowProbeIssue(
-                        stableObjectKey = entry.stableObjectKey,
-                        kind = SafShadowProbeIssueKind.PROBE_FAILED,
-                        detail = error.message.orEmpty().ifBlank { error.javaClass.simpleName },
-                    )
-                    return@forEach
-                }
-
-                when (val lyrics = scanned.lyrics) {
-                    is LyricsProbeResult.Complete -> {
-                        provisionalLyrics[entry.stableObjectKey] = ScannedSongLyrics(
-                            songId = entry.stableObjectKey,
-                            revision = scanned.song.lyricsCacheRevision,
-                            slots = lyrics.slots,
-                        )
-                    }
-                    LyricsProbeResult.ReadFailed -> {
-                        issues += SafShadowProbeIssue(
-                            stableObjectKey = entry.stableObjectKey,
-                            kind = SafShadowProbeIssueKind.PROBE_FAILED,
-                            detail = "lyrics-read-failed",
-                        )
-                        return@forEach
-                    }
-                    LyricsProbeResult.NotProbed -> {
-                        issues += SafShadowProbeIssue(
-                            stableObjectKey = entry.stableObjectKey,
-                            kind = SafShadowProbeIssueKind.PROBE_FAILED,
-                            detail = "lyrics-not-probed",
-                        )
-                        return@forEach
-                    }
-                }
-
-                if (requiresStrongValidation) {
-                    val strongAfter =
-                        runCatching { strongFingerprintApi.fingerprint(entry) }.getOrNull()
-                    if (strongAfter == null) {
-                        issues += SafShadowProbeIssue(
-                            stableObjectKey = entry.stableObjectKey,
-                            kind = SafShadowProbeIssueKind.PROBE_FAILED,
-                            detail = "strong-fingerprint-after-unavailable",
-                        )
-                        return@forEach
-                    }
-                    if (strongBefore != strongAfter) {
-                        issues += SafShadowProbeIssue(
-                            stableObjectKey = entry.stableObjectKey,
-                            kind = SafShadowProbeIssueKind.POST_OBSERVATION_CHANGED,
-                            detail = "strong-resource-fingerprint-changed-during-probe",
-                        )
-                        return@forEach
-                    }
-                    strongValidated[entry.stableObjectKey] = strongAfter
-                }
-
-                provisional[entry.stableObjectKey] = retainScannedSong(scanned).copy(
-                    id = entry.stableObjectKey,
-                )
-            } finally {
-                if (unknownStartedAtMs != null) {
-                    unknownVerifyWallTimeMs += (
-                        request.monotonicTimeMsProvider() - unknownStartedAtMs
-                        ).coerceAtLeast(0L)
-                }
-            }
+            result.issue?.let(issues::add)
         }
 
         return SafShadowProbeExecutionResult(
@@ -262,9 +212,290 @@ internal object SafShadowObjectProbeExecutor {
             unknownVerifyWallTimeMs = unknownVerifyWallTimeMs,
         )
     }
+
+    private fun executeConcreteBatch(
+        plans: List<SafAutoProbeObjectPlan>,
+        parallelism: Int,
+        request: SafShadowProbeRequest,
+        cachedById: Map<String, Song>,
+        audioProbeApi: SafShadowAudioProbeApi,
+    ): List<ObjectProbeResult> {
+        if (plans.isEmpty()) return emptyList()
+        if (parallelism <= 1 || plans.size == 1) {
+            return plans.map { plan ->
+                probeOne(
+                    plan = plan,
+                    request = request,
+                    cachedSong = cachedById[plan.stableObjectKey],
+                    audioProbeApi = audioProbeApi,
+                    strongFingerprintApi = NoopSafStrongResourceFingerprintApi,
+                )
+            }
+        }
+
+        return plans.chunked(parallelism).flatMap { chunk ->
+            val futures = chunk.map { plan ->
+                autoProbeExecutor.submit(Callable {
+                    runCatching {
+                        probeOne(
+                            plan = plan,
+                            request = request,
+                            cachedSong = cachedById[plan.stableObjectKey],
+                            audioProbeApi = audioProbeApi,
+                            strongFingerprintApi = NoopSafStrongResourceFingerprintApi,
+                        )
+                    }.getOrElse { error ->
+                        ObjectProbeResult(
+                            stableObjectKey = plan.stableObjectKey,
+                            issue = SafShadowProbeIssue(
+                                stableObjectKey = plan.stableObjectKey,
+                                kind = SafShadowProbeIssueKind.PROBE_FAILED,
+                                detail = error.message.orEmpty().ifBlank {
+                                    error.javaClass.simpleName
+                                },
+                            ),
+                        )
+                    }
+                })
+            }
+            futures.mapIndexed { index, future ->
+                runCatching { future.get() }.getOrElse { error ->
+                    val plan = chunk[index]
+                    ObjectProbeResult(
+                        stableObjectKey = plan.stableObjectKey,
+                        issue = SafShadowProbeIssue(
+                            stableObjectKey = plan.stableObjectKey,
+                            kind = SafShadowProbeIssueKind.PROBE_FAILED,
+                            detail = error.message.orEmpty().ifBlank { error.javaClass.simpleName },
+                        ),
+                    )
+                }
+            }
+        }
+    }
+
+    private fun probeOne(
+        plan: SafAutoProbeObjectPlan,
+        request: SafShadowProbeRequest,
+        cachedSong: Song?,
+        audioProbeApi: SafShadowAudioProbeApi,
+        strongFingerprintApi: SafStrongResourceFingerprintApi,
+    ): ObjectProbeResult {
+        val entry = plan.entry
+        if (
+            request.playbackSnapshotProvider().blocksHeavyProbe(
+                stableObjectKey = entry.stableObjectKey,
+                mediaUri = entry.mediaUri,
+            )
+        ) {
+            return ObjectProbeResult(
+                stableObjectKey = entry.stableObjectKey,
+                issue = SafShadowProbeIssue(
+                    stableObjectKey = entry.stableObjectKey,
+                    kind = SafShadowProbeIssueKind.PLAYBACK_DEFERRED,
+                ),
+            )
+        }
+        if (entry.probeDraft == null) {
+            return ObjectProbeResult(
+                stableObjectKey = entry.stableObjectKey,
+                issue = SafShadowProbeIssue(
+                    stableObjectKey = entry.stableObjectKey,
+                    kind = SafShadowProbeIssueKind.DRAFT_UNAVAILABLE,
+                    detail = "metadata snapshot did not retain transient probe draft",
+                ),
+            )
+        }
+
+        val requiresStrongValidation =
+            SafAutoProbeReason.UNKNOWN_FINGERPRINT_VERIFY in plan.reasons
+        val unknownStartedAtMs = if (requiresStrongValidation) {
+            request.monotonicTimeMsProvider()
+        } else {
+            null
+        }
+        fun unknownElapsedMs(): Long = unknownStartedAtMs?.let { started ->
+            (request.monotonicTimeMsProvider() - started).coerceAtLeast(0L)
+        } ?: 0L
+
+        val strongBefore = if (requiresStrongValidation) {
+            runCatching { strongFingerprintApi.fingerprint(entry) }.getOrNull()
+        } else {
+            null
+        }
+        if (requiresStrongValidation && strongBefore == null) {
+            return ObjectProbeResult(
+                stableObjectKey = entry.stableObjectKey,
+                issue = SafShadowProbeIssue(
+                    stableObjectKey = entry.stableObjectKey,
+                    kind = SafShadowProbeIssueKind.PROBE_FAILED,
+                    detail = "strong-fingerprint-before-unavailable",
+                ),
+                unknownVerifyWallTimeMs = unknownElapsedMs(),
+            )
+        }
+
+        val scanned = runCatching {
+            audioProbeApi.probe(entry, cachedSong)
+        }.getOrElse { error ->
+            return ObjectProbeResult(
+                stableObjectKey = entry.stableObjectKey,
+                issue = SafShadowProbeIssue(
+                    stableObjectKey = entry.stableObjectKey,
+                    kind = SafShadowProbeIssueKind.PROBE_FAILED,
+                    detail = error.message.orEmpty().ifBlank { error.javaClass.simpleName },
+                ),
+                attempted = true,
+                unknownVerifyWallTimeMs = unknownElapsedMs(),
+            )
+        }
+
+        val lyrics = when (val result = scanned.lyrics) {
+            is LyricsProbeResult.Complete -> ScannedSongLyrics(
+                songId = entry.stableObjectKey,
+                revision = scanned.song.lyricsCacheRevision,
+                slots = result.slots,
+            )
+            LyricsProbeResult.ReadFailed -> {
+                return ObjectProbeResult(
+                    stableObjectKey = entry.stableObjectKey,
+                    issue = SafShadowProbeIssue(
+                        stableObjectKey = entry.stableObjectKey,
+                        kind = SafShadowProbeIssueKind.PROBE_FAILED,
+                        detail = "lyrics-read-failed",
+                    ),
+                    attempted = true,
+                    unknownVerifyWallTimeMs = unknownElapsedMs(),
+                )
+            }
+            LyricsProbeResult.NotProbed -> {
+                return ObjectProbeResult(
+                    stableObjectKey = entry.stableObjectKey,
+                    issue = SafShadowProbeIssue(
+                        stableObjectKey = entry.stableObjectKey,
+                        kind = SafShadowProbeIssueKind.PROBE_FAILED,
+                        detail = "lyrics-not-probed",
+                    ),
+                    attempted = true,
+                    unknownVerifyWallTimeMs = unknownElapsedMs(),
+                )
+            }
+        }
+
+        var strongValidated: String? = null
+        if (requiresStrongValidation) {
+            val strongAfter = runCatching { strongFingerprintApi.fingerprint(entry) }.getOrNull()
+            if (strongAfter == null) {
+                return ObjectProbeResult(
+                    stableObjectKey = entry.stableObjectKey,
+                    issue = SafShadowProbeIssue(
+                        stableObjectKey = entry.stableObjectKey,
+                        kind = SafShadowProbeIssueKind.PROBE_FAILED,
+                        detail = "strong-fingerprint-after-unavailable",
+                    ),
+                    attempted = true,
+                    unknownVerifyWallTimeMs = unknownElapsedMs(),
+                )
+            }
+            if (strongBefore != strongAfter) {
+                return ObjectProbeResult(
+                    stableObjectKey = entry.stableObjectKey,
+                    issue = SafShadowProbeIssue(
+                        stableObjectKey = entry.stableObjectKey,
+                        kind = SafShadowProbeIssueKind.POST_OBSERVATION_CHANGED,
+                        detail = "strong-resource-fingerprint-changed-during-probe",
+                    ),
+                    attempted = true,
+                    unknownVerifyWallTimeMs = unknownElapsedMs(),
+                )
+            }
+            strongValidated = strongAfter
+        }
+
+        return ObjectProbeResult(
+            stableObjectKey = entry.stableObjectKey,
+            provisionalSong = retainScannedSong(scanned).copy(id = entry.stableObjectKey),
+            provisionalLyrics = lyrics,
+            strongValidatedFingerprint = strongValidated,
+            attempted = true,
+            unknownVerifyWallTimeMs = unknownElapsedMs(),
+        )
+    }
 }
 
 internal object SafShadowPostProbeValidator {
+    fun validate(
+        initialSnapshot: SafTreeMetadataSnapshot,
+        postSnapshot: SafTargetedMetadataSnapshot,
+        execution: SafShadowProbeExecutionResult,
+    ): SafShadowPostValidationResult {
+        val validationKeys = execution.provisionalSongsByStableObjectKey.keys
+        val initialByKey = initialSnapshot.entries.asSequence()
+            .filter { it.stableObjectKey in validationKeys }
+            .associateBy(SafTreeMetadataEntry::stableObjectKey)
+        val postByKey = postSnapshot.entries.asSequence()
+            .filter { it.stableObjectKey in validationKeys }
+            .associateBy(SafTreeMetadataEntry::stableObjectKey)
+        val resolved = linkedMapOf<String, Song>()
+        val issues = execution.issues.toMutableList()
+
+        execution.provisionalSongsByStableObjectKey.forEach { (stableKey, song) ->
+            val initial = initialByKey[stableKey]
+            val post = postByKey[stableKey]
+            when {
+                initial == null -> {
+                    issues += SafShadowProbeIssue(
+                        stableObjectKey = stableKey,
+                        kind = SafShadowProbeIssueKind.POST_OBSERVATION_CHANGED,
+                        detail = "initial-observation-missing",
+                    )
+                }
+                !postSnapshot.isFolderComplete(initial.folderPath) -> {
+                    issues += SafShadowProbeIssue(
+                        stableObjectKey = stableKey,
+                        kind = SafShadowProbeIssueKind.POST_OBSERVATION_CHANGED,
+                        detail = "post-validation-folder-incomplete",
+                    )
+                }
+                post == null -> {
+                    issues += SafShadowProbeIssue(
+                        stableObjectKey = stableKey,
+                        kind = SafShadowProbeIssueKind.POST_OBSERVATION_CHANGED,
+                        detail = "object-missing-after-probe",
+                    )
+                }
+                !initial.hasSameObservedRevision(post) -> {
+                    issues += SafShadowProbeIssue(
+                        stableObjectKey = stableKey,
+                        kind = SafShadowProbeIssueKind.POST_OBSERVATION_CHANGED,
+                        detail = "metadata revision changed during probe window",
+                    )
+                }
+                initial.fingerprintReliability == SafFingerprintReliability.UNKNOWN ||
+                    post.fingerprintReliability == SafFingerprintReliability.UNKNOWN -> {
+                    if (execution.strongValidatedFingerprintsByStableObjectKey.containsKey(stableKey)) {
+                        resolved[stableKey] = song
+                    } else {
+                        issues += SafShadowProbeIssue(
+                            stableObjectKey = stableKey,
+                            kind = SafShadowProbeIssueKind.UNVERIFIABLE_FINGERPRINT,
+                            detail = "provider fingerprint unavailable and no strong verify",
+                        )
+                    }
+                }
+                else -> resolved[stableKey] = song
+            }
+        }
+
+        val resolvedKeys = resolved.keys
+        return SafShadowPostValidationResult(
+            resolvedSongsByStableObjectKey = resolved.toMap(),
+            resolvedLyricsByStableObjectKey =
+                execution.provisionalLyricsByStableObjectKey.filterKeys { it in resolvedKeys },
+            issues = issues.toList(),
+        )
+    }
+
     fun validate(
         initialSnapshot: SafTreeMetadataSnapshot,
         postSnapshot: SafTreeMetadataSnapshot,

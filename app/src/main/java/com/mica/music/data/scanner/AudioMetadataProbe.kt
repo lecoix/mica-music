@@ -106,9 +106,49 @@ internal fun mergeTagInfo(primary: TagInfo, fallback: TagInfo): TagInfo {
 
 object AudioMetadataProbe {
 
+    internal fun hydrateArtwork(context: Context, song: Song): Song {
+        val bytes = readEmbeddedArtworkBytes(context, song) ?: return song
+        val albumArtUri = runCatching {
+            AlbumArtCache.storeManagedArtwork(context.applicationContext, song.id, bytes)
+        }.getOrNull() ?: return song
+        val coverColorArgb = CoverColorExtractor.fromBytes(bytes) ?: song.coverColorArgb
+        return song.copy(
+            albumArtUri = albumArtUri,
+            coverColorArgb = coverColorArgb,
+        )
+    }
+
+    internal fun readEmbeddedArtworkBytes(context: Context, song: Song): ByteArray? =
+        readEmbeddedArtworkBytes(
+            context = context,
+            draft = TrackDraft(
+                mediaStoreId = song.id.removePrefix("ms_").toLongOrNull() ?: 0L,
+                title = song.title,
+                artist = song.artist,
+                album = song.album,
+                albumId = 0L,
+                durationSec = song.durationSec,
+                mimeType = song.metadata.playbackMimeType,
+                displayName = song.fileName,
+                sizeBytes = song.sizeBytes,
+                bitrateBpsFromStore = song.metadata.bitrateKbps.coerceAtLeast(0) * 1000,
+                mediaUri = song.mediaUri,
+                coverColorArgb = song.coverColorArgb,
+                year = song.year,
+                releaseDate = song.releaseDate,
+                folderPath = song.folderPath,
+                filePath = song.filePath,
+                albumArtist = song.albumArtist,
+                copyright = song.copyright,
+                comment = song.comment,
+                codecLabel = song.codecLabel,
+                dateAddedMs = song.dateAddedMs,
+                dateModifiedMs = song.dateModifiedMs,
+                externalLyricsSignature = song.externalLyricsSignature,
+            ),
+        )
+
     internal fun readEmbeddedArtworkBytes(context: Context, song: SongEntity): ByteArray? {
-        val appContext = context.applicationContext
-        val uri = Uri.parse(song.mediaUri)
         val draft = TrackDraft(
             mediaStoreId = song.id.removePrefix("ms_").toLongOrNull() ?: 0L,
             title = song.title,
@@ -132,6 +172,12 @@ object AudioMetadataProbe {
             dateAddedMs = song.dateAddedMs,
             dateModifiedMs = song.dateModifiedMs,
         )
+        return readEmbeddedArtworkBytes(context, draft)
+    }
+
+    private fun readEmbeddedArtworkBytes(context: Context, draft: TrackDraft): ByteArray? {
+        val appContext = context.applicationContext
+        val uri = Uri.parse(draft.mediaUri)
         if (draft.isDsdDraft()) {
             DsdMetadataReader.read(appContext, uri, draft)?.albumArtBytes
                 ?.takeIf { it.size >= 256 }

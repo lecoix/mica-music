@@ -54,6 +54,27 @@ internal data class SafTreeMetadataSnapshot(
     val observationStats: SafTreeMetadataObservationStats = SafTreeMetadataObservationStats(),
 )
 
+/**
+ * Post-probe SAF observation scoped to the exact folders touched by this AUTO pass.
+ *
+ * Unlike [SafTreeMetadataSnapshot], this is deliberately not a whole-tree authority snapshot.
+ * Each requested folder is resolved again from the granted tree root, so rename/move/missing
+ * races fail closed without paying for an unrelated recursive tree walk.
+ */
+internal data class SafTargetedMetadataSnapshot(
+    val entries: List<SafTreeMetadataEntry>,
+    val videoCovers: List<VideoCoverFile> = emptyList(),
+    val requestedFolderPaths: Set<String>,
+    val completeFolderPaths: Set<String>,
+    val failedFolderPaths: Set<String> = emptySet(),
+    val observationStats: SafTreeMetadataObservationStats = SafTreeMetadataObservationStats(),
+) {
+    val isComplete: Boolean
+        get() = failedFolderPaths.isEmpty() && completeFolderPaths.containsAll(requestedFolderPaths)
+
+    fun isFolderComplete(folderPath: String): Boolean = folderPath in completeFolderPaths
+}
+
 internal data class SafFastVerifyPlan(
     val added: List<SafTreeMetadataEntry>,
     val changed: List<SafTreeMetadataEntry>,

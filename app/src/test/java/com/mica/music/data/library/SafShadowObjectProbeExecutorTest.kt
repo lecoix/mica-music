@@ -8,6 +8,7 @@ import com.mica.music.data.scanner.DiscoveryPartitionStatus
 import com.mica.music.data.scanner.DiscoveryPartitions
 import com.mica.music.data.scanner.DiscoveryReport
 import com.mica.music.data.scanner.SafFastVerifyPlan
+import com.mica.music.data.scanner.SafTargetedMetadataSnapshot
 import com.mica.music.data.scanner.SafTreeMetadataEntry
 import com.mica.music.data.scanner.SafTreeMetadataSnapshot
 import com.mica.music.data.scanner.ScanOptions
@@ -17,6 +18,10 @@ import com.mica.music.testutil.SongFixtures
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 
 class SafShadowObjectProbeExecutorTest {
 
@@ -221,6 +226,67 @@ class SafShadowObjectProbeExecutorTest {
     }
 
     @Test
+    fun concreteBurstUsesConfiguredParallelProbeLanes() {
+        val songs = List(4) { index ->
+            current.copy(
+                id = "parallel-$index",
+                mediaUri = "content://provider/document/parallel-$index",
+                fileName = "parallel-$index.flac",
+                filePath = "Album/parallel-$index.flac",
+            )
+        }
+        val entries = songs.map(::entry)
+        val plan = SafAutoProbePlan(
+            objects = entries.map { entry ->
+                SafAutoProbeObjectPlan(
+                    entry = entry,
+                    reasons = setOf(SafAutoProbeReason.NEW_OBJECT),
+                    disposition = SafAutoProbeDisposition.READY,
+                )
+            },
+            heavyProbeParallelism = 4,
+        )
+        val entered = CountDownLatch(4)
+        val release = CountDownLatch(1)
+        val active = AtomicInteger(0)
+        val maxActive = AtomicInteger(0)
+        val workerFailure = AtomicReference<Throwable?>(null)
+
+        val worker = Thread {
+            runCatching {
+                val execution = SafShadowObjectProbeExecutor.execute(
+                request = SafShadowProbeRequest(
+                    probePlan = plan,
+                    scanOptions = ScanOptions(),
+                    currentSongs = songs,
+                    playbackSnapshotProvider = { LibraryPlaybackIoSnapshot.Idle },
+                ),
+                audioProbeApi = SafShadowAudioProbeApi { _, cached ->
+                    val now = active.incrementAndGet()
+                    maxActive.updateAndGet { previous -> maxOf(previous, now) }
+                    entered.countDown()
+                    check(release.await(2, TimeUnit.SECONDS))
+                    active.decrementAndGet()
+                    ScannedSong(
+                        song = cached!!,
+                        lyrics = LyricsProbeResult.Complete(LyricsSlots()),
+                    )
+                },
+            )
+                assertEquals(4, execution.attemptedCount)
+                assertEquals(4, execution.provisionalSongsByStableObjectKey.size)
+            }.onFailure(workerFailure::set)
+        }
+        worker.start()
+        assertTrue(entered.await(2, TimeUnit.SECONDS))
+        assertTrue(maxActive.get() >= 2)
+        release.countDown()
+        worker.join(3_000L)
+        assertTrue(!worker.isAlive)
+        workerFailure.get()?.let { throw AssertionError("parallel probe worker failed", it) }
+    }
+
+    @Test
     fun tenThousandChangedObjectsInvokeOnlyOneHeavyProbeBudgetBatch() {
         val songs = List(10_000) { index ->
             current.copy(
@@ -274,6 +340,88 @@ class SafShadowObjectProbeExecutorTest {
         assertEquals(
             10_000 - SafAutoProbePlanner.DEFAULT_HEAVY_PROBE_BUDGET,
             probePlan.budgetDeferred.size,
+        )
+    }
+
+    @Test
+    fun targetedPostObservationResolvesStableObject() {
+        val observed = entry(current)
+        val execution = execute(
+            entry = observed,
+            audioProbe = successfulProbe(),
+        )
+        val post = SafTargetedMetadataSnapshot(
+            entries = listOf(observed.copy(probeDraft = null)),
+            requestedFolderPaths = setOf(current.folderPath),
+            completeFolderPaths = setOf(current.folderPath),
+        )
+
+        val validation = SafShadowPostProbeValidator.validate(
+            initialSnapshot = snapshot(observed),
+            postSnapshot = post,
+            execution = execution,
+        )
+
+        assertEquals(setOf(current.id), validation.resolvedSongsByStableObjectKey.keys)
+        assertTrue(validation.issues.isEmpty())
+    }
+
+    @Test
+    fun targetedPostObservationRejectsIncompleteFolder() {
+        val observed = entry(current)
+        val execution = execute(
+            entry = observed,
+            audioProbe = successfulProbe(),
+        )
+        val post = SafTargetedMetadataSnapshot(
+            entries = listOf(observed.copy(probeDraft = null)),
+            requestedFolderPaths = setOf(current.folderPath),
+            completeFolderPaths = emptySet(),
+            failedFolderPaths = setOf(current.folderPath),
+        )
+
+        val validation = SafShadowPostProbeValidator.validate(
+            initialSnapshot = snapshot(observed),
+            postSnapshot = post,
+            execution = execution,
+        )
+
+        assertTrue(validation.resolvedSongsByStableObjectKey.isEmpty())
+        assertEquals(
+            SafShadowProbeIssueKind.POST_OBSERVATION_CHANGED,
+            validation.issues.single().kind,
+        )
+        assertEquals("post-validation-folder-incomplete", validation.issues.single().detail)
+    }
+
+    @Test
+    fun targetedPostObservationRejectsExternalLyricsRevisionChange() {
+        val observed = entry(current)
+        val execution = execute(
+            entry = observed,
+            audioProbe = successfulProbe(),
+        )
+        val post = SafTargetedMetadataSnapshot(
+            entries = listOf(
+                observed.copy(
+                    externalLyricsSignature = "lyrics:v2",
+                    probeDraft = null,
+                ),
+            ),
+            requestedFolderPaths = setOf(current.folderPath),
+            completeFolderPaths = setOf(current.folderPath),
+        )
+
+        val validation = SafShadowPostProbeValidator.validate(
+            initialSnapshot = snapshot(observed),
+            postSnapshot = post,
+            execution = execution,
+        )
+
+        assertTrue(validation.resolvedSongsByStableObjectKey.isEmpty())
+        assertEquals(
+            SafShadowProbeIssueKind.POST_OBSERVATION_CHANGED,
+            validation.issues.single().kind,
         )
     }
 
