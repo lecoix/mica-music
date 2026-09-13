@@ -1,7 +1,7 @@
 package com.mica.music.data.library
 
 internal object LibraryFollowupProtocol {
-    const val PLAYLIST_REMOVE_LIBRARY_MEMBERSHIP = "PLAYLIST_REMOVE_LIBRARY_MEMBERSHIP"
+    const val PLAYLIST_REMOVE_CONFIRMED_MISSING = "PLAYLIST_REMOVE_CONFIRMED_MISSING"
     private const val SONG_ID_PREFIX = "songId="
 
     fun playlistRemovalPayload(songId: String): String = "$SONG_ID_PREFIX$songId"
@@ -12,11 +12,11 @@ internal object LibraryFollowupProtocol {
             ?.takeIf(String::isNotBlank)
 
     fun playlistRemovalEventId(
-        libraryRevision: Long,
         sourceIdentity: SourceIdentityKey,
         stableObjectKey: String,
+        evidenceRevision: String,
     ): String =
-        "playlist-remove:$libraryRevision:${sourceIdentity.storageKey()}:$stableObjectKey"
+        "playlist-remove-confirmed-missing:${sourceIdentity.storageKey()}:$stableObjectKey:$evidenceRevision"
 
     fun planPlaylistRemovalFollowups(
         changeSet: LibraryChangeSet,
@@ -29,17 +29,21 @@ internal object LibraryFollowupProtocol {
             .filter { it.reason == MembershipRemovalReason.CONFIRMED_MISSING }
             .mapNotNull { change ->
                 val songId = change.songId?.takeIf(String::isNotBlank) ?: return@mapNotNull null
+                val evidenceRevision =
+                    change.evidenceRevision.takeIf(String::isNotBlank) ?: return@mapNotNull null
                 LibraryFollowupOutboxItem(
                     eventId = playlistRemovalEventId(
-                        libraryRevision = changeSet.libraryRevision,
                         sourceIdentity = change.sourceIdentity,
                         stableObjectKey = change.stableObjectKey,
+                        evidenceRevision = evidenceRevision,
                     ),
                     libraryRevision = changeSet.libraryRevision,
-                    action = PLAYLIST_REMOVE_LIBRARY_MEMBERSHIP,
+                    action = PLAYLIST_REMOVE_CONFIRMED_MISSING,
                     sourceIdentity = change.sourceIdentity,
                     activationEpoch = activationEpoch,
                     stableObjectKey = change.stableObjectKey,
+                    evidenceRevision = evidenceRevision,
+                    removalReason = change.reason,
                     payload = playlistRemovalPayload(songId),
                     createdAtMs = createdAtMs,
                 )

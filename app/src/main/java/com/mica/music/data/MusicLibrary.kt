@@ -9,6 +9,7 @@ import com.mica.music.data.library.SafShadowProbeRuntime
 import com.mica.music.data.library.NoopSafShadowProbeRuntime
 import com.mica.music.data.library.AndroidSafShadowProbeRuntime
 import com.mica.music.data.library.DeviceShadowProbeRuntime
+import com.mica.music.data.library.LibraryFollowupOutboxItem
 import com.mica.music.data.library.LibraryUserExclusion
 import com.mica.music.data.library.NoopDeviceShadowProbeRuntime
 import com.mica.music.data.library.NoopDeviceRetryObservationRuntime
@@ -316,6 +317,17 @@ class MusicLibrary internal constructor(
         withContext(Dispatchers.IO) {
             backing.libraryStore.acknowledgeFollowupOutbox(eventId)
         }
+
+    internal suspend fun consumeConfirmedMissingFollowup(
+        playlistStore: PlaylistStore,
+        item: LibraryFollowupOutboxItem,
+        songId: String,
+    ): Boolean {
+        val commit = backing.publicationAuthority.withPublicationGate {
+            playlistStore.commitConfirmedMissingFollowup(item, songId)
+        } ?: return false
+        return playlistStore.publishConfirmedMissingFollowup(commit)
+    }
 
     fun recentSongs(): List<Song> = backing.browse.recentSongs()
 

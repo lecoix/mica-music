@@ -9,6 +9,7 @@ import com.mica.music.data.local.MicaDatabase
 import com.mica.music.testutil.SongFixtures
 import com.mica.music.ui.components.SongMenuAction
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -37,7 +38,7 @@ class HomeScreenControllerTest {
     }
 
     @Test
-    fun openAndDismissActionMenu() {
+    fun openAndDismissActionMenu() = runTest {
         val song = SongFixtures.song("s1")
         var overlay = HomeOverlayState()
 
@@ -51,7 +52,7 @@ class HomeScreenControllerTest {
     }
 
     @Test
-    fun deleteMenuActionSetsPendingDeleteSong() {
+    fun deleteMenuActionSetsPendingDeleteSong() = runTest {
         val song = SongFixtures.song("s1")
         val overlay = controller.openActionMenu(HomeOverlayState(), song)
 
@@ -67,7 +68,7 @@ class HomeScreenControllerTest {
     }
 
     @Test
-    fun addToPlaylistMenuActionOpensAddSheet() {
+    fun addToPlaylistMenuActionOpensAddSheet() = runTest {
         val song = SongFixtures.song("s1")
         val overlay = controller.openActionMenu(HomeOverlayState(), song)
 
@@ -82,7 +83,7 @@ class HomeScreenControllerTest {
     }
 
     @Test
-    fun songInfoMenuActionOpensDetail() {
+    fun songInfoMenuActionOpensDetail() = runTest {
         val song = SongFixtures.song("s1")
         val overlay = controller.openActionMenu(HomeOverlayState(), song)
 
@@ -98,7 +99,7 @@ class HomeScreenControllerTest {
     }
 
     @Test
-    fun playNextKeepsRemoteSongWithoutLocalLibraryLookup() {
+    fun playNextKeepsRemoteSongWithoutLocalLibraryLookup() = runTest {
         val remoteSong = SongFixtures.song("remote-1").copy(source = SongSource.REMOTE)
         val overlay = controller.openActionMenu(HomeOverlayState(), remoteSong)
 
@@ -114,7 +115,7 @@ class HomeScreenControllerTest {
     }
 
     @Test
-    fun removeFromPlaylistRequiresPlaylistContext() {
+    fun removeFromPlaylistRequiresPlaylistContext() = runTest {
         val song = SongFixtures.song("s1")
         val playlist = playlistStore.createPlaylist("Test")
         playlistStore.addSongToPlaylist(playlist.id, song.id)
@@ -132,7 +133,7 @@ class HomeScreenControllerTest {
     }
 
     @Test
-    fun deleteActivePlaylistNavigatesToSongs() {
+    fun deleteActivePlaylistNavigatesToSongs() = runTest {
         val playlist = playlistStore.createPlaylist("Mine")
 
         val outcome = controller.deletePlaylist(
@@ -148,7 +149,7 @@ class HomeScreenControllerTest {
     }
 
     @Test
-    fun deleteInactivePlaylistKeepsNavigation() {
+    fun deleteInactivePlaylistKeepsNavigation() = runTest {
         val playlist = playlistStore.createPlaylist("Other")
 
         val outcome = controller.deletePlaylist(
@@ -163,7 +164,7 @@ class HomeScreenControllerTest {
     }
 
     @Test
-    fun createPlaylistSuccess() {
+    fun createPlaylistSuccess() = runTest {
         val outcome = controller.createPlaylist("  New List  ")
 
         assertEquals(HomeSection.Playlist, outcome.section)
@@ -172,7 +173,7 @@ class HomeScreenControllerTest {
     }
 
     @Test
-    fun createPlaylistEmptyNameFails() {
+    fun createPlaylistEmptyNameFails() = runTest {
         val outcome = controller.createPlaylist("   ")
 
         assertNull(outcome.section)

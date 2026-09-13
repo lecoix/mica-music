@@ -15,15 +15,17 @@ import androidx.room.RoomDatabase
         LibrarySyncCheckpointEntity::class,
         LibraryRetryItemEntity::class,
         LibraryFollowupOutboxEntity::class,
+        LibraryMembershipEvidenceEntity::class,
         LibraryUserExclusionEntity::class,
         BrowseGroupEntity::class,
+        PlaylistStateEntity::class,
         PlaylistEntity::class,
         PlaylistSongEntity::class,
         SongLyricsOffsetEntity::class,
         RemoteSourceEntity::class,
         RemoteTrackEntity::class,
     ],
-    version = 29,
+    version = 30,
     exportSchema = true,
 )
 abstract class MicaDatabase : RoomDatabase() {
@@ -41,6 +43,8 @@ abstract class MicaDatabase : RoomDatabase() {
     abstract fun libraryRetryItemDao(): LibraryRetryItemDao
 
     abstract fun libraryFollowupOutboxDao(): LibraryFollowupOutboxDao
+
+    abstract fun libraryMembershipEvidenceDao(): LibraryMembershipEvidenceDao
 
     abstract fun libraryUserExclusionDao(): LibraryUserExclusionDao
 
@@ -97,6 +101,7 @@ abstract class MicaDatabase : RoomDatabase() {
                             MIGRATION_26_27,
                             MIGRATION_27_28,
                             MIGRATION_28_29,
+                            MIGRATION_29_30,
                         )
                         .build()
                         .also {

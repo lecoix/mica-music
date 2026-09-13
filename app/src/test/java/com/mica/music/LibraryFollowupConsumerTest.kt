@@ -5,6 +5,7 @@ import com.mica.music.data.library.LibraryFollowupOutboxCursor
 import com.mica.music.data.library.LibraryFollowupOutboxItem
 import com.mica.music.data.library.LibraryFollowupOutboxPage
 import com.mica.music.data.library.LibraryFollowupProtocol
+import com.mica.music.data.library.MembershipRemovalReason
 import com.mica.music.data.library.SourceIdentityKey
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -16,59 +17,56 @@ class LibraryFollowupConsumerTest {
     @Test
     fun playlistCleanupSuccessAcknowledgesEvent() = runTest {
         val event = playlistRemovalEvent("evt-1", "song-1")
-        val acknowledged = mutableListOf<String>()
-        val removed = mutableListOf<String>()
+        val consumed = mutableListOf<Pair<String, String>>()
         val consumer = LibraryFollowupConsumer(
             loadOutboxPage = pageLoader(listOf(event)),
-            acknowledge = { id -> acknowledged += id; true },
-            removeSongFromAllPlaylists = { id -> removed += id; true },
+            consumeConfirmedMissing = { item, songId ->
+                consumed += item.eventId to songId
+                true
+            },
         )
 
         assertEquals(1, consumer.drain())
-        assertEquals(listOf("song-1"), removed)
-        assertEquals(listOf("evt-1"), acknowledged)
+        assertEquals(listOf("evt-1" to "song-1"), consumed)
     }
 
     @Test
     fun playlistCleanupFailureKeepsEventUnacknowledged() = runTest {
         val event = playlistRemovalEvent("evt-fail", "song-fail")
-        val acknowledged = mutableListOf<String>()
+        var consumed = false
         val consumer = LibraryFollowupConsumer(
             loadOutboxPage = pageLoader(listOf(event)),
-            acknowledge = { id -> acknowledged += id; true },
-            removeSongFromAllPlaylists = { false },
+            consumeConfirmedMissing = { _, _ -> consumed = true; false },
         )
 
         assertEquals(0, consumer.drain())
-        assertTrue(acknowledged.isEmpty())
+        assertTrue(consumed)
     }
 
     @Test
     fun invalidPayloadIsNotAcknowledged() = runTest {
         val event = playlistRemovalEvent("evt-invalid", "song-invalid").copy(payload = "{}")
-        var acknowledged = false
+        var consumed = false
         val consumer = LibraryFollowupConsumer(
             loadOutboxPage = pageLoader(listOf(event)),
-            acknowledge = { acknowledged = true; true },
-            removeSongFromAllPlaylists = { true },
+            consumeConfirmedMissing = { _, _ -> consumed = true; true },
         )
 
         assertEquals(0, consumer.drain())
-        assertTrue(!acknowledged)
+        assertTrue(!consumed)
     }
 
     @Test
     fun unknownActionIsNotAcknowledged() = runTest {
         val event = playlistRemovalEvent("evt-unknown", "song").copy(action = "UNKNOWN")
-        var acknowledged = false
+        var consumed = false
         val consumer = LibraryFollowupConsumer(
             loadOutboxPage = pageLoader(listOf(event)),
-            acknowledge = { acknowledged = true; true },
-            removeSongFromAllPlaylists = { true },
+            consumeConfirmedMissing = { _, _ -> consumed = true; true },
         )
 
         assertEquals(0, consumer.drain())
-        assertTrue(!acknowledged)
+        assertTrue(!consumed)
     }
 
     @Test
@@ -85,8 +83,11 @@ class LibraryFollowupConsumerTest {
         val loader = pageLoader(events) { _, limit -> pageLimits += limit }
         val consumer = LibraryFollowupConsumer(
             loadOutboxPage = loader,
-            acknowledge = { id -> acknowledged += id; true },
-            removeSongFromAllPlaylists = { id -> removed += id; true },
+            consumeConfirmedMissing = { item, songId ->
+                acknowledged += item.eventId
+                removed += songId
+                true
+            },
         )
 
         assertEquals(130, consumer.drain())
@@ -106,11 +107,10 @@ class LibraryFollowupConsumerTest {
         val pageLimits = mutableListOf<Int>()
         val consumer = LibraryFollowupConsumer(
             loadOutboxPage = pageLoader({ backlog.toList() }) { _, limit -> pageLimits += limit },
-            acknowledge = { id ->
-                backlog.removeAll { it.eventId == id }
+            consumeConfirmedMissing = { item, _ ->
+                backlog.removeAll { it.eventId == item.eventId }
                 true
             },
-            removeSongFromAllPlaylists = { true },
         )
 
         assertEquals(LibraryFollowupConsumer.MAX_ITEMS_PER_DRAIN, consumer.drain())
@@ -151,11 +151,10 @@ class LibraryFollowupConsumerTest {
                 }
                 LibraryFollowupOutboxPage(items, nextCursor)
             },
-            acknowledge = {
+            consumeConfirmedMissing = { _, _ ->
                 acknowledgedCount += 1
                 true
             },
-            removeSongFromAllPlaylists = { true },
         )
 
         assertEquals(10_000, consumer.drainToTail())
@@ -175,15 +174,14 @@ class LibraryFollowupConsumerTest {
                 action = if (index < LibraryFollowupConsumer.MAX_ITEMS_PER_DRAIN) {
                     "UNKNOWN"
                 } else {
-                    LibraryFollowupProtocol.PLAYLIST_REMOVE_LIBRARY_MEMBERSHIP
+                    LibraryFollowupProtocol.PLAYLIST_REMOVE_CONFIRMED_MISSING
                 },
             )
         }
         val acknowledged = mutableListOf<String>()
         val consumer = LibraryFollowupConsumer(
             loadOutboxPage = pageLoader(events),
-            acknowledge = { id -> acknowledged += id; true },
-            removeSongFromAllPlaylists = { true },
+            consumeConfirmedMissing = { item, _ -> acknowledged += item.eventId; true },
         )
 
         assertEquals(0, consumer.drain())
@@ -233,10 +231,12 @@ class LibraryFollowupConsumerTest {
         LibraryFollowupOutboxItem(
             eventId = eventId,
             libraryRevision = 1L,
-            action = LibraryFollowupProtocol.PLAYLIST_REMOVE_LIBRARY_MEMBERSHIP,
+            action = LibraryFollowupProtocol.PLAYLIST_REMOVE_CONFIRMED_MISSING,
             sourceIdentity = SourceIdentityKey(ScanSource.DEVICE, "device"),
             activationEpoch = 1L,
             stableObjectKey = songId,
+            evidenceRevision = "evidence-$songId",
+            removalReason = MembershipRemovalReason.CONFIRMED_MISSING,
             payload = LibraryFollowupProtocol.playlistRemovalPayload(songId),
             createdAtMs = 1L,
         )

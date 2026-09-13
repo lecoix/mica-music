@@ -61,7 +61,7 @@ class HomeScreenController(
             actionMenuPlaylistId = null,
         )
 
-    fun handleSongMenuAction(
+    suspend fun handleSongMenuAction(
         context: Context,
         overlay: HomeOverlayState,
         action: SongMenuAction,
@@ -151,7 +151,7 @@ class HomeScreenController(
             setQueue = setQueue,
         ).message
 
-    fun deletePlaylist(
+    suspend fun deletePlaylist(
         playlistId: String,
         section: HomeSection,
         activePlaylistId: String?,
@@ -169,7 +169,7 @@ class HomeScreenController(
         }
     }
 
-    fun createPlaylist(name: String): CreatePlaylistOutcome =
+    suspend fun createPlaylist(name: String): CreatePlaylistOutcome =
         runCatching { playlistStore.createPlaylist(name) }
             .fold(
                 onSuccess = { playlist ->

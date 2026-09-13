@@ -496,3 +496,65 @@ val MIGRATION_28_29 = object : Migration(28, 29) {
         )
     }
 }
+
+
+val MIGRATION_29_30 = object : Migration(29, 30) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // v29 follow-ups did not persist removal evidence/reason, so they cannot be made late-safe
+        // after a restart. Fail closed during upgrade: keep playlist references rather than replay an
+        // unverifiable destructive cleanup. Future confirmed-missing publications use v30 rows.
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS library_followup_outbox_v30 (
+                eventId TEXT NOT NULL,
+                libraryRevision INTEGER NOT NULL,
+                action TEXT NOT NULL,
+                source TEXT NOT NULL,
+                stableIdentity TEXT NOT NULL,
+                activationEpoch INTEGER,
+                stableObjectKey TEXT NOT NULL,
+                evidenceRevision TEXT NOT NULL,
+                removalReason TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                createdAtMs INTEGER NOT NULL,
+                PRIMARY KEY(eventId)
+            )
+            """.trimIndent(),
+        )
+        db.execSQL("DROP TABLE library_followup_outbox")
+        db.execSQL("ALTER TABLE library_followup_outbox_v30 RENAME TO library_followup_outbox")
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS index_library_followup_outbox_created_event " +
+                "ON library_followup_outbox(createdAtMs, eventId)",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS index_library_followup_outbox_source_object_action " +
+                "ON library_followup_outbox(source, stableIdentity, action, stableObjectKey)",
+        )
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS library_membership_evidence (
+                source TEXT NOT NULL,
+                stableIdentity TEXT NOT NULL,
+                stableObjectKey TEXT NOT NULL,
+                songId TEXT,
+                removalReason TEXT NOT NULL,
+                evidenceRevision TEXT NOT NULL,
+                libraryRevision INTEGER NOT NULL,
+                observedAtMs INTEGER NOT NULL,
+                PRIMARY KEY(source, stableIdentity, stableObjectKey)
+            )
+            """.trimIndent(),
+        )
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS playlist_state (
+                id INTEGER NOT NULL,
+                revision INTEGER NOT NULL,
+                PRIMARY KEY(id)
+            )
+            """.trimIndent(),
+        )
+        db.execSQL("INSERT OR IGNORE INTO playlist_state(id, revision) VALUES (1, 0)")
+    }
+}

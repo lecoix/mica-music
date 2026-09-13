@@ -26,6 +26,7 @@ import com.mica.music.data.library.LibraryAutoSyncStateMutation
 import com.mica.music.data.library.LibraryFollowupOutboxCursor
 import com.mica.music.data.library.LibraryFollowupOutboxItem
 import com.mica.music.data.library.LibraryFollowupOutboxPage
+import com.mica.music.data.library.LibraryFollowupProtocol
 import com.mica.music.data.library.LibraryFollowupPaging
 import com.mica.music.data.library.LibraryRetryCursor
 import com.mica.music.data.library.LibraryRetryItem
@@ -34,6 +35,7 @@ import com.mica.music.data.library.LibraryRetryPage
 import com.mica.music.data.library.LibraryRetryPaging
 import com.mica.music.data.library.LibraryRetryKey
 import com.mica.music.data.library.LibrarySyncCheckpoint
+import com.mica.music.data.library.MembershipRemovalReason
 import com.mica.music.data.library.LyricsStagingMode
 import com.mica.music.data.library.LibraryUserExclusion
 import com.mica.music.data.library.PersistedLibraryState
@@ -104,6 +106,7 @@ class LibraryRepository internal constructor(
     private val syncStateDao = db.librarySyncStateDao()
     private val retryItemDao = db.libraryRetryItemDao()
     private val followupOutboxDao = db.libraryFollowupOutboxDao()
+    private val membershipEvidenceDao = db.libraryMembershipEvidenceDao()
     private val userExclusionDao = db.libraryUserExclusionDao()
     private val browseGroupDao = db.browseGroupDao()
 
@@ -309,7 +312,9 @@ class LibraryRepository internal constructor(
     }
 
     internal suspend fun enqueueFollowupOutbox(item: LibraryFollowupOutboxItem) {
-        followupOutboxDao.upsert(item.toEntity())
+        db.withTransaction {
+            persistFollowupAndMembershipEvidence(item)
+        }
     }
 
     internal suspend fun acknowledgeFollowupOutbox(eventId: String): Boolean =
@@ -577,7 +582,11 @@ class LibraryRepository internal constructor(
 
         db.withTransaction {
             applyAutoSyncStateInTransaction(autoSyncStateMutation)
-            followupOutboxItems.forEach { followupOutboxDao.upsert(it.toEntity()) }
+            obsoleteConfirmedMissingFollowupsForPresentSongs(
+                sourceIdentity = state.sourceState.active?.sourceIdentity,
+                presentSongIds = upserts.map(SongEntity::id),
+            )
+            followupOutboxItems.forEach { persistFollowupAndMembershipEvidence(it) }
             if (removeIds.isNotEmpty()) lyricsDao.deleteBySongIds(removeIds)
             stagedLyricsId?.let { scanId ->
                 promoteStagedLyrics(scanId, stagedLyricsMode)
@@ -723,7 +732,11 @@ class LibraryRepository internal constructor(
         db.withTransaction {
             userExclusion?.let { userExclusionDao.upsert(it.toEntity()) }
             autoSyncStateMutation?.let { applyAutoSyncStateInTransaction(it) }
-            followupOutboxItems.forEach { followupOutboxDao.upsert(it.toEntity()) }
+            obsoleteConfirmedMissingFollowupsForPresentSongs(
+                sourceIdentity = authorityState?.sourceState?.active?.sourceIdentity,
+                presentSongIds = incomingIds,
+            )
+            followupOutboxItems.forEach { persistFollowupAndMembershipEvidence(it) }
             if (removeIds.isNotEmpty()) lyricsDao.deleteBySongIds(removeIds)
             if (directlyLoadedLyrics.isNotEmpty()) lyricsDao.insertAll(directlyLoadedLyrics)
             stagedLyricsId?.let { scanId ->
@@ -765,6 +778,52 @@ class LibraryRepository internal constructor(
             removed = removeIds.size,
             unchanged = unchanged,
         )
+    }
+
+    private suspend fun persistFollowupAndMembershipEvidence(item: LibraryFollowupOutboxItem) {
+        if (
+            item.action == LibraryFollowupProtocol.PLAYLIST_REMOVE_CONFIRMED_MISSING &&
+            item.removalReason == MembershipRemovalReason.CONFIRMED_MISSING &&
+            item.evidenceRevision.isNotBlank()
+        ) {
+            membershipEvidenceDao.upsert(
+                LibraryMembershipEvidenceEntity(
+                    source = item.sourceIdentity.source.storageValue,
+                    stableIdentity = item.sourceIdentity.stableIdentity,
+                    stableObjectKey = item.stableObjectKey,
+                    songId = LibraryFollowupProtocol.playlistRemovalSongId(item.payload),
+                    removalReason = item.removalReason.name,
+                    evidenceRevision = item.evidenceRevision,
+                    libraryRevision = item.libraryRevision,
+                    observedAtMs = item.createdAtMs,
+                ),
+            )
+        }
+        followupOutboxDao.upsert(item.toEntity())
+    }
+
+    private suspend fun obsoleteConfirmedMissingFollowupsForPresentSongs(
+        sourceIdentity: SourceIdentityKey?,
+        presentSongIds: Collection<String>,
+    ) {
+        if (sourceIdentity == null || presentSongIds.isEmpty()) return
+        presentSongIds.asSequence()
+            .filter(String::isNotBlank)
+            .distinct()
+            .chunked(FOLLOWUP_OBJECT_KEY_DELETE_BATCH_SIZE)
+            .forEach { stableObjectKeys ->
+                followupOutboxDao.deleteBySourceObjectKeys(
+                    source = sourceIdentity.source.storageValue,
+                    stableIdentity = sourceIdentity.stableIdentity,
+                    action = LibraryFollowupProtocol.PLAYLIST_REMOVE_CONFIRMED_MISSING,
+                    stableObjectKeys = stableObjectKeys,
+                )
+                membershipEvidenceDao.deleteBySourceObjectKeys(
+                    source = sourceIdentity.source.storageValue,
+                    stableIdentity = sourceIdentity.stableIdentity,
+                    stableObjectKeys = stableObjectKeys,
+                )
+            }
     }
 
     suspend fun updateCoverColorArgb(songId: String, coverColorArgb: Int) {
@@ -833,7 +892,7 @@ class LibraryRepository internal constructor(
             metaDao.deleteAll()
             syncStateDao.deleteAll()
             retryItemDao.deleteAll()
-            // User exclusions and durable follow-up outbox survive user clear by contract.
+            // User exclusions, durable follow-up outbox, and its membership evidence survive user clear by contract.
             stateDao.upsert(state.toEntity())
         }
     }
@@ -847,7 +906,7 @@ class LibraryRepository internal constructor(
             metaDao.deleteAll()
             syncStateDao.deleteAll()
             retryItemDao.deleteAll()
-            // Do not DELETE ALL exclusions/outbox here; their invalidation is action-specific.
+            // Do not DELETE ALL exclusions/outbox/membership evidence here; invalidation is action-specific.
         }
     }
 
@@ -894,3 +953,5 @@ private data class PersistedBrowseGroups(
     val albumFastScrollSectionTargets: Map<String, Int>,
     val artistConfigKey: String,
 )
+
+private const val FOLLOWUP_OBJECT_KEY_DELETE_BATCH_SIZE = 500

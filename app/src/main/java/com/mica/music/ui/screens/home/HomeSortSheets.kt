@@ -2,6 +2,7 @@ package com.mica.music.ui.screens.home
 
 import android.content.Context
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
 import com.mica.music.data.AlbumBrowseSortField
 import com.mica.music.data.ArtistBrowseSortField
 import com.mica.music.data.preferences.LibraryBrowseSettings
@@ -15,6 +16,7 @@ import com.mica.music.data.FolderBrowseMode
 import com.mica.music.ui.components.BrowseGroupDisplaySheet
 import com.mica.music.ui.components.FolderBrowseModeSheet
 import com.mica.music.ui.components.SongSortSheet
+import kotlinx.coroutines.launch
 
 data class HomeBrowseSortState(
     val albumSortField: AlbumBrowseSortField,
@@ -51,6 +53,7 @@ internal fun HomeSortSheets(
     playlistActions: List<Pair<String, () -> Unit>> = emptyList(),
 ) {
     if (!visible) return
+    val scope = rememberCoroutineScope()
 
     when {
         isFolderRootDisplay -> {
@@ -150,7 +153,7 @@ internal fun HomeSortSheets(
                 onDismiss = onDismiss,
                 onApply = { field, direction ->
                     if (isPlaylistSort && activePlaylistId != null) {
-                        playlistStore.updateSort(activePlaylistId, field, direction)
+                        scope.launch { playlistStore.updateSort(activePlaylistId, field, direction) }
                     } else {
                         if (field == SongSortField.CUSTOM) {
                             val locked = if (library.sortField == SongSortField.CUSTOM) {

@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.mica.music.data.local.MicaDatabase
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Test
@@ -16,7 +17,7 @@ import org.robolectric.annotation.Config
 class MicaAppTest {
 
     @Test
-    fun playlistStoreIsSharedAcrossConsumers() {
+    fun playlistStoreIsSharedAcrossConsumers() = runTest {
         val app = ApplicationProvider.getApplicationContext<MicaApp>()
         app.getSharedPreferences("mica_playlists", Context.MODE_PRIVATE).edit().clear().commit()
         MicaDatabase.resetForTests()

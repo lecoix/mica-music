@@ -4195,7 +4195,7 @@ class LibraryOperationExecutorTest {
         assertEquals(listOf(mutation), store.autoSyncStateMutations)
         val followup = store.autoSyncSnapshotFollowups.single().single()
         assertEquals(
-            LibraryFollowupProtocol.PLAYLIST_REMOVE_LIBRARY_MEMBERSHIP,
+            LibraryFollowupProtocol.PLAYLIST_REMOVE_CONFIRMED_MISSING,
             followup.action,
         )
         assertEquals(removed.id, LibraryFollowupProtocol.playlistRemovalSongId(followup.payload))

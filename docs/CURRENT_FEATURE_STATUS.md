@@ -7,7 +7,7 @@
 
 - 播放统一由前台 `MicaMediaService` 管理 Media3/ExoPlayer 单链路；普通格式与 ALAC/DSF/APE 扩展解码进入同一 Service/MediaSession。最近的队列修复避免列表选歌与非当前 metadata refresh 无意义重建整条 timeline；同曲单曲循环由 Service 确认回卷时同步把 UI 进度重置到 0。
 - `PlayerController` 是 UI facade；`PlaybackRuntime` 与 queue/timeline/tuning/statistics/connection coordinator 持有长期状态。2026-09-02 的架构收敛已把 catalog store write fencing、media/UI/lyrics seam、browse/lyrics ownership、cover renderer/geometry authority 和 playback-stack lifecycle 进一步集中到 owner 边界。
-- 本地曲库以 `MusicLibraryBacking -> LibraryScanOrchestrator -> LibraryStore` 为单一 authority。Full Scan、cache hydrate、clear 与 AUTO publication 共享 generation/revision/publication fencing；Room v29 同时持有本地曲库、歌词 staging、自动同步 checkpoint/retry/outbox/exclusion、browse 派生状态、歌单及远端 catalog。
+- 本地曲库以 `MusicLibraryBacking -> LibraryScanOrchestrator -> LibraryStore` 为单一 authority。Full Scan、cache hydrate、clear 与 AUTO publication 共享 generation/revision/publication fencing；Room v30 同时持有本地曲库、歌词 staging、自动同步 checkpoint/retry/outbox/exclusion、browse 派生状态、歌单及远端 catalog。
 - DEVICE 与 SAF/FOLDER **durable automatic sync 已进入 ordinary scheduler real-auto**。dirty signal 只触发调度；任何 PARTIAL/UNAVAILABLE、provider transient、mass-deletion quarantine、playback defer 或 stale token 都 fail-closed。global / DEVICE / FOLDER 内部 kill switch 可停 AUTO 而不影响 Manual Full Scan；SAF provider 不可用有 30s/60s 有界重试，之后要求用户重选来源而不热循环。
 - 远程曲库 MVP 已合并：Navidrome/OpenSubsonic、WebDAV、SMB2/SMB3；支持来源隔离、原始音频播放/JIT 解析、文件型 Range/random-access、自动 catalog sync、独立排序、全局搜索、Artists/Albums/Recent 联合浏览、安全多选、歌单/封面解析、当前曲定位、JIT 封面与歌词。SMB1 不启用，凭据不进入稳定 media id/歌单导出。
 

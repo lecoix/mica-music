@@ -11,6 +11,12 @@ import androidx.room.Query
 import androidx.room.Transaction
 import androidx.room.Update
 
+@Entity(tableName = "playlist_state")
+data class PlaylistStateEntity(
+    @PrimaryKey val id: Int = 1,
+    val revision: Long = 0L,
+)
+
 @Entity(tableName = "playlists")
 data class PlaylistEntity(
     @PrimaryKey val id: String,
@@ -48,6 +54,15 @@ data class PlaylistSongPosition(
 
 @Dao
 interface PlaylistDao {
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun ensureState(state: PlaylistStateEntity): Long
+
+    @Query("SELECT revision FROM playlist_state WHERE id = 1")
+    suspend fun getRevision(): Long?
+
+    @Query("UPDATE playlist_state SET revision = revision + 1 WHERE id = 1")
+    suspend fun incrementRevision(): Int
+
     @Query("SELECT * FROM playlists ORDER BY position ASC")
     suspend fun getPlaylists(): List<PlaylistEntity>
 

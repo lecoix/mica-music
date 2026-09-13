@@ -1,6 +1,7 @@
 package com.mica.music
 
 import com.mica.music.data.library.LibraryFollowupOutboxCursor
+import com.mica.music.data.library.LibraryFollowupOutboxItem
 import com.mica.music.data.library.LibraryFollowupOutboxPage
 import com.mica.music.data.library.LibraryFollowupPaging
 import com.mica.music.data.library.LibraryFollowupProtocol
@@ -14,8 +15,7 @@ internal class LibraryFollowupConsumer(
         LibraryFollowupOutboxCursor,
         Int,
     ) -> LibraryFollowupOutboxPage,
-    private val acknowledge: suspend (String) -> Boolean,
-    private val removeSongFromAllPlaylists: (String) -> Boolean,
+    private val consumeConfirmedMissing: suspend (LibraryFollowupOutboxItem, String) -> Boolean,
 ) {
     private val drainMutex = Mutex()
     private var resumeCursor = LibraryFollowupOutboxCursor.Start
@@ -56,7 +56,7 @@ internal class LibraryFollowupConsumer(
 
             page.items.forEach { item ->
                 val handled = when (item.action) {
-                    LibraryFollowupProtocol.PLAYLIST_REMOVE_LIBRARY_MEMBERSHIP -> {
+                    LibraryFollowupProtocol.PLAYLIST_REMOVE_CONFIRMED_MISSING -> {
                         val songId = LibraryFollowupProtocol.playlistRemovalSongId(item.payload)
                         if (songId.isNullOrBlank()) {
                             DiagnosticLog.important(
@@ -65,7 +65,7 @@ internal class LibraryFollowupConsumer(
                             )
                             false
                         } else {
-                            removeSongFromAllPlaylists(songId)
+                            consumeConfirmedMissing(item, songId)
                         }
                     }
                     else -> {
@@ -76,7 +76,7 @@ internal class LibraryFollowupConsumer(
                         false
                     }
                 }
-                if (handled && acknowledge(item.eventId)) {
+                if (handled) {
                     acknowledgedCount++
                 }
             }

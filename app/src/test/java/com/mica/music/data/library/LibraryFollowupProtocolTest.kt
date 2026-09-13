@@ -23,10 +23,33 @@ class LibraryFollowupProtocolTest {
 
         assertEquals(1, followups.size)
         val item = followups.single()
-        assertEquals(LibraryFollowupProtocol.PLAYLIST_REMOVE_LIBRARY_MEMBERSHIP, item.action)
+        assertEquals(LibraryFollowupProtocol.PLAYLIST_REMOVE_CONFIRMED_MISSING, item.action)
         assertEquals("ms_42", LibraryFollowupProtocol.playlistRemovalSongId(item.payload))
         assertEquals(7L, item.activationEpoch)
         assertEquals(changeSet.libraryRevision, item.libraryRevision)
+        assertEquals("evidence", item.evidenceRevision)
+        assertEquals(MembershipRemovalReason.CONFIRMED_MISSING, item.removalReason)
+    }
+
+    @Test
+    fun durableEventIdentityDoesNotDependOnProcessLocalLibraryRevision() {
+        val base = changeSet(
+            cause = LibraryOperationCause.MEDIASTORE_AUDIO_DIRTY,
+            reason = MembershipRemovalReason.CONFIRMED_MISSING,
+            songId = "ms_stable_event",
+        )
+        val first = LibraryFollowupProtocol.planPlaylistRemovalFollowups(
+            changeSet = base.copy(libraryRevision = 1L),
+            activationEpoch = 1L,
+            createdAtMs = 1L,
+        ).single()
+        val afterProcessRestart = LibraryFollowupProtocol.planPlaylistRemovalFollowups(
+            changeSet = base.copy(libraryRevision = 99L),
+            activationEpoch = 9L,
+            createdAtMs = 99L,
+        ).single()
+
+        assertEquals(first.eventId, afterProcessRestart.eventId)
     }
 
     @Test
@@ -87,6 +110,33 @@ class LibraryFollowupProtocolTest {
         )
 
         assertTrue(followups.isEmpty())
+    }
+
+    @Test
+    fun missingWithoutDurableEvidenceCannotCreatePlaylistCleanup() {
+        val changeSet = LibraryChangeSet(
+            libraryRevision = 12L,
+            cause = LibraryOperationCause.MEDIASTORE_AUDIO_DIRTY,
+            addedIds = emptySet(),
+            updatedIds = emptySet(),
+            membershipChanges = listOf(
+                MembershipChange(
+                    stableObjectKey = "ms_no_evidence",
+                    songId = "ms_no_evidence",
+                    reason = MembershipRemovalReason.CONFIRMED_MISSING,
+                    evidenceRevision = "",
+                    sourceIdentity = source,
+                ),
+            ),
+        )
+
+        assertTrue(
+            LibraryFollowupProtocol.planPlaylistRemovalFollowups(
+                changeSet = changeSet,
+                activationEpoch = 1L,
+                createdAtMs = 1L,
+            ).isEmpty(),
+        )
     }
 
     @Test

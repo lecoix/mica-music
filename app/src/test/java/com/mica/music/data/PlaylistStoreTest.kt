@@ -11,6 +11,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -37,7 +38,7 @@ class PlaylistStoreTest {
     }
 
     @Test
-    fun exportOmitsCustomCoverPathAndKeepsSongMetadata() {
+    fun exportOmitsCustomCoverPathAndKeepsSongMetadata() = runTest {
         val store = PlaylistStore(context)
         val song = SongFixtures.song("exported")
         val playlist = store.createPlaylist("Export")
@@ -53,7 +54,7 @@ class PlaylistStoreTest {
     }
 
     @Test
-    fun importResolvesChangedSongIdByMetadataAndPreservesCoverSong() {
+    fun importResolvesChangedSongIdByMetadataAndPreservesCoverSong() = runTest {
         val sourceSong = SongFixtures.song("old-id", title = "Stable title")
         val librarySong = SongFixtures.song("new-id", title = "Stable title")
         val store = PlaylistStore(context)
@@ -74,7 +75,7 @@ class PlaylistStoreTest {
     }
 
     @Test
-    fun remoteStableIdentitySurvivesPlaylistJsonRoundTrip() {
+    fun remoteStableIdentitySurvivesPlaylistJsonRoundTrip() = runTest {
         val remoteId = RemoteMediaIdCodec.encode(RemoteTrackRef("source-1", "track-9"))
         val remoteSong = SongFixtures.song(remoteId, title = "Remote Nine").copy(
             source = SongSource.REMOTE,
@@ -104,7 +105,7 @@ class PlaylistStoreTest {
     }
 
     @Test
-    fun removingCoverSongClearsTheSongCoverReference() {
+    fun removingCoverSongClearsTheSongCoverReference() = runTest {
         val song = SongFixtures.song("cover-song")
         val store = PlaylistStore(context)
         val playlist = store.createPlaylist("Cover")
@@ -118,7 +119,7 @@ class PlaylistStoreTest {
     }
 
     @Test
-    fun legacyJsonMigratesToRoomWithoutDeletingRollbackSource() {
+    fun legacyJsonMigratesToRoomWithoutDeletingRollbackSource() = runTest {
         val raw = """
             [{
               "id":"legacy",
@@ -133,7 +134,9 @@ class PlaylistStoreTest {
         val preferences = context.getSharedPreferences("mica_playlists", Context.MODE_PRIVATE)
         preferences.edit().putString("playlists_json", raw).commit()
 
-        val migrated = PlaylistStore(context).playlistById("legacy")
+        val migratedStore = PlaylistStore(context)
+        migratedStore.awaitReady()
+        val migrated = migratedStore.playlistById("legacy")
 
         assertNotNull(migrated)
         assertEquals(listOf("b", "a"), migrated?.songIds)
@@ -142,12 +145,14 @@ class PlaylistStoreTest {
         assertTrue(preferences.getBoolean("room_migration_complete_v1", false))
         assertEquals(raw, preferences.getString("playlists_json", null))
 
-        val coldReload = PlaylistStore(context).playlistById("legacy")
+        val coldStore = PlaylistStore(context)
+        coldStore.awaitReady()
+        val coldReload = coldStore.playlistById("legacy")
         assertEquals(migrated, coldReload)
     }
 
     @Test
-    fun corruptLegacyJsonDoesNotEraseExistingRoomPlaylistsOrMarkMigrationComplete() {
+    fun corruptLegacyJsonDoesNotEraseExistingRoomPlaylistsOrMarkMigrationComplete() = runTest {
         val seeded = PlaylistStore(context).createPlaylist("Room survives")
         val preferences = context.getSharedPreferences("mica_playlists", Context.MODE_PRIVATE)
         preferences.edit()
@@ -156,6 +161,7 @@ class PlaylistStoreTest {
             .commit()
 
         val reloaded = PlaylistStore(context)
+        reloaded.awaitReady()
 
         assertEquals(seeded, reloaded.playlistById(seeded.id))
         assertFalse(preferences.getBoolean("room_migration_complete_v1", false))
@@ -163,21 +169,23 @@ class PlaylistStoreTest {
     }
 
     @Test
-    fun tenThousandOrderedMembersSurviveColdRoomRoundTrip() {
+    fun tenThousandOrderedMembersSurviveColdRoomRoundTrip() = runTest {
         val store = PlaylistStore(context)
         val playlist = store.createPlaylist("Large")
         val ids = List(10_000) { index -> "song-$index" }
 
         assertTrue(store.addSongsToPlaylist(playlist.id, ids))
 
-        val restored = PlaylistStore(context).playlistById(playlist.id)
+        val restoredStore = PlaylistStore(context)
+        restoredStore.awaitReady()
+        val restored = restoredStore.playlistById(playlist.id)
         assertEquals(10_000, restored?.songIds?.size)
         assertEquals("song-0", restored?.songIds?.first())
         assertEquals("song-9999", restored?.songIds?.last())
     }
 
     @Test
-    fun staleReloadCannotOverwriteNewerRoomAndMemoryState() = runBlocking {
+    fun staleReloadCannotOverwriteNewerRoomAndMemoryState() = runTest {
         val store = PlaylistStore(context)
         store.createPlaylist("Before reload")
         val atPublicationBoundary = CompletableDeferred<Unit>()
@@ -195,11 +203,13 @@ class PlaylistStoreTest {
         staleReload.await()
 
         assertEquals(newest, store.playlistById(newest.id))
-        assertEquals(newest, PlaylistStore(context).playlistById(newest.id))
+        val coldStore = PlaylistStore(context)
+        coldStore.awaitReady()
+        assertEquals(newest, coldStore.playlistById(newest.id))
     }
 
     @Test
-    fun granularMutationsSurviveColdRoomRoundTrip() {
+    fun granularMutationsSurviveColdRoomRoundTrip() = runTest {
         val store = PlaylistStore(context)
         val playlist = store.createPlaylist("Original")
         store.addSongsToPlaylist(playlist.id, listOf("a", "b", "c"))
@@ -209,7 +219,9 @@ class PlaylistStoreTest {
         store.updateSort(playlist.id, SongSortField.TITLE, SortDirection.DESC)
         store.setCustomCoverPath(playlist.id, "/covers/custom.jpg")
 
-        val restored = PlaylistStore(context).playlistById(playlist.id)
+        val restoredStore = PlaylistStore(context)
+        restoredStore.awaitReady()
+        val restored = restoredStore.playlistById(playlist.id)
 
         assertEquals("Renamed", restored?.name)
         assertEquals(listOf("c", "a"), restored?.songIds)

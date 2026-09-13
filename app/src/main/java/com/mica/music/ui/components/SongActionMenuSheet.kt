@@ -41,6 +41,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -60,6 +61,7 @@ import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.MicaTheme
 import com.mica.music.ui.theme.coverColor
+import kotlinx.coroutines.launch
 
 enum class SongMenuAction {
     AddToPlaylist,
@@ -467,6 +469,7 @@ fun AddToPlaylistSheet(
     val isDark = MicaTheme.colors.isDark
     val sheetBackground = if (isDark) HifiPalette.MicaFogDarkEnd else HifiPalette.MicaFogStart
     var showCreate by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
     val playlists = playlistStore.playlists
     val songIds = songs.map { it.id }
     val subtitle = when (songs.size) {
@@ -474,19 +477,21 @@ fun AddToPlaylistSheet(
         else -> "已选 ${songs.size} 首"
     }
     fun addToPlaylist(playlistId: String, playlistName: String) {
-        if (addAsCustomOrder) {
-            val displayedIds = playlistStore.songsForPlaylist(playlistId, resolveSong).map { it.id }
-            playlistStore.appendSongsAsCustomOrder(playlistId, displayedIds, songIds)
-        } else {
-            playlistStore.addSongsToPlaylist(playlistId, songIds)
+        scope.launch {
+            if (addAsCustomOrder) {
+                val displayedIds = playlistStore.songsForPlaylist(playlistId, resolveSong).map { it.id }
+                playlistStore.appendSongsAsCustomOrder(playlistId, displayedIds, songIds)
+            } else {
+                playlistStore.addSongsToPlaylist(playlistId, songIds)
+            }
+            val message = if (songs.size == 1) {
+                "已添加到「$playlistName」"
+            } else {
+                "已将 ${songs.size} 首添加到「$playlistName」"
+            }
+            onCreated(message)
+            onDismiss()
         }
-        val message = if (songs.size == 1) {
-            "已添加到「$playlistName」"
-        } else {
-            "已将 ${songs.size} 首添加到「$playlistName」"
-        }
-        onCreated(message)
-        onDismiss()
     }
 
     val content: @Composable () -> Unit = {
@@ -562,9 +567,23 @@ fun AddToPlaylistSheet(
                     icon = Icons.Outlined.PlaylistAdd,
                     label = "创建「我的歌单」并添加",
                     onClick = {
-                        val playlist = playlistStore.playlists.find { it.name == "我的歌单" }
-                            ?: playlistStore.createPlaylist("我的歌单")
-                        addToPlaylist(playlist.id, playlist.name)
+                        scope.launch {
+                            val playlist = playlistStore.playlists.find { it.name == "我的歌单" }
+                                ?: playlistStore.createPlaylist("我的歌单")
+                            if (addAsCustomOrder) {
+                                val displayedIds = playlistStore.songsForPlaylist(playlist.id, resolveSong).map { it.id }
+                                playlistStore.appendSongsAsCustomOrder(playlist.id, displayedIds, songIds)
+                            } else {
+                                playlistStore.addSongsToPlaylist(playlist.id, songIds)
+                            }
+                            val message = if (songs.size == 1) {
+                                "已添加到「${playlist.name}」"
+                            } else {
+                                "已将 ${songs.size} 首添加到「${playlist.name}」"
+                            }
+                            onCreated(message)
+                            onDismiss()
+                        }
                     },
                 )
             }

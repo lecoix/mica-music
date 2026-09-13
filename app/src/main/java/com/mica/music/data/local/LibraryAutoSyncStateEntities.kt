@@ -10,6 +10,7 @@ import com.mica.music.data.ScanSource
 import com.mica.music.data.library.LibraryFollowupOutboxItem
 import com.mica.music.data.library.LibraryRetryItem
 import com.mica.music.data.library.LibraryRetryKind
+import com.mica.music.data.library.MembershipRemovalReason
 import com.mica.music.data.library.LibrarySyncCheckpoint
 import com.mica.music.data.library.LibraryUserExclusion
 import com.mica.music.data.library.SourceIdentityKey
@@ -62,6 +63,10 @@ data class LibraryRetryItemEntity(
             name = "index_library_followup_outbox_created_event",
             value = ["createdAtMs", "eventId"],
         ),
+        Index(
+            name = "index_library_followup_outbox_source_object_action",
+            value = ["source", "stableIdentity", "action", "stableObjectKey"],
+        ),
     ],
 )
 data class LibraryFollowupOutboxEntity(
@@ -72,8 +77,25 @@ data class LibraryFollowupOutboxEntity(
     val stableIdentity: String,
     val activationEpoch: Long?,
     val stableObjectKey: String,
+    val evidenceRevision: String,
+    val removalReason: String,
     val payload: String,
     val createdAtMs: Long,
+)
+
+@Entity(
+    tableName = "library_membership_evidence",
+    primaryKeys = ["source", "stableIdentity", "stableObjectKey"],
+)
+data class LibraryMembershipEvidenceEntity(
+    val source: String,
+    val stableIdentity: String,
+    val stableObjectKey: String,
+    val songId: String?,
+    val removalReason: String,
+    val evidenceRevision: String,
+    val libraryRevision: Long,
+    val observedAtMs: Long,
 )
 
 @Entity(
@@ -190,11 +212,54 @@ interface LibraryFollowupOutboxDao {
         limit: Int,
     ): List<LibraryFollowupOutboxEntity>
 
+    @Query("SELECT * FROM library_followup_outbox WHERE eventId = :eventId LIMIT 1")
+    suspend fun getById(eventId: String): LibraryFollowupOutboxEntity?
+
+    @Query(
+        "DELETE FROM library_followup_outbox " +
+            "WHERE source = :source AND stableIdentity = :stableIdentity " +
+            "AND action = :action AND stableObjectKey IN (:stableObjectKeys)",
+    )
+    suspend fun deleteBySourceObjectKeys(
+        source: String,
+        stableIdentity: String,
+        action: String,
+        stableObjectKeys: List<String>,
+    ): Int
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: LibraryFollowupOutboxEntity)
 
     @Query("DELETE FROM library_followup_outbox WHERE eventId = :eventId")
     suspend fun deleteById(eventId: String): Int
+}
+
+@Dao
+interface LibraryMembershipEvidenceDao {
+    @Query(
+        "SELECT * FROM library_membership_evidence " +
+            "WHERE source = :source AND stableIdentity = :stableIdentity " +
+            "AND stableObjectKey = :stableObjectKey LIMIT 1",
+    )
+    suspend fun get(
+        source: String,
+        stableIdentity: String,
+        stableObjectKey: String,
+    ): LibraryMembershipEvidenceEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: LibraryMembershipEvidenceEntity)
+
+    @Query(
+        "DELETE FROM library_membership_evidence " +
+            "WHERE source = :source AND stableIdentity = :stableIdentity " +
+            "AND stableObjectKey IN (:stableObjectKeys)",
+    )
+    suspend fun deleteBySourceObjectKeys(
+        source: String,
+        stableIdentity: String,
+        stableObjectKeys: List<String>,
+    ): Int
 }
 
 @Dao
@@ -267,6 +332,8 @@ internal fun LibraryFollowupOutboxItem.toEntity() = LibraryFollowupOutboxEntity(
     stableIdentity = sourceIdentity.stableIdentity,
     activationEpoch = activationEpoch,
     stableObjectKey = stableObjectKey,
+    evidenceRevision = evidenceRevision,
+    removalReason = removalReason.name,
     payload = payload,
     createdAtMs = createdAtMs,
 )
@@ -278,6 +345,9 @@ internal fun LibraryFollowupOutboxEntity.toModel() = LibraryFollowupOutboxItem(
     sourceIdentity = SourceIdentityKey(ScanSource.fromStorage(source), stableIdentity),
     activationEpoch = activationEpoch,
     stableObjectKey = stableObjectKey,
+    evidenceRevision = evidenceRevision,
+    removalReason = runCatching { MembershipRemovalReason.valueOf(removalReason) }
+        .getOrDefault(MembershipRemovalReason.UNAVAILABLE),
     payload = payload,
     createdAtMs = createdAtMs,
 )

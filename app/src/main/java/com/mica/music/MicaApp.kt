@@ -118,7 +118,7 @@ class MicaApp : Application() {
     }
 
     val playlistStore: PlaylistStore by lazy(LazyThreadSafetyMode.NONE) {
-        PlaylistStore(this)
+        PlaylistStore(this, processScope)
     }
 
     override fun onCreate() {

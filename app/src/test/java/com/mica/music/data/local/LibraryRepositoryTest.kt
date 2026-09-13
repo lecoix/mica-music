@@ -23,6 +23,8 @@ import com.mica.music.data.library.LibraryAccessState
 import com.mica.music.data.library.LibraryAutoSyncStateMutation
 import com.mica.music.data.library.LibraryFollowupOutboxCursor
 import com.mica.music.data.library.LibraryFollowupOutboxItem
+import com.mica.music.data.library.LibraryFollowupProtocol
+import com.mica.music.data.library.MembershipRemovalReason
 import com.mica.music.data.library.LibraryRetryCursor
 import com.mica.music.data.library.LibraryRetryPaging
 import com.mica.music.data.library.LibraryIntentState
@@ -213,10 +215,12 @@ class LibraryRepositoryTest {
         val followup = LibraryFollowupOutboxItem(
             eventId = "fail-auto-followup",
             libraryRevision = 1L,
-            action = "PLAYLIST_REMOVE_LIBRARY_MEMBERSHIP",
+            action = LibraryFollowupProtocol.PLAYLIST_REMOVE_CONFIRMED_MISSING,
             sourceIdentity = source,
             activationEpoch = 1L,
             stableObjectKey = initial.first().id,
+            evidenceRevision = "missing-initial",
+            removalReason = MembershipRemovalReason.CONFIRMED_MISSING,
             payload = "songId=${initial.first().id}",
             createdAtMs = 2_000L,
         )
@@ -485,6 +489,8 @@ class LibraryRepositoryTest {
             sourceIdentity = source,
             activationEpoch = null,
             stableObjectKey = exclusion.stableObjectKey,
+            evidenceRevision = exclusion.exclusionRevision.toString(),
+            removalReason = MembershipRemovalReason.USER_EXCLUDED,
             payload = "{}",
             createdAtMs = 11L,
         )
@@ -526,6 +532,8 @@ class LibraryRepositoryTest {
             sourceIdentity = source,
             activationEpoch = 1L,
             stableObjectKey = "song-a",
+            evidenceRevision = "generic-a",
+            removalReason = MembershipRemovalReason.UNAVAILABLE,
             payload = "{}",
             createdAtMs = 1L,
         )
@@ -559,10 +567,12 @@ class LibraryRepositoryTest {
         val followup = LibraryFollowupOutboxItem(
             eventId = "evt-atomic-followup",
             libraryRevision = 9L,
-            action = "PLAYLIST_REMOVE_LIBRARY_MEMBERSHIP",
+            action = LibraryFollowupProtocol.PLAYLIST_REMOVE_CONFIRMED_MISSING,
             sourceIdentity = source,
             activationEpoch = 1L,
             stableObjectKey = songs.first().id,
+            evidenceRevision = "missing-atomic",
+            removalReason = MembershipRemovalReason.CONFIRMED_MISSING,
             payload = "songId=${songs.first().id}",
             createdAtMs = 10L,
         )

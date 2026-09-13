@@ -212,6 +212,8 @@ internal data class LibraryFollowupOutboxItem(
     val sourceIdentity: SourceIdentityKey,
     val activationEpoch: Long?,
     val stableObjectKey: String,
+    val evidenceRevision: String,
+    val removalReason: MembershipRemovalReason,
     val payload: String,
     val createdAtMs: Long,
 )

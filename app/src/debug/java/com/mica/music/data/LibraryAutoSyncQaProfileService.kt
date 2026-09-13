@@ -17,6 +17,7 @@ import com.mica.music.data.library.LibraryAccessState
 import com.mica.music.data.library.LibraryAutoSyncStateMutation
 import com.mica.music.data.library.LibraryFollowupOutboxCursor
 import com.mica.music.data.library.LibraryFollowupOutboxItem
+import com.mica.music.data.library.LibraryFollowupProtocol
 import com.mica.music.data.library.LibraryRetryCursor
 import com.mica.music.data.library.LibraryRetryPaging
 import com.mica.music.data.library.LibraryIntentState
@@ -45,6 +46,7 @@ import com.mica.music.data.scanner.DiscoveryPartitions
 import com.mica.music.data.scanner.SafFastVerifyPlan
 import com.mica.music.data.scanner.SafFingerprintReliability
 import com.mica.music.data.library.SafProviderDiscoveryPermit
+import com.mica.music.data.library.MembershipRemovalReason
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
@@ -754,10 +756,12 @@ class LibraryAutoSyncQaProfileService : Service() {
                 val rollbackFollowup = LibraryFollowupOutboxItem(
                     eventId = "room-atomicity-rollback-followup",
                     libraryRevision = 99L,
-                    action = "PLAYLIST_REMOVE_LIBRARY_MEMBERSHIP",
+                    action = LibraryFollowupProtocol.PLAYLIST_REMOVE_CONFIRMED_MISSING,
                     sourceIdentity = source,
                     activationEpoch = 17L,
                     stableObjectKey = rollbackNewSong.id,
+                    evidenceRevision = "room-atomicity-rollback",
+                    removalReason = MembershipRemovalReason.CONFIRMED_MISSING,
                     payload = "songId=" + rollbackNewSong.id,
                     createdAtMs = 3_000L,
                 )

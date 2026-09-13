@@ -39,8 +39,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val libraryPlaybackQueueSync = LibraryPlaybackQueueCoordinator()
     private val libraryFollowupConsumer = LibraryFollowupConsumer(
         loadOutboxPage = library::loadFollowupOutboxPage,
-        acknowledge = library::acknowledgeFollowupOutbox,
-        removeSongFromAllPlaylists = playlistStore::removeSongFromAllPlaylists,
+        consumeConfirmedMissing = { item, songId ->
+            library.consumeConfirmedMissingFollowup(playlistStore, item, songId)
+        },
     )
     private val coverColorPersistenceSink = CoverColorPersistence.Sink { songId, albumArtUri, argb ->
         library.applyCoverColorArgb(songId, albumArtUri, argb)

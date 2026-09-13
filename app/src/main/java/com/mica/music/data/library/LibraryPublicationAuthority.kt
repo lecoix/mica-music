@@ -144,6 +144,24 @@ internal class LibraryPublicationAuthority(
         }
     }
 
+    /**
+     * Serializes cross-owner follow-up effects with library publication. The caller's cancellation
+     * is checked before entering the short critical section; once admitted, Room mutation + memory
+     * adoption finish together so an acknowledged outbox event cannot leave split-brain state.
+     */
+    suspend fun <T> withPublicationGate(block: suspend () -> T): T? {
+        val callerJob = currentCoroutineContext()[Job]
+        return withContext(NonCancellable) {
+            publicationMutex.withLock {
+                if (callerJob?.isActive == false || backing.released || backing.releaseRequested) {
+                    null
+                } else {
+                    block()
+                }
+            }
+        }
+    }
+
     suspend fun <T> withPublicationGenerationIfCurrent(
         generation: Int,
         block: () -> T,

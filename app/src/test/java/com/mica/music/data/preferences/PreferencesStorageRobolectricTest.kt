@@ -7,6 +7,7 @@ import com.mica.music.data.PlaybackSessionStore
 import com.mica.music.data.PlaylistStore
 import com.mica.music.data.SongSortField
 import com.mica.music.data.SortDirection
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -28,7 +29,7 @@ class PreferencesStorageRobolectricTest {
     }
 
     @Test
-    fun corruptProfilesAndSessionValuesDoNotEscape() {
+    fun corruptProfilesAndSessionValuesDoNotEscape() = runTest {
         context.getSharedPreferences("mica_eq_profiles", android.content.Context.MODE_PRIVATE)
             .edit()
             .putString("profiles_json", "{bad")
@@ -65,11 +66,13 @@ class PreferencesStorageRobolectricTest {
             .edit()
             .putString("playlists_json", "[{\"id\":")
             .commit()
-        assertTrue(PlaylistStore(context).playlists.isEmpty())
+        val playlistStore = PlaylistStore(context)
+        playlistStore.awaitReady()
+        assertTrue(playlistStore.playlists.isEmpty())
     }
 
     @Test
-    fun playlistBatchAppendKeepsDisplayedOrderAndSwitchesToCustomSort() {
+    fun playlistBatchAppendKeepsDisplayedOrderAndSwitchesToCustomSort() = runTest {
         val store = PlaylistStore(context)
         val playlist = store.createPlaylist("Test")
         listOf("a", "b", "c").forEach { store.addSongToPlaylist(playlist.id, it) }

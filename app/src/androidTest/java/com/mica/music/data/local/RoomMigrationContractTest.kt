@@ -34,6 +34,7 @@ class RoomMigrationContractTest {
         context.deleteDatabase(TWO_TO_CURRENT_DB)
         context.deleteDatabase(SIXTEEN_TO_SEVENTEEN_DB)
         context.deleteDatabase(SEVENTEEN_TO_EIGHTEEN_DB)
+        context.deleteDatabase(TWENTY_NINE_TO_THIRTY_DB)
     }
 
     @Test
@@ -71,7 +72,7 @@ class RoomMigrationContractTest {
 
         helper.runMigrationsAndValidate(
             TWO_TO_CURRENT_DB,
-            29,
+            30,
             true,
             *MIGRATIONS_TWO_TO_CURRENT,
         ).close()
@@ -131,6 +132,50 @@ class RoomMigrationContractTest {
     }
 
     @Test
+    fun migrationTwentyNineToThirtyDropsUnverifiableLegacyFollowupsFailClosed() {
+        helper.createDatabase(TWENTY_NINE_TO_THIRTY_DB, 29).apply {
+            execSQL(
+                "INSERT INTO library_followup_outbox(" +
+                    "eventId, libraryRevision, action, source, stableIdentity, activationEpoch, " +
+                    "stableObjectKey, payload, createdAtMs" +
+                    ") VALUES (" +
+                    "'legacy-event', 1, 'PLAYLIST_REMOVE_LIBRARY_MEMBERSHIP', " +
+                    "'DEVICE', 'device', 1, 'ms_42', 'songId=ms_42', 100" +
+                    ")",
+            )
+            close()
+        }
+
+        helper.runMigrationsAndValidate(
+            TWENTY_NINE_TO_THIRTY_DB,
+            30,
+            true,
+            MIGRATION_29_30,
+        ).use { database ->
+            database.query("SELECT COUNT(*) FROM library_followup_outbox").use { cursor ->
+                check(cursor.moveToFirst())
+                assertEquals(0, cursor.getInt(0))
+            }
+            database.query("SELECT COUNT(*) FROM library_membership_evidence").use { cursor ->
+                check(cursor.moveToFirst())
+                assertEquals(0, cursor.getInt(0))
+            }
+            database.query("SELECT revision FROM playlist_state WHERE id = 1").use { cursor ->
+                check(cursor.moveToFirst())
+                assertEquals(0L, cursor.getLong(0))
+            }
+            database.query("PRAGMA table_info(library_followup_outbox)").use { cursor ->
+                val nameIndex = cursor.getColumnIndexOrThrow("name")
+                val columns = buildSet {
+                    while (cursor.moveToNext()) add(cursor.getString(nameIndex))
+                }
+                assertEquals(true, "evidenceRevision" in columns)
+                assertEquals(true, "removalReason" in columns)
+            }
+        }
+    }
+
+    @Test
     fun migrationSeventeenToEighteenAddsSongLyricsOffsets() {
         helper.createDatabase(SEVENTEEN_TO_EIGHTEEN_DB, 17).close()
 
@@ -179,6 +224,7 @@ class RoomMigrationContractTest {
         const val TWO_TO_CURRENT_DB = "room-migration-2-current"
         const val SIXTEEN_TO_SEVENTEEN_DB = "room-migration-16-17"
         const val SEVENTEEN_TO_EIGHTEEN_DB = "room-migration-17-18"
+        const val TWENTY_NINE_TO_THIRTY_DB = "room-migration-29-30"
         val MIGRATIONS_TWO_TO_CURRENT = arrayOf(
             MIGRATION_2_3,
             MIGRATION_3_4,
@@ -207,6 +253,7 @@ class RoomMigrationContractTest {
             MIGRATION_26_27,
             MIGRATION_27_28,
             MIGRATION_28_29,
+            MIGRATION_29_30,
         )
     }
 }

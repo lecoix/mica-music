@@ -157,7 +157,7 @@ suspend fun deleteSongEverywhere(
     song: Song,
     currentQueue: List<Song>,
     removeFromLibrary: suspend (Song, persistExclusion: Boolean) -> Boolean,
-    removeFromAllPlaylists: (String) -> Unit,
+    removeFromAllPlaylists: suspend (String) -> Unit,
     setQueue: (List<Song>) -> Unit,
     deleteFile: (Context, Song) -> Boolean = ::deleteSongFile,
 ): DeleteSongResult {

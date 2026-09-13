@@ -277,9 +277,11 @@ fun HomeScreen(
     }
 
     fun onSongMenuAction(action: SongMenuAction, song: Song) {
-        applySongMenuOutcome(
-            homeController.handleSongMenuAction(context, overlay, action, song),
-        )
+        scope.launch {
+            applySongMenuOutcome(
+                homeController.handleSongMenuAction(context, overlay, action, song),
+            )
+        }
     }
 
     fun confirmDeleteSong(song: Song) {
@@ -296,28 +298,30 @@ fun HomeScreen(
     }
 
     fun confirmDeletePlaylist(playlistId: String) {
-        val outcome = homeController.deletePlaylist(playlistId, uiState.section, uiState.activePlaylistId)
-        if (outcome.section != null) {
-            uiState = uiState.copy(
-                section = outcome.section,
-                activePlaylistId = outcome.activePlaylistId,
-            )
+        scope.launch {
+            val outcome = homeController.deletePlaylist(playlistId, uiState.section, uiState.activePlaylistId)
+            if (outcome.section != null) {
+                uiState = uiState.copy(
+                    section = outcome.section,
+                    activePlaylistId = outcome.activePlaylistId,
+                )
+            }
+            snackbarHostState.showSnackbar(outcome.snackbarMessage)
+            overlay = homeController.clearPendingDeletePlaylist(overlay)
         }
-        scope.launch { snackbarHostState.showSnackbar(outcome.snackbarMessage) }
-        overlay = homeController.clearPendingDeletePlaylist(overlay)
     }
 
     fun createPlaylist(name: String) {
         overlay = homeController.dismissCreatePlaylistDialog(overlay)
-        val outcome = homeController.createPlaylist(name)
-        if (outcome.section != null) {
-            uiState = uiState.copy(
-                section = outcome.section,
-                activePlaylistId = outcome.activePlaylistId,
-            )
-        }
-        outcome.snackbarMessage?.let { message ->
-            scope.launch { snackbarHostState.showSnackbar(message) }
+        scope.launch {
+            val outcome = homeController.createPlaylist(name)
+            if (outcome.section != null) {
+                uiState = uiState.copy(
+                    section = outcome.section,
+                    activePlaylistId = outcome.activePlaylistId,
+                )
+            }
+            outcome.snackbarMessage?.let { snackbarHostState.showSnackbar(it) }
         }
     }
 
@@ -325,10 +329,10 @@ fun HomeScreen(
         val playlistId = overlay.renamePlaylistId
         overlay = homeController.clearRenamePlaylist(overlay)
         if (playlistId == null) return
-        val renamed = runCatching { playlistStore.renamePlaylist(playlistId, name) }
-            .getOrDefault(false)
-        if (renamed) {
-            scope.launch { snackbarHostState.showSnackbar("歌单已重命名") }
+        scope.launch {
+            val renamed = runCatching { playlistStore.renamePlaylist(playlistId, name) }
+                .getOrDefault(false)
+            if (renamed) snackbarHostState.showSnackbar("歌单已重命名")
         }
     }
 
@@ -1152,7 +1156,7 @@ fun HomeScreen(
                         onSongClick = onSongClick,
                         onSongOpenMenu = { openSongActionMenu(it, key.id) },
                         onMoveSong = { from, to ->
-                            playlistStore.moveSongInPlaylist(key.id, from, to)
+                            scope.launch { playlistStore.moveSongInPlaylist(key.id, from, to) }
                         },
                         listBottomPadding = listBottomPadding,
                         infoVisibility = uiSettings.songListInfoVisibility,
@@ -1395,14 +1399,18 @@ fun HomeScreen(
                     songs = availablePlaylistSongs,
                     selectedSongId = playlist.coverSongId,
                     onSelect = { song ->
-                        PlaylistCoverImporter.clearCover(context, playlistId)
-                        playlistStore.setCoverSong(playlistId, song.id)
-                        coverSongPickerPlaylistId = null
+                        scope.launch {
+                            PlaylistCoverImporter.clearCover(context, playlistId)
+                            playlistStore.setCoverSong(playlistId, song.id)
+                            coverSongPickerPlaylistId = null
+                        }
                     },
                     onClear = {
-                        PlaylistCoverImporter.clearCover(context, playlistId)
-                        playlistStore.clearCover(playlistId)
-                        coverSongPickerPlaylistId = null
+                        scope.launch {
+                            PlaylistCoverImporter.clearCover(context, playlistId)
+                            playlistStore.clearCover(playlistId)
+                            coverSongPickerPlaylistId = null
+                        }
                     },
                     onDismiss = { coverSongPickerPlaylistId = null },
                 )
