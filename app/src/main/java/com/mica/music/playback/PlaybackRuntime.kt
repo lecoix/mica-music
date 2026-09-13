@@ -33,6 +33,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 internal class PendingMediaSelection {
     private var targetSongId: String? = null
@@ -96,6 +97,7 @@ internal class PlaybackRuntime(
     outputStatusFlow: StateFlow<PlaybackOutputStatus>,
     dispatcher: CoroutineDispatcher,
     private val queueMirrorDispatcher: CoroutineDispatcher,
+    private val restoreDispatcher: CoroutineDispatcher,
     monotonicNowMs: () -> Long,
     private val stateSink: (PlaybackRuntimeSnapshot) -> Unit,
     private val playStartedSink: (String) -> Unit,
@@ -293,9 +295,11 @@ internal class PlaybackRuntime(
         return restored + playbackIds.filterNot(restoredSet::contains)
     }
 
-    private fun restorePersistedShuffleStateOnConnect(c: MediaController) {
+    private fun restorePersistedShuffleStateOnConnect(
+        c: MediaController,
+        session: PlaybackSession,
+    ) {
         if (c.mediaItemCount <= 0) return
-        val session = sessionStorage.load() ?: return
         if (!session.shuffleEnabled || session.shuffleSourceIds.isEmpty()) return
         val physicalIds = List(c.mediaItemCount) { index -> c.getMediaItemAt(index).mediaId }
         val sourceIds = restoredShuffleSourceIds(session, physicalIds) ?: return
@@ -321,6 +325,25 @@ internal class PlaybackRuntime(
             applyPlaybackOrderState(order, songQueue)
         }
         session.shuffleSeed?.let { seed -> sendAppShuffleCommand(c, enabled = true, seed = seed) }
+    }
+
+    private fun schedulePersistedShuffleRestoreOnConnect(c: MediaController) {
+        if (c.mediaItemCount <= 0) return
+        val orderAtSchedule = playbackOrderState
+        val queueIdsAtSchedule = songQueue.map { it.id }
+        scope.launch {
+            val session = withContext(restoreDispatcher) { sessionStorage.load() } ?: return@launch
+            if (controller !== c) return@launch
+            if (playbackOrderState != orderAtSchedule || songQueue.map { it.id } != queueIdsAtSchedule) {
+                // A bootstrap or user queue-mode mutation won the race while persistence loaded.
+                // Never let an older startup snapshot overwrite newer in-memory intent.
+                return@launch
+            }
+            restorePersistedShuffleStateOnConnect(c, session)
+            syncPlaybackQueueModeFromPlayer(c)
+            syncIndexFromPlayer(c)
+            publishPlaybackStates()
+        }
     }
 
     internal fun restoreSession(session: PlaybackSession) {
@@ -764,7 +787,6 @@ internal class PlaybackRuntime(
                 pendingSingleSongId = null
                 playSongById(songId)
             }
-            restorePersistedShuffleStateOnConnect(c)
             syncPlaybackQueueModeFromPlayer(c)
             syncIndexFromPlayer(c)
             val playerTuning = PlaybackTuning.fromPlaybackParameters(c.playbackParameters)
@@ -778,6 +800,7 @@ internal class PlaybackRuntime(
             timelineCoordinator.updatePlayerDuration(c.duration)
             syncPosition()
             publishPlaybackStates()
+            schedulePersistedShuffleRestoreOnConnect(c)
             maybeAutoPlayOnLaunch()
         } finally {
             handlingConnection = false
@@ -937,39 +960,70 @@ internal class PlaybackRuntime(
         return runCatching { c.getMediaItemAt(playerIndex).mediaId == mediaId }.getOrDefault(false)
     }
 
-    fun bootstrapQueue(resolveSong: (String) -> Song?): Boolean {
+    suspend fun bootstrapQueue(resolveSong: (String) -> Song?): Boolean {
         checkQueueWriteThread()
-        val c = controller
-        if (c != null && c.mediaItemCount > 0) {
-            val session = sessionStorage.load()
-            syncQueueMirrorFromPlayer(c, resolver = resolveSong)
-            val physicalIds = songQueue.map { it.id }
-            restoredShuffleSourceIds(session, physicalIds)?.let { sourceIds ->
-                val currentId = currentSong?.id
-                val seed = session?.shuffleSeed
-                val order = seed?.let {
-                    PlaybackOrderState.fromSource(
-                        sourceIds = sourceIds,
-                        currentId = currentId,
-                        shuffleEnabled = true,
-                        shuffleSeed = it,
-                    )
-                } ?: PlaybackOrderState(
+        val initialController = controller
+        if (initialController != null && initialController.mediaItemCount > 0) {
+            val session = withContext(restoreDispatcher) { sessionStorage.load() }
+            checkQueueWriteThread()
+            val c = controller
+            if (c !== initialController || c.mediaItemCount <= 0) {
+                return bootstrapQueueFromPersistedSnapshot(resolveSong)
+            }
+            return bootstrapQueueFromLiveController(c, session, resolveSong)
+        }
+        return bootstrapQueueFromPersistedSnapshot(resolveSong)
+    }
+
+    private fun bootstrapQueueFromLiveController(
+        c: MediaController,
+        session: PlaybackSession?,
+        resolveSong: (String) -> Song?,
+    ): Boolean {
+        if (c.mediaItemCount <= 0) return false
+        syncQueueMirrorFromPlayer(c, resolver = resolveSong)
+        val physicalIds = songQueue.map { it.id }
+        restoredShuffleSourceIds(session, physicalIds)?.let { sourceIds ->
+            val currentId = currentSong?.id
+            val seed = session?.shuffleSeed
+            val order = seed?.let {
+                PlaybackOrderState.fromSource(
                     sourceIds = sourceIds,
-                    playbackIds = physicalIds,
                     currentId = currentId,
                     shuffleEnabled = true,
-                    shuffleSeed = null,
+                    shuffleSeed = it,
                 )
-                applyPlaybackOrderState(order, songQueue)
-                seed?.let { sendAppShuffleCommand(c, enabled = true, seed = it) }
-                syncPlaybackQueueModeFromPlayer(c)
-                publishPlaybackStates()
-            }
+            } ?: PlaybackOrderState(
+                sourceIds = sourceIds,
+                playbackIds = physicalIds,
+                currentId = currentId,
+                shuffleEnabled = true,
+                shuffleSeed = null,
+            )
+            applyPlaybackOrderState(order, songQueue)
+            seed?.let { sendAppShuffleCommand(c, enabled = true, seed = it) }
+            syncPlaybackQueueModeFromPlayer(c)
+            publishPlaybackStates()
+        }
+        return true
+    }
+
+    private suspend fun bootstrapQueueFromPersistedSnapshot(
+        resolveSong: (String) -> Song?,
+    ): Boolean {
+        val (snapshot, session) = withContext(restoreDispatcher) {
+            ServicePlaybackStateStore(appCtx).load() to sessionStorage.load()
+        }
+        checkQueueWriteThread()
+
+        // The service may have connected while persistence was being read. Prefer the live queue
+        // over an older snapshot, but reuse the already-loaded session so no main-thread read occurs.
+        val liveController = controller
+        if (liveController != null && bootstrapQueueFromLiveController(liveController, session, resolveSong)) {
             return true
         }
-        val snapshot = ServicePlaybackStateStore(appCtx).load() ?: return false
-        val session = sessionStorage.load()
+
+        snapshot ?: return false
         val persistedExternalSongs = snapshot.externalSongs.associateBy { it.id }
         val persistedRemoteSongs = snapshot.remoteSongs.associateBy { it.id }
         val hydrated = snapshot.queueSongIds.mapNotNull { id ->
@@ -1002,7 +1056,7 @@ internal class PlaybackRuntime(
                 shuffleSeed = null,
             )
             applyPlaybackOrderState(order, hydrated)
-            if (c == null) pendingQueue = songQueue
+            if (controller == null) pendingQueue = songQueue
             playbackQueueMode = PlaybackQueueMode.SHUFFLE
             publishPlaybackStates()
         } else {

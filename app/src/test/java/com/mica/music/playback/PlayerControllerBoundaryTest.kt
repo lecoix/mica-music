@@ -30,6 +30,8 @@ import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestCoroutineScheduler
@@ -43,6 +45,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.concurrent.Executors
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
@@ -716,7 +719,7 @@ class PlayerControllerBoundaryTest {
     }
 
     @Test
-    fun coldStartPendingQueuePublishesSavedPositionOnFirstControllerConnection() {
+    fun coldStartPendingQueuePublishesSavedPositionOnFirstControllerConnection() = runTest {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val store = ServicePlaybackStateStore(context)
         val queue = SongFixtures.queue(2)
@@ -765,7 +768,7 @@ class PlayerControllerBoundaryTest {
     }
 
     @Test
-    fun selectingAnotherSongAfterColdStartRestoreStartsAtBeginning() {
+    fun selectingAnotherSongAfterColdStartRestoreStartsAtBeginning() = runTest {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val store = ServicePlaybackStateStore(context)
         val queue = SongFixtures.queue(2)
@@ -806,7 +809,7 @@ class PlayerControllerBoundaryTest {
     }
 
     @Test
-    fun coldStartRestoreReleasesUiPositionWhenPlaybackResumes() {
+    fun coldStartRestoreReleasesUiPositionWhenPlaybackResumes() = runTest {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val store = ServicePlaybackStateStore(context)
         val queue = SongFixtures.queue(2)
@@ -892,7 +895,7 @@ class PlayerControllerBoundaryTest {
     }
 
     @Test
-    fun coldStartBootstrapHydratesPersistedExternalSongWhenLibraryResolverMisses() {
+    fun coldStartBootstrapHydratesPersistedExternalSongWhenLibraryResolverMisses() = runTest {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val store = ServicePlaybackStateStore(context)
         val external = SongFixtures.song("external_test").copy(source = SongSource.TRANSIENT_EXTERNAL)
@@ -923,6 +926,41 @@ class PlayerControllerBoundaryTest {
         }
     }
 
+    @Test
+    fun bootstrapLoadsPersistedSessionOffMainThread() = runTest {
+        val restoreExecutor = Executors.newSingleThreadExecutor { runnable ->
+            Thread(runnable, "playback-restore-test")
+        }
+        val restoreDispatcher = restoreExecutor.asCoroutineDispatcher()
+        val storage = FakeSessionStorage().apply {
+            saved = PlaybackSession(songId = "restore-thread", positionMs = 0)
+        }
+        val connector = FakeConnector()
+        val song = SongFixtures.song("restore-thread")
+        val controller = controller(
+            connector = connector,
+            storage = storage,
+            songResolver = PlaybackSongResolver { id -> song.takeIf { it.id == id } },
+            restoreDispatcher = restoreDispatcher,
+        )
+        val mediaController = mockk<MediaController>(relaxed = true)
+        every { mediaController.mediaItemCount } returns 1
+        every { mediaController.currentMediaItem } returns MediaItem.Builder().setMediaId(song.id).build()
+        every { mediaController.currentMediaItemIndex } returns 0
+        every { mediaController.getMediaItemAt(0) } returns MediaItem.Builder().setMediaId(song.id).build()
+
+        try {
+            controller.connectIfNeeded()
+            connector.requests.single().onConnected(mediaController)
+            assertTrue(controller.bootstrapQueue { id -> song.takeIf { it.id == id } })
+            assertEquals("playback-restore-test", storage.loadThreadName)
+        } finally {
+            controller.release()
+            restoreDispatcher.close()
+            restoreExecutor.shutdownNow()
+        }
+    }
+
     private fun positionInfo(
         item: MediaItem,
         mediaItemIndex: Int,
@@ -946,6 +984,7 @@ class PlayerControllerBoundaryTest {
         outputStatusFlow: StateFlow<PlaybackOutputStatus> = MutableStateFlow(PlaybackOutputStatus()),
         dispatcher: CoroutineDispatcher = StandardTestDispatcher(),
         queueMirrorDispatcher: CoroutineDispatcher = dispatcher,
+        restoreDispatcher: CoroutineDispatcher = Dispatchers.Unconfined,
         monotonicNowMs: () -> Long = { 0L },
     ): PlayerController = PlayerController(
         context = ApplicationProvider.getApplicationContext(),
@@ -955,6 +994,7 @@ class PlayerControllerBoundaryTest {
         outputStatusFlow = outputStatusFlow,
         dispatcher = dispatcher,
         queueMirrorDispatcher = queueMirrorDispatcher,
+        restoreDispatcher = restoreDispatcher,
         monotonicNowMs = monotonicNowMs,
     )
 
@@ -1931,8 +1971,9 @@ class PlayerControllerBoundaryTest {
     }
 
     @Test
-    fun connectedServiceQueueRestoresShuffleModeEvenWithoutBootstrap() {
+    fun connectedServiceQueueRestoresShuffleModeEvenWithoutBootstrap() = runTest {
         val sourceQueue = SongFixtures.queue(5)
+        val dispatcher = StandardTestDispatcher(testScheduler)
         val storage = FakeSessionStorage().apply {
             saved = PlaybackSession(
                 songId = sourceQueue[2].id,
@@ -1942,7 +1983,12 @@ class PlayerControllerBoundaryTest {
             )
         }
         val connector = FakeConnector()
-        val controller = controller(connector = connector, storage = storage)
+        val controller = controller(
+            connector = connector,
+            storage = storage,
+            dispatcher = dispatcher,
+            restoreDispatcher = dispatcher,
+        )
         val mediaController = mockk<MediaController>(relaxed = true)
         every { mediaController.currentMediaItem } returns MediaItem.Builder()
             .setMediaId(sourceQueue[2].id)
@@ -1958,13 +2004,14 @@ class PlayerControllerBoundaryTest {
 
         controller.connectIfNeeded()
         connector.requests.single().onConnected(mediaController)
+        runCurrent()
 
         assertEquals(PlaybackQueueMode.SHUFFLE, controller.playbackSurfaceState.playbackQueueMode)
         controller.release()
     }
 
     @Test
-    fun serviceWinsColdStartRestoresShuffleModeWithoutChangingPersistedPlaybackOrder() {
+    fun serviceWinsColdStartRestoresShuffleModeWithoutChangingPersistedPlaybackOrder() = runTest {
         val sourceQueue = SongFixtures.queue(5)
         val playbackQueue = listOf(
             sourceQueue[2],
@@ -2017,7 +2064,7 @@ class PlayerControllerBoundaryTest {
     }
 
     @Test
-    fun snapshotColdStartRestoresShufflePlaybackOrderWithoutReshuffling() {
+    fun snapshotColdStartRestoresShufflePlaybackOrderWithoutReshuffling() = runTest {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val store = ServicePlaybackStateStore(context)
         val sourceQueue = SongFixtures.queue(5)
@@ -2749,13 +2796,17 @@ class PlayerControllerBoundaryTest {
         var saved: PlaybackSession? = null
         var savedSynchronously = false
         var clearCount = 0
+        var loadThreadName: String? = null
 
         override fun save(session: PlaybackSession?, sync: Boolean) {
             saved = session
             savedSynchronously = sync
         }
 
-        override fun load(): PlaybackSession? = saved
+        override fun load(): PlaybackSession? {
+            loadThreadName = Thread.currentThread().name
+            return saved
+        }
 
         override fun clear() {
             clearCount++

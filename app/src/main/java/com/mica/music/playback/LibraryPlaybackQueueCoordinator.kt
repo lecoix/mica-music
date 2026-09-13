@@ -24,13 +24,13 @@ internal class LibraryPlaybackQueueCoordinator(
         val isPlaying: Boolean
         val queueSize: Int
         fun connectIfNeeded()
-        fun bootstrapQueue(resolveSong: (String) -> Song?): Boolean
+        suspend fun bootstrapQueue(resolveSong: (String) -> Song?): Boolean
         fun setQueue(queue: List<Song>)
         fun removeSongById(songId: String): Boolean
         fun refreshQueueMetadata(songs: List<Song>)
     }
 
-    fun sync(
+    suspend fun sync(
         reason: String,
         library: LibraryQueueSyncInput,
         player: Target,
@@ -116,7 +116,7 @@ internal fun PlayerController.asLibraryPlaybackQueueTarget(): LibraryPlaybackQue
 
         override fun connectIfNeeded() = this@asLibraryPlaybackQueueTarget.connectIfNeeded()
 
-        override fun bootstrapQueue(resolveSong: (String) -> Song?): Boolean =
+        override suspend fun bootstrapQueue(resolveSong: (String) -> Song?): Boolean =
             this@asLibraryPlaybackQueueTarget.bootstrapQueue(resolveSong)
 
         override fun setQueue(queue: List<Song>) = this@asLibraryPlaybackQueueTarget.setQueue(queue)

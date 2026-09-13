@@ -57,6 +57,7 @@ class PlayerController internal constructor(
     outputStatusFlow: StateFlow<PlaybackOutputStatus> = PlaybackOutputStatusMonitor.status,
     dispatcher: CoroutineDispatcher,
     queueMirrorDispatcher: CoroutineDispatcher = Dispatchers.Default,
+    restoreDispatcher: CoroutineDispatcher = Dispatchers.IO,
     monotonicNowMs: () -> Long = { SystemClock.elapsedRealtime() },
 ) {
     constructor(context: Context, songResolver: PlaybackSongResolver) : this(
@@ -105,6 +106,7 @@ class PlayerController internal constructor(
         outputStatusFlow = outputStatusFlow,
         dispatcher = dispatcher,
         queueMirrorDispatcher = queueMirrorDispatcher,
+        restoreDispatcher = restoreDispatcher,
         monotonicNowMs = monotonicNowMs,
         stateSink = ::applyRuntimeSnapshot,
         playStartedSink = { songId -> onSongPlayStarted?.invoke(songId) },
@@ -165,7 +167,7 @@ class PlayerController internal constructor(
 
     fun retryConnect() = runtime.retryConnect()
 
-    fun bootstrapQueue(resolveSong: (String) -> Song?): Boolean = runtime.bootstrapQueue(resolveSong)
+    suspend fun bootstrapQueue(resolveSong: (String) -> Song?): Boolean = runtime.bootstrapQueue(resolveSong)
 
     fun syncPlaybackState() = runtime.syncPlaybackState()
 

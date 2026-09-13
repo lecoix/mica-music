@@ -106,7 +106,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun syncPlaybackQueueWithLibrarySongs(reason: String = "libraryIds") {
+    suspend fun syncPlaybackQueueWithLibrarySongs(reason: String = "libraryIds") {
         libraryPlaybackQueueSync.sync(
             reason = reason,
             library = library.toLibraryQueueSyncInput(::resolveSong),

@@ -2,6 +2,7 @@ package com.mica.music.playback
 
 import com.mica.music.data.Song
 import com.mica.music.testutil.SongFixtures
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -36,7 +37,7 @@ class LibraryPlaybackQueueCoordinatorTest {
             connectCount++
         }
 
-        override fun bootstrapQueue(resolveSong: (String) -> Song?): Boolean {
+        override suspend fun bootstrapQueue(resolveSong: (String) -> Song?): Boolean {
             bootstrapResolver = resolveSong
             return bootstrapResult
         }
@@ -72,7 +73,7 @@ class LibraryPlaybackQueueCoordinatorTest {
     )
 
     @Test
-    fun emptyLibraryConnectsAndAttemptsExternalQueueBootstrap() {
+    fun emptyLibraryConnectsAndAttemptsExternalQueueBootstrap() = runTest {
         val target = FakeTarget().apply { bootstrapResult = true }
 
         LibraryPlaybackQueueCoordinator().sync(
@@ -87,7 +88,7 @@ class LibraryPlaybackQueueCoordinatorTest {
     }
 
     @Test
-    fun emptyLibraryBootstrapFailureKeepsQueueEmpty() {
+    fun emptyLibraryBootstrapFailureKeepsQueueEmpty() = runTest {
         val target = FakeTarget().apply { bootstrapResult = false }
 
         LibraryPlaybackQueueCoordinator().sync(
@@ -103,7 +104,7 @@ class LibraryPlaybackQueueCoordinatorTest {
     }
 
     @Test
-    fun bootstrapSuccessDoesNotSetFullLibraryQueue() {
+    fun bootstrapSuccessDoesNotSetFullLibraryQueue() = runTest {
         val songs = SongFixtures.queue(3)
         val target = FakeTarget().apply { bootstrapResult = true }
 
@@ -119,7 +120,7 @@ class LibraryPlaybackQueueCoordinatorTest {
     }
 
     @Test
-    fun bootstrapFailureSetsLibraryQueue() {
+    fun bootstrapFailureSetsLibraryQueue() = runTest {
         val songs = SongFixtures.queue(2)
         val target = FakeTarget().apply { bootstrapResult = false }
 
@@ -134,7 +135,7 @@ class LibraryPlaybackQueueCoordinatorTest {
     }
 
     @Test
-    fun removedLibrarySongTriggersSetQueue() {
+    fun removedLibrarySongTriggersSetQueue() = runTest {
         val coordinator = LibraryPlaybackQueueCoordinator()
         val oldSongs = listOf(SongFixtures.song("keep"), SongFixtures.song("removed"))
         val newSongs = listOf(SongFixtures.song("keep"))
@@ -158,7 +159,7 @@ class LibraryPlaybackQueueCoordinatorTest {
     }
 
     @Test
-    fun autoSyncRemovalSelectivelyRemovesOnlyMissingLibraryItem() {
+    fun autoSyncRemovalSelectivelyRemovesOnlyMissingLibraryItem() = runTest {
         val coordinator = LibraryPlaybackQueueCoordinator()
         val keep = SongFixtures.song("keep")
         val removed = SongFixtures.song("removed")
@@ -189,7 +190,7 @@ class LibraryPlaybackQueueCoordinatorTest {
     }
 
     @Test
-    fun autoSyncRemovalPreservesMixedQueueEntries() {
+    fun autoSyncRemovalPreservesMixedQueueEntries() = runTest {
         val coordinator = LibraryPlaybackQueueCoordinator()
         val keep = SongFixtures.song("keep")
         val removed = SongFixtures.song("removed")
@@ -219,7 +220,7 @@ class LibraryPlaybackQueueCoordinatorTest {
     }
 
     @Test
-    fun autoSyncRemovalKeepsCurrentlyPlayingOrphanUntilTransition() {
+    fun autoSyncRemovalKeepsCurrentlyPlayingOrphanUntilTransition() = runTest {
         val coordinator = LibraryPlaybackQueueCoordinator()
         val orphan = SongFixtures.song("orphan")
         val next = SongFixtures.song("next")
@@ -251,7 +252,7 @@ class LibraryPlaybackQueueCoordinatorTest {
     }
 
     @Test
-    fun deferredPlayingOrphanIsPurgedAfterNaturalTransition() {
+    fun deferredPlayingOrphanIsPurgedAfterNaturalTransition() = runTest {
         val coordinator = LibraryPlaybackQueueCoordinator()
         val orphan = SongFixtures.song("orphan")
         val next = SongFixtures.song("next")
@@ -280,7 +281,7 @@ class LibraryPlaybackQueueCoordinatorTest {
     }
 
     @Test
-    fun unchangedLibraryIdsRefreshMetadataOnly() {
+    fun unchangedLibraryIdsRefreshMetadataOnly() = runTest {
         val coordinator = LibraryPlaybackQueueCoordinator()
         val songs = SongFixtures.queue(2)
         val target = FakeTarget().apply {
@@ -304,7 +305,7 @@ class LibraryPlaybackQueueCoordinatorTest {
     }
 
     @Test
-    fun coldStartBootstrapSuccessDoesNotReplaceRestoredServiceQueue() {
+    fun coldStartBootstrapSuccessDoesNotReplaceRestoredServiceQueue() = runTest {
         val coordinator = LibraryPlaybackQueueCoordinator()
         val songs = SongFixtures.queue(3)
         val target = FakeTarget().apply { bootstrapResult = true }
@@ -323,7 +324,7 @@ class LibraryPlaybackQueueCoordinatorTest {
     }
 
     @Test
-    fun librarySortReorderOnlyRefreshesMetadata() {
+    fun librarySortReorderOnlyRefreshesMetadata() = runTest {
         val coordinator = LibraryPlaybackQueueCoordinator()
         val songA = SongFixtures.song("a")
         val songB = SongFixtures.song("b")
@@ -373,7 +374,7 @@ class LibraryPlaybackQueueCoordinatorTest {
         )
 
     @Test
-    fun deleteSongLibrarySyncRefreshesWithoutSecondSetQueue() {
+    fun deleteSongLibrarySyncRefreshesWithoutSecondSetQueue() = runTest {
         val coordinator = LibraryPlaybackQueueCoordinator()
         val songA = SongFixtures.song("a")
         val songB = SongFixtures.song("b")
