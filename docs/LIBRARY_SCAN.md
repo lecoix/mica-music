@@ -9,6 +9,8 @@
 
 ## 目标与范围
 
+2026-09-13：FOLDER 独立发现（空目录后新增未进入 MediaStore 的音频）、Room 恢复与 AUTO 阶段计时见 [文件夹独立发现验证](SCANNER_DISCOVERY_VALIDATION.md)。用户入口“扫描系统音乐库”仅查询系统已收录的媒体；选择曲库文件夹则直接扫描授权目录及子目录。两者仍为现有来源模式，不代表混合来源去重已实现。
+
 | 项目 | 说明 |
 |------|------|
 | **输入** | SAF 文件夹（`FolderScanner`）或 MediaStore 设备库（`MediaStoreScanner`） |

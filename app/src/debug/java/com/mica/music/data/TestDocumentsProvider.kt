@@ -155,6 +155,8 @@ class TestDocumentsProvider : DocumentsProvider() {
     }
 
     enum class FixtureScenario {
+        EMPTY_DIRECTORY,
+        ADDED_HUNDRED,
         BASELINE,
         CHANGED,
         SERIALIZED_MULTI_CHANGED,
@@ -353,6 +355,17 @@ class TestDocumentsProvider : DocumentsProvider() {
         }
 
         private fun currentDocuments(): List<FixtureDocument> = when (currentScenario) {
+            FixtureScenario.EMPTY_DIRECTORY -> emptyList()
+            FixtureScenario.ADDED_HUNDRED -> listOf(
+                audioDocument(AUDIO_ID, "contract.wav", durationSec = 65, modifiedMs = 1_000L),
+                audioDocument(AUDIO_2_ID, "second.wav", durationSec = 65, modifiedMs = 1_200L),
+                lyricsDocument(text = "[00:00.00]baseline\n", modifiedMs = 1_100L),
+            ) + (1..100).map { index ->
+                audioDocument(
+                    "root/music/burst-$index.wav", "burst-$index.wav",
+                    durationSec = 65, modifiedMs = 4_000L,
+                )
+            }
             FixtureScenario.BASELINE -> listOf(
                 audioDocument(AUDIO_ID, "contract.wav", durationSec = 65, modifiedMs = 1_000L),
                 lyricsDocument(

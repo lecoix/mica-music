@@ -7,6 +7,10 @@
         android:required="false" />
 
     <application>
+        <activity
+            android:name="com.mica.music.data.ScannerContractHostActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
         <provider
             android:name="com.mica.music.data.TestDocumentsProvider"
             android:authorities="${applicationId}.test.documents"

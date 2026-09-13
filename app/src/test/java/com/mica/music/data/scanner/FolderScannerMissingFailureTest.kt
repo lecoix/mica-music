@@ -60,7 +60,20 @@ class FolderScannerMissingFailureTest {
         assertTrue(second.nextCursor <= firstCursor + SafMissingVerificationBudget.DEFAULT_MAX_OBJECTS)
     }
 
+    @Test
+    fun builtInExternalStorageUsesFourMetadataQueryWorkers() {
+        assertTrue(
+            FolderScanner.autoMetadataQueryParallelism(
+                "com.android.externalstorage.documents",
+            ) == 4,
+        )
+    }
 
+    @Test
+    fun thirdPartyProviderMetadataQueriesStaySerialized() {
+        assertTrue(FolderScanner.autoMetadataQueryParallelism("third.party.documents") == 1)
+        assertTrue(FolderScanner.autoMetadataQueryParallelism(null) == 1)
+    }
 
     @Test
     fun directFileNotFoundIsConfirmedForAnyProvider() {

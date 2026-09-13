@@ -15,10 +15,13 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.Rule
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class SafTenKMetadataProfileTest {
+    @get:Rule val deviceHost = ScannerDeviceHostRule()
+
     @Test
     fun tenThousandDocumentMetadataWalkCompletesAndReportsExactDirectQueries() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()

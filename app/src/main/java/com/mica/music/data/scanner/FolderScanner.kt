@@ -3,8 +3,10 @@ package com.mica.music.data.scanner
 import android.content.Context
 import android.net.Uri
 import android.provider.DocumentsContract
+import android.os.Build
 import android.os.CancellationSignal
 import android.os.SystemClock
+import android.provider.MediaStore
 import androidx.documentfile.provider.DocumentFile
 import com.mica.music.data.DsdSupport
 import com.mica.music.data.Song
@@ -25,7 +27,7 @@ import java.io.Closeable
 import java.io.FileNotFoundException
 import java.util.concurrent.Future
 import java.util.concurrent.RejectedExecutionException
-import java.util.concurrent.SynchronousQueue
+import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
@@ -40,21 +42,21 @@ internal object FolderScanner {
 
     private const val PROBE_PARALLELISM = MediaStoreScanner.PROBE_PARALLELISM
     private const val SYSTEM_EXTERNAL_STORAGE_AUTHORITY = "com.android.externalstorage.documents"
+    private const val SYSTEM_EXTERNAL_STORAGE_QUERY_PARALLELISM = 4
+    private val systemQueryThreadSequence = AtomicInteger(0)
 
     /**
-     * One process-wide lane for automatic SAF metadata queries.
-     *
-     * A third-party DocumentsProvider may ignore both thread interruption and CancellationSignal
-     * after a Binder query has entered provider code. Keeping one shared worker means cancellation
-     * never creates a second concurrent AUTO query behind such a stuck provider. Manual/full scans
-     * keep their existing synchronous path and are not routed through this lane.
+     * Third-party DocumentsProviders stay strictly serialized. Some providers ignore both thread
+     * interruption and CancellationSignal after Binder entry, so cancellation must never create a
+     * second concurrent AUTO query behind a stuck call. The single handoff slot only closes the
+     * resume-before-worker-return race; it is not a backlog.
      */
     private val autoProviderQueryExecutor = ThreadPoolExecutor(
         1,
         1,
         0L,
         TimeUnit.MILLISECONDS,
-        SynchronousQueue(),
+        ArrayBlockingQueue(1),
         { runnable ->
             Thread(runnable, "mica-saf-auto-query-lane").apply {
                 isDaemon = true
@@ -62,6 +64,33 @@ internal object FolderScanner {
         },
         ThreadPoolExecutor.AbortPolicy(),
     )
+
+    /**
+     * Android's built-in ExternalStorageProvider is process-local/system-owned and has been verified
+     * on-device with concurrent metadata access. AUTO full-tree discovery may issue up to four child
+     * queries at once; the bounded handoff queue prevents unbounded work from surviving cancellation.
+     */
+    private val systemExternalStorageQueryExecutor = ThreadPoolExecutor(
+        SYSTEM_EXTERNAL_STORAGE_QUERY_PARALLELISM,
+        SYSTEM_EXTERNAL_STORAGE_QUERY_PARALLELISM,
+        0L,
+        TimeUnit.MILLISECONDS,
+        ArrayBlockingQueue(SYSTEM_EXTERNAL_STORAGE_QUERY_PARALLELISM),
+        { runnable ->
+            Thread(
+                runnable,
+                "mica-saf-system-query-${systemQueryThreadSequence.incrementAndGet()}",
+            ).apply { isDaemon = true }
+        },
+        ThreadPoolExecutor.AbortPolicy(),
+    )
+
+    internal fun autoMetadataQueryParallelism(authority: String?): Int =
+        if (authority == SYSTEM_EXTERNAL_STORAGE_AUTHORITY) {
+            SYSTEM_EXTERNAL_STORAGE_QUERY_PARALLELISM
+        } else {
+            1
+        }
 
     private val audioExtensions = setOf(
         "mp3", "flac", "m4a", "aac", "ogg", "opus", "wav", "ape", "wma", "alac", "aiff", "aif",
@@ -71,6 +100,123 @@ internal object FolderScanner {
         name.startsWith(".trashed-") ||
             (isDirectory && name == ".MicaRecycle")
 
+    internal suspend fun observeMetadata(
+        context: Context,
+        treeUri: Uri,
+        options: ScanOptions = ScanOptions(),
+    ): SafTreeMetadataSnapshot = withContext(Dispatchers.IO) {
+        val profiler = ScanProfiler("FolderMetadata")
+        val observationStartedAtMs = SystemClock.elapsedRealtime()
+        val discoveryQueries = DiscoveryQueryCounter()
+        fun observationStats() = SafTreeMetadataObservationStats(
+            // Exact only for calls we own directly. DocumentFile fallback may hide extra provider
+            // queries internally, so fallback listings are reported separately rather than folded
+            // into providerQueryCount.
+            providerQueryCount = discoveryQueries.directQueryCount,
+            directQueryCount = discoveryQueries.directQueryCount,
+            fallbackListingCount = discoveryQueries.fallbackListingCount,
+            wallTimeMs = (SystemClock.elapsedRealtime() - observationStartedAtMs).coerceAtLeast(0L),
+        )
+        val loaded = SafAutoQuerySession(context, treeUri.authority).use { querySession ->
+            profiler.measureSuspend("loadDrafts") {
+                loadDrafts(
+                    context = context,
+                    treeUri = treeUri,
+                    root = null,
+                    options = options,
+                    profiler = profiler,
+                    discoveryQueries = discoveryQueries,
+                    querySession = querySession,
+                    allowDocumentFileFallback = false,
+                )
+            }
+        }
+        SafTreeMetadataSnapshot(
+            entries = loaded.drafts.map { draft ->
+                SafTreeMetadataEntry(
+                    stableObjectKey = draft.scanSongId(),
+                    mediaUri = draft.mediaUri,
+                    fileName = draft.displayName.orEmpty(),
+                    folderPath = draft.folderPath,
+                    filePath = draft.filePath,
+                    mimeType = draft.mimeType,
+                    sizeBytes = draft.sizeBytes,
+                    lastModifiedMs = draft.dateModifiedMs,
+                    externalLyricsSignature = draft.externalLyricsSignature,
+                    probeDraft = draft,
+                )
+            },
+            discoveryReport = loaded.discoveryReport,
+            videoCovers = loaded.videoCovers,
+            observationStats = observationStats(),
+        )
+    }
+
+    /**
+     * Resolves exact MediaStore row notifications to SAF-relative parent folders. This is only a
+     * hint accelerator: any ambiguous/collection/deleted/outside-tree row returns null so AUTO falls
+     * back to a full SAF walk.
+     */
+    internal suspend fun resolveMediaStoreFolderPaths(
+        context: Context,
+        treeUri: Uri,
+        mediaStoreUris: Set<String>,
+    ): Set<String>? = withContext(Dispatchers.IO) {
+        if (
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
+            treeUri.authority != SYSTEM_EXTERNAL_STORAGE_AUTHORITY ||
+            mediaStoreUris.isEmpty()
+        ) return@withContext null
+
+        val treeDocumentId = runCatching { DocumentsContract.getTreeDocumentId(treeUri) }
+            .getOrNull() ?: return@withContext null
+        val separator = treeDocumentId.indexOf(':')
+        if (separator <= 0) return@withContext null
+        val treeVolume = treeDocumentId.substring(0, separator)
+        if (treeVolume != "primary") return@withContext null
+        val treeRootPath = normalizeRelativePath(treeDocumentId.substring(separator + 1))
+        val resolver = context.contentResolver
+        val resolved = linkedSetOf<String>()
+        val projection = arrayOf(
+            MediaStore.MediaColumns.RELATIVE_PATH,
+            MediaStore.MediaColumns.VOLUME_NAME,
+        )
+        mediaStoreUris.sorted().forEach { rawUri ->
+            val uri = runCatching { Uri.parse(rawUri) }.getOrNull()
+                ?: return@withContext null
+            if (
+                uri.scheme != "content" ||
+                uri.authority != MediaStore.AUTHORITY ||
+                uri.lastPathSegment?.toLongOrNull() == null
+            ) return@withContext null
+            val row = try {
+                resolver.query(uri, projection, null, null, null)?.use { cursor ->
+                    if (!cursor.moveToFirst()) return@use null
+                    val relativeIndex = cursor.getColumnIndex(MediaStore.MediaColumns.RELATIVE_PATH)
+                    val volumeIndex = cursor.getColumnIndex(MediaStore.MediaColumns.VOLUME_NAME)
+                    if (relativeIndex < 0 || volumeIndex < 0) return@use null
+                    cursor.getString(relativeIndex).orEmpty() to cursor.getString(volumeIndex).orEmpty()
+                }
+            } catch (_: Throwable) {
+                null
+            } ?: return@withContext null
+            if (row.second != MediaStore.VOLUME_EXTERNAL_PRIMARY) return@withContext null
+            val relativeFolder = normalizeRelativePath(row.first)
+            val folderPath = when {
+                treeRootPath.isEmpty() -> relativeFolder
+                relativeFolder == treeRootPath -> ""
+                relativeFolder.startsWith("$treeRootPath/") ->
+                    relativeFolder.removePrefix("$treeRootPath/")
+                else -> return@withContext null
+            }
+            resolved += folderPath
+        }
+        resolved.takeIf { it.isNotEmpty() }
+    }
+
+    private fun normalizeRelativePath(path: String): String =
+        path.split('/').filter(String::isNotBlank).joinToString("/")
+
     internal suspend fun verifyMissingObjects(
         context: Context,
         treeUri: Uri,
@@ -78,7 +224,7 @@ internal object FolderScanner {
         startCursor: Int = 0,
         budget: SafMissingVerificationBudget = SafMissingVerificationBudget.Default,
     ): SafIndependentMissingVerificationResult = withContext(Dispatchers.IO) {
-        SafAutoQuerySession(context).use { querySession ->
+        SafAutoQuerySession(context, treeUri.authority).use { querySession ->
             verifyMissingObjectsBounded(
                 treeAuthority = treeUri.authority,
                 songs = songs,
@@ -186,6 +332,12 @@ internal object FolderScanner {
         )
     }
 
+    /**
+     * Android's built-in ExternalStorageProvider can parcel a missing document as an
+     * IllegalArgumentException whose message embeds the provider-side FileNotFoundException instead
+     * of preserving it in the Throwable cause chain. Only recognize that narrow platform shape;
+     * third-party DocumentsProviders remain fail-closed as indeterminate.
+     */
     internal fun isConfirmedMissingDocumentFailure(
         authority: String?,
         error: Throwable,
@@ -206,55 +358,227 @@ internal object FolderScanner {
             "Failed to determine if " in message
     }
 
-    internal suspend fun observeMetadata(
+    internal suspend fun observeTargetedMetadata(
         context: Context,
         treeUri: Uri,
+        folderPaths: Set<String>,
         options: ScanOptions = ScanOptions(),
-    ): SafTreeMetadataSnapshot = withContext(Dispatchers.IO) {
-        val profiler = ScanProfiler("FolderMetadata")
+        retainProbeDrafts: Boolean = false,
+    ): SafTargetedMetadataSnapshot = withContext(Dispatchers.IO) {
+        val requested = folderPaths
+            .asSequence()
+            .map { it.trim('/') }
+            .toCollection(linkedSetOf())
         val observationStartedAtMs = SystemClock.elapsedRealtime()
         val discoveryQueries = DiscoveryQueryCounter()
-        fun observationStats() = SafTreeMetadataObservationStats(
-            // Exact only for calls we own directly. DocumentFile fallback may hide extra provider
-            // queries internally, so fallback listings are reported separately rather than folded
-            // into providerQueryCount.
-            providerQueryCount = discoveryQueries.directQueryCount,
-            directQueryCount = discoveryQueries.directQueryCount,
-            fallbackListingCount = discoveryQueries.fallbackListingCount,
-            wallTimeMs = (SystemClock.elapsedRealtime() - observationStartedAtMs).coerceAtLeast(0L),
+        if (requested.isEmpty()) {
+            return@withContext SafTargetedMetadataSnapshot(
+                entries = emptyList(),
+                requestedFolderPaths = emptySet(),
+                completeFolderPaths = emptySet(),
+                observationStats = SafTreeMetadataObservationStats(
+                    wallTimeMs = 0L,
+                ),
+            )
+        }
+
+        val audioFiles = mutableListOf<AudioFileEntry>()
+        val lyricFiles = mutableListOf<LyricFileEntry>()
+        val videoCovers = mutableListOf<VideoCoverFile>()
+        val completeFolders = linkedSetOf<String>()
+        val failedFolders = linkedSetOf<String>()
+        val rootDocumentId = DocumentsContract.getTreeDocumentId(treeUri)
+        val documentIdByPath = mutableMapOf("" to rootDocumentId)
+        val rowsByDocumentId = mutableMapOf<String, List<SafDocumentRow>>()
+        val projection = arrayOf(
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            DocumentsContract.Document.COLUMN_MIME_TYPE,
+            DocumentsContract.Document.COLUMN_SIZE,
+            DocumentsContract.Document.COLUMN_LAST_MODIFIED,
         )
-        val loaded = SafAutoQuerySession(context).use { querySession ->
-            profiler.measureSuspend("loadDrafts") {
-                loadDrafts(
-                    context = context,
-                    treeUri = treeUri,
-                    root = null,
-                    options = options,
-                    profiler = profiler,
-                    discoveryQueries = discoveryQueries,
-                    querySession = querySession,
-                    allowDocumentFileFallback = false,
-                )
+
+        SafAutoQuerySession(context, treeUri.authority).use { querySession ->
+            suspend fun children(documentId: String): List<SafDocumentRow> {
+                rowsByDocumentId[documentId]?.let { return it }
+                val uri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, documentId)
+                discoveryQueries.directQueryCount += 1
+                return querySession.queryChildren(uri, projection).also { rows ->
+                    rowsByDocumentId[documentId] = rows
+                }
+            }
+
+            suspend fun resolveFolderDocumentId(folderPath: String): String {
+                documentIdByPath[folderPath]?.let { return it }
+                var currentPath = ""
+                var currentDocumentId = rootDocumentId
+                folderPath.split('/').filter(String::isNotBlank).forEach { segment ->
+                    val nextPath = if (currentPath.isEmpty()) segment else "$currentPath/$segment"
+                    val cached = documentIdByPath[nextPath]
+                    if (cached != null) {
+                        currentPath = nextPath
+                        currentDocumentId = cached
+                        return@forEach
+                    }
+                    val row = children(currentDocumentId).firstOrNull { candidate ->
+                        candidate.mimeType == DocumentsContract.Document.MIME_TYPE_DIR &&
+                            candidate.name == segment
+                    } ?: error("Cannot resolve SAF validation folder: $nextPath")
+                    currentPath = nextPath
+                    currentDocumentId = row.documentId
+                    documentIdByPath[currentPath] = currentDocumentId
+                }
+                return currentDocumentId
+            }
+
+            requested.sortedWith(compareBy<String>({ it.count { ch -> ch == '/' } }, { it })).forEach { folderPath ->
+                try {
+                    val documentId = resolveFolderDocumentId(folderPath)
+                    children(documentId).forEach { row ->
+                        val isDirectory = row.mimeType == DocumentsContract.Document.MIME_TYPE_DIR
+                        if (shouldIgnoreSafArtifact(row.name, isDirectory) || isDirectory) return@forEach
+                        collectFileEntry(
+                            uri = DocumentsContract.buildDocumentUriUsingTree(treeUri, row.documentId),
+                            name = row.name,
+                            mime = row.mimeType,
+                            size = row.sizeBytes,
+                            lastModified = row.lastModifiedMs,
+                            folderPath = folderPath,
+                            audioOut = audioFiles,
+                            lyricOut = lyricFiles,
+                            videoOut = videoCovers,
+                        )
+                    }
+                    completeFolders += folderPath
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Throwable) {
+                    failedFolders += folderPath
+                }
             }
         }
-        SafTreeMetadataSnapshot(
-            entries = loaded.drafts.map { draft ->
-                SafTreeMetadataEntry(
-                    stableObjectKey = draft.scanSongId(),
-                    mediaUri = draft.mediaUri,
-                    fileName = draft.displayName.orEmpty(),
-                    folderPath = draft.folderPath,
-                    filePath = draft.filePath,
-                    mimeType = draft.mimeType,
-                    sizeBytes = draft.sizeBytes,
-                    lastModifiedMs = draft.dateModifiedMs,
-                    externalLyricsSignature = draft.externalLyricsSignature,
-                    probeDraft = draft,
-                )
-            },
-            discoveryReport = loaded.discoveryReport,
-            videoCovers = loaded.videoCovers,
-            observationStats = observationStats(),
+
+        val lyricsByAudioKey = lyricFiles.groupBy { lyricsKey(it.folderPath, it.baseName) }
+        val scannedAt = System.currentTimeMillis()
+        val entries = audioFiles.mapNotNull { entry ->
+            val name = entry.name
+            val ext = name.substringAfterLast('.', "").lowercase()
+            val mime = entry.mimeType.ifBlank {
+                when (ext) {
+                    "flac" -> "audio/flac"
+                    "m4a", "alac" -> "audio/mp4"
+                    "dsf", "dff", "dsdiff" -> DsdSupport.mimeForExtension(ext)
+                    "mp3" -> "audio/mpeg"
+                    "ogg", "opus" -> "audio/ogg"
+                    "wav" -> "audio/wav"
+                    else -> "audio/*"
+                }
+            }
+            if (!mime.startsWith("audio/") && ext !in audioExtensions) return@mapNotNull null
+            val title = name.substringBeforeLast('.').ifBlank { name }
+            val typedExternalLyricsRefs =
+                lyricsByAudioKey[lyricsKey(entry.folderPath, title)].orEmpty().toExternalLyricsRefs()
+            val draft = TrackDraft(
+                mediaStoreId = 0L,
+                title = title,
+                artist = "未知艺人",
+                album = "未知专辑",
+                albumId = 0L,
+                durationSec = 0,
+                mimeType = mime,
+                displayName = name,
+                sizeBytes = entry.sizeBytes,
+                bitrateBpsFromStore = 0,
+                mediaUri = entry.uri.toString(),
+                coverColorArgb = CoverColorExtractor.FALLBACK_ARGB,
+                folderPath = entry.folderPath,
+                filePath = buildString {
+                    if (entry.folderPath.isNotBlank()) {
+                        append(entry.folderPath.trimEnd('/'))
+                        append('/')
+                    }
+                    append(name)
+                },
+                dateAddedMs = scannedAt,
+                dateModifiedMs = entry.lastModifiedMs.coerceAtLeast(0L),
+                externalLyricsParent = null,
+                externalLyricsUris = typedExternalLyricsRefs.externalLyricsUris(),
+                externalLrcUris = typedExternalLyricsRefs.externalLyricsUris("lrc"),
+                externalTtmlUris = typedExternalLyricsRefs.externalLyricsUris("ttml"),
+                externalLyricsSignature = typedExternalLyricsRefs.externalLyricsSignature(),
+            )
+            SafTreeMetadataEntry(
+                stableObjectKey = draft.scanSongId(),
+                mediaUri = draft.mediaUri,
+                fileName = draft.displayName.orEmpty(),
+                folderPath = draft.folderPath,
+                filePath = draft.filePath,
+                mimeType = draft.mimeType,
+                sizeBytes = draft.sizeBytes,
+                lastModifiedMs = draft.dateModifiedMs,
+                externalLyricsSignature = draft.externalLyricsSignature,
+                probeDraft = draft.takeIf { retainProbeDrafts },
+            )
+        }
+
+        SafTargetedMetadataSnapshot(
+            entries = entries,
+            videoCovers = videoCovers,
+            requestedFolderPaths = requested,
+            completeFolderPaths = completeFolders,
+            failedFolderPaths = failedFolders,
+            observationStats = SafTreeMetadataObservationStats(
+                providerQueryCount = discoveryQueries.directQueryCount,
+                directQueryCount = discoveryQueries.directQueryCount,
+                fallbackListingCount = 0,
+                wallTimeMs = (SystemClock.elapsedRealtime() - observationStartedAtMs).coerceAtLeast(0L),
+            ),
+        )
+    }
+
+    suspend fun scanArtworkForSongs(
+        context: Context,
+        treeUri: Uri,
+        songIds: Set<String>,
+        cachedSongs: List<Song>,
+        onProgress: ((done: Int, total: Int) -> Unit)? = null,
+    ): ScanResult = withContext(Dispatchers.IO) {
+        val profiler = ScanProfiler("FolderArtworkDirect")
+        val targets = cachedSongs.filter { it.id in songIds }
+        if (targets.isEmpty()) {
+            return@withContext ScanResult(
+                songs = emptyList(),
+                totalSizeMb = 0,
+                performanceSummary = profiler.finish(total = 0, reused = 0, probed = 0),
+            )
+        }
+        val systemProvider = treeUri.authority == "com.android.externalstorage.documents"
+        val parallelism = if (systemProvider) 4 else 1
+        val done = AtomicInteger(0)
+        val songs = mutableListOf<Song>()
+        targets.chunked(parallelism).forEach { chunk ->
+            val batch = coroutineScope {
+                chunk.map { song ->
+                    async {
+                        profiler.measure("artworkHydrate") {
+                            runCatching { AudioMetadataProbe.hydrateArtwork(context, song) }
+                                .getOrElse { song }
+                        }.also {
+                            onProgress?.invoke(done.incrementAndGet(), targets.size)
+                        }
+                    }
+                }.awaitAll()
+            }
+            songs += batch
+        }
+        ScanResult(
+            songs = songs,
+            totalSizeMb = (targets.sumOf { it.sizeBytes.coerceAtLeast(0L) } / (1024L * 1024L)).toInt(),
+            performanceSummary = profiler.finish(
+                total = targets.size,
+                reused = targets.count { cached -> songs.firstOrNull { it.id == cached.id } == cached },
+                probed = targets.size,
+            ),
         )
     }
 
@@ -442,18 +766,34 @@ internal object FolderScanner {
         try {
             profiler.measureSuspend("loadDrafts.query") {
                 val rootDocumentId = DocumentsContract.getTreeDocumentId(treeUri)
-                collectLibraryFiles(
-                    context = context,
-                    treeUri = treeUri,
-                    documentId = rootDocumentId,
-                    parentPath = "",
-                    options = options,
-                    audioOut = files,
-                    lyricOut = lyricFiles,
-                    videoOut = videoCovers,
-                    discoveryQueries = discoveryQueries,
-                    querySession = querySession,
-                )
+                if (
+                    querySession != null &&
+                    autoMetadataQueryParallelism(treeUri.authority) > 1
+                ) {
+                    collectLibraryFilesParallel(
+                        treeUri = treeUri,
+                        rootDocumentId = rootDocumentId,
+                        options = options,
+                        audioOut = files,
+                        lyricOut = lyricFiles,
+                        videoOut = videoCovers,
+                        discoveryQueries = discoveryQueries,
+                        querySession = querySession,
+                    )
+                } else {
+                    collectLibraryFiles(
+                        context = context,
+                        treeUri = treeUri,
+                        documentId = rootDocumentId,
+                        parentPath = "",
+                        options = options,
+                        audioOut = files,
+                        lyricOut = lyricFiles,
+                        videoOut = videoCovers,
+                        discoveryQueries = discoveryQueries,
+                        querySession = querySession,
+                    )
+                }
             }
         } catch (error: CancellationException) {
             throw error
@@ -604,9 +944,14 @@ internal object FolderScanner {
 
     private class SafAutoQuerySession(
         context: Context,
+        authority: String?,
     ) : Closeable {
         private val resolver = context.contentResolver
-        private val executor = autoProviderQueryExecutor
+        private val executor = if (authority == SYSTEM_EXTERNAL_STORAGE_AUTHORITY) {
+            systemExternalStorageQueryExecutor
+        } else {
+            autoProviderQueryExecutor
+        }
 
         suspend fun queryChildren(
             uri: Uri,
@@ -633,7 +978,10 @@ internal object FolderScanner {
             val futureRef = AtomicReference<Future<*>?>()
             continuation.invokeOnCancellation {
                 cancellationSignal.cancel()
-                futureRef.get()?.cancel(true)
+                futureRef.get()?.let { future ->
+                    future.cancel(true)
+                    (future as? Runnable)?.let(executor::remove)
+                }
             }
             val future = try {
                 executor.submit {
@@ -671,14 +1019,14 @@ internal object FolderScanner {
             if (!continuation.isActive) {
                 cancellationSignal.cancel()
                 future.cancel(true)
+                (future as? Runnable)?.let(executor::remove)
             }
         }
 
         override fun close() {
-            // The executor is process-wide by design and has no task queue. Individual in-flight
-            // work is cancelled through its Future + CancellationSignal; shutting the lane here
-            // would let a later observation create a parallel lane while an uncooperative provider
-            // is still running.
+            // Executors are process-wide and bounded. Individual in-flight/queued work is cancelled
+            // through its Future + CancellationSignal; shutting a shared lane here could let a later
+            // observation create a parallel lane while an uncooperative provider call is still alive.
         }
     }
 
@@ -735,6 +1083,83 @@ internal object FolderScanner {
         val sizeBytes: Long,
         val lastModifiedMs: Long,
     )
+
+    private data class PendingSafDirectory(
+        val documentId: String,
+        val parentPath: String,
+    )
+
+    /**
+     * Breadth-first AUTO discovery for Android's built-in ExternalStorageProvider. Query submission
+     * is bounded to one batch of [SYSTEM_EXTERNAL_STORAGE_QUERY_PARALLELISM] directories at a time.
+     * awaitAll preserves batch order, and rows are merged in that same order so publication input
+     * remains deterministic even though Binder calls complete concurrently.
+     */
+    private suspend fun collectLibraryFilesParallel(
+        treeUri: Uri,
+        rootDocumentId: String,
+        options: ScanOptions,
+        audioOut: MutableList<AudioFileEntry>,
+        lyricOut: MutableList<LyricFileEntry>,
+        videoOut: MutableList<VideoCoverFile>,
+        discoveryQueries: DiscoveryQueryCounter?,
+        querySession: SafAutoQuerySession,
+    ) {
+        val projection = arrayOf(
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            DocumentsContract.Document.COLUMN_MIME_TYPE,
+            DocumentsContract.Document.COLUMN_SIZE,
+            DocumentsContract.Document.COLUMN_LAST_MODIFIED,
+        )
+        var frontier = listOf(PendingSafDirectory(rootDocumentId, ""))
+        while (frontier.isNotEmpty()) {
+            val nextFrontier = mutableListOf<PendingSafDirectory>()
+            frontier.chunked(SYSTEM_EXTERNAL_STORAGE_QUERY_PARALLELISM).forEach { chunk ->
+                discoveryQueries?.let { it.directQueryCount += chunk.size }
+                val queried = coroutineScope {
+                    chunk.map { pending ->
+                        async {
+                            val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
+                                treeUri,
+                                pending.documentId,
+                            )
+                            pending to querySession.queryChildren(childrenUri, projection)
+                        }
+                    }.awaitAll()
+                }
+                queried.forEach { (pending, rows) ->
+                    rows.forEach { row ->
+                        val isDirectory = row.mimeType == DocumentsContract.Document.MIME_TYPE_DIR
+                        if (shouldIgnoreSafArtifact(row.name, isDirectory)) return@forEach
+                        if (isDirectory) {
+                            val nextPath = if (pending.parentPath.isEmpty()) {
+                                row.name
+                            } else {
+                                "${pending.parentPath}/${row.name}"
+                            }
+                            if (!ExcludedScanDirectories.isExcluded(nextPath, options.excludedDirectories)) {
+                                nextFrontier += PendingSafDirectory(row.documentId, nextPath)
+                            }
+                        } else {
+                            collectFileEntry(
+                                uri = DocumentsContract.buildDocumentUriUsingTree(treeUri, row.documentId),
+                                name = row.name,
+                                mime = row.mimeType,
+                                size = row.sizeBytes,
+                                lastModified = row.lastModifiedMs,
+                                folderPath = pending.parentPath,
+                                audioOut = audioOut,
+                                lyricOut = lyricOut,
+                                videoOut = videoOut,
+                            )
+                        }
+                    }
+                }
+            }
+            frontier = nextFrontier
+        }
+    }
 
     private suspend fun collectLibraryFiles(
         context: Context,

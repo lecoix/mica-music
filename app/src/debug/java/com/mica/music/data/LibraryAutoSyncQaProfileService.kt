@@ -1,4 +1,4 @@
-package com.mica.music.data
+﻿package com.mica.music.data
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -841,12 +841,12 @@ class LibraryAutoSyncQaProfileService : Service() {
         val baseline = List(ROOM_PUBLICATION_OBJECT_COUNT) { index ->
             roomQaSong(
                 id = "publication-" + index,
-                title = if (unicodeTitles) "歌曲 " + index else "Track " + index,
+                title = if (unicodeTitles) "姝屾洸 " + index else "Track " + index,
                 modifiedMs = 1L,
                 lyrics = LyricsDocument(),
             ).copy(
-                artist = if (unicodeTitles) "艺术家 " + index else "Artist " + index,
-                album = if (unicodeTitles) "专辑 " + index else "Album " + index,
+                artist = if (unicodeTitles) "鑹烘湳瀹?" + index else "Artist " + index,
+                album = if (unicodeTitles) "涓撹緫 " + index else "Album " + index,
                 lyricsLoaded = false,
             )
         }
