@@ -21,6 +21,7 @@ internal class TargetedMetadataRefreshExecutor(
                 fullScanExecutor.scanLibraryFolder(
                     forceRefreshSongIds = targets,
                     operation = operation,
+                    artworkOnly = operation?.request?.cause == LibraryOperationCause.AUTO_ARTWORK_HYDRATE,
                 )
             }
             ScanSource.DEVICE -> if (backing.folder.hasAudioReadPermission()) {

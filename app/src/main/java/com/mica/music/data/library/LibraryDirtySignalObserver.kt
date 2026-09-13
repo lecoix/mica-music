@@ -32,6 +32,8 @@ internal class LibraryDirtySignalObserver(
     context: Context,
     private val scope: CoroutineScope,
     private val markDirty: (LibraryOperationCause) -> Long,
+    private val markDirtyWithMediaStoreHint: ((LibraryOperationCause, String?) -> Long)? = null,
+    private val markMediaStoreGenerationDirty: ((LibraryOperationCause) -> Long)? = null,
     private val activeSource: () -> ScanSource?,
     private val activeSafTreeUri: () -> Uri? = { null },
     private val readMediaStoreGeneration: suspend () -> DeviceGenerationSnapshot = {
@@ -49,6 +51,7 @@ internal class LibraryDirtySignalObserver(
     private var released = false
     private var safVerifyJob: Job? = null
     private var safGenerationWatchJob: Job? = null
+    private var safGenerationAcknowledgeJob: Job? = null
     private var safGenerationBaseline: DeviceGenerationSnapshot.Available? = null
     private var registeredSafTreeUri: Uri? = null
 
@@ -114,17 +117,51 @@ internal class LibraryDirtySignalObserver(
     private fun causeObserver(cause: LibraryOperationCause): ContentObserver =
         object : ContentObserver(handler) {
             override fun onChange(selfChange: Boolean) {
-                signal(cause)
+                signal(cause, null)
             }
 
             override fun onChange(selfChange: Boolean, uri: Uri?) {
-                signal(cause)
+                signal(cause, uri)
             }
         }
 
-    private fun signal(cause: LibraryOperationCause) {
+    private fun signal(cause: LibraryOperationCause, uri: Uri? = null) {
         if (!foreground || released) return
-        markDirty(cause)
+        val isMediaStoreDirty =
+            cause == LibraryOperationCause.MEDIASTORE_AUDIO_DIRTY ||
+                cause == LibraryOperationCause.MEDIASTORE_FILES_DIRTY
+        if (markDirtyWithMediaStoreHint != null && isMediaStoreDirty) {
+            markDirtyWithMediaStoreHint.invoke(cause, uri?.toString())
+            if (uri != null) {
+                scheduleSafGenerationAcknowledge()
+            }
+        } else {
+            markDirty(cause)
+        }
+    }
+
+    private fun scheduleSafGenerationAcknowledge() {
+        if (
+            !foreground ||
+            released ||
+            activeSource() != ScanSource.FOLDER ||
+            safGenerationPollIntervalMs <= 0L
+        ) return
+        safGenerationAcknowledgeJob?.cancel()
+        safGenerationAcknowledgeJob = scope.launch {
+            delay(SAF_GENERATION_ACK_SETTLE_MS)
+            val snapshot = try {
+                readMediaStoreGeneration()
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Throwable) {
+                null
+            }
+            if (!foreground || released || activeSource() != ScanSource.FOLDER) return@launch
+            if (snapshot is DeviceGenerationSnapshot.Available) {
+                safGenerationBaseline = snapshot
+            }
+        }
     }
 
     private fun registerSignals() {
@@ -232,7 +269,9 @@ internal class LibraryDirtySignalObserver(
                             "LibraryAutoSync",
                             "saf generation accelerator changed before=${previous.volumes} after=${snapshot.volumes}",
                         )
-                        signal(LibraryOperationCause.MEDIASTORE_FILES_DIRTY)
+                        markMediaStoreGenerationDirty
+                            ?.invoke(LibraryOperationCause.MEDIASTORE_FILES_DIRTY)
+                            ?: signal(LibraryOperationCause.MEDIASTORE_FILES_DIRTY)
                     }
                 }
                 delay(safGenerationPollIntervalMs)
@@ -243,6 +282,8 @@ internal class LibraryDirtySignalObserver(
     private fun stopSafGenerationWatch() {
         safGenerationWatchJob?.cancel()
         safGenerationWatchJob = null
+        safGenerationAcknowledgeJob?.cancel()
+        safGenerationAcknowledgeJob = null
         safGenerationBaseline = null
     }
 
@@ -275,6 +316,7 @@ internal class LibraryDirtySignalObserver(
         // Generation reads are a cheap foreground accelerator only. They never replace the
         // authoritative periodic SAF metadata walk below.
         const val DEFAULT_SAF_GENERATION_POLL_INTERVAL_MS = 3_000L
+        internal const val SAF_GENERATION_ACK_SETTLE_MS = 100L
         const val DEFAULT_SAF_VERIFY_INTERVAL_MS = 5L * 60L * 1000L
     }
 }

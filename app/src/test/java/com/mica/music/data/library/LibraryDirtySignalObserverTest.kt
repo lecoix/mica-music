@@ -165,9 +165,68 @@ class LibraryDirtySignalObserverTest {
 
 
     @Test
+    fun concreteMediaStoreCallbackAcknowledgesGenerationBeforePoll() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val causes = mutableListOf<LibraryOperationCause>()
+        val generationCauses = mutableListOf<LibraryOperationCause>()
+        val hintedUris = mutableListOf<String?>()
+        var generation = 10L
+        fun snapshot(): DeviceGenerationSnapshot = DeviceGenerationSnapshot.Available(
+            mapOf(
+                "external_primary" to DeviceVolumeGeneration(
+                    volumeName = "external_primary",
+                    providerVersion = "v1",
+                    generation = generation,
+                ),
+            ),
+        )
+        val observer = LibraryDirtySignalObserver(
+            context = context,
+            scope = this,
+            markDirty = { cause ->
+                causes += cause
+                causes.size.toLong()
+            },
+            markDirtyWithMediaStoreHint = { cause, uri ->
+                causes += cause
+                hintedUris += uri
+                causes.size.toLong()
+            },
+            markMediaStoreGenerationDirty = { cause ->
+                generationCauses += cause
+                generationCauses.size.toLong()
+            },
+            activeSource = { ScanSource.FOLDER },
+            readMediaStoreGeneration = { snapshot() },
+            safGenerationPollIntervalMs = 1_000L,
+            safVerifyIntervalMs = 60_000L,
+        )
+
+        observer.onForegroundChanged(true)
+        runCurrent()
+        assertEquals(listOf(LibraryOperationCause.FOREGROUND_CATCH_UP), causes)
+
+        generation = 11L
+        val changedUri = Uri.parse("content://media/external/audio/media/42")
+        context.contentResolver.notifyChange(changedUri, null)
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        runCurrent()
+        assertTrue(hintedUris.any { it == changedUri.toString() })
+
+        advanceTimeBy(LibraryDirtySignalObserver.SAF_GENERATION_ACK_SETTLE_MS)
+        runCurrent()
+        advanceTimeBy(1_000L - LibraryDirtySignalObserver.SAF_GENERATION_ACK_SETTLE_MS)
+        runCurrent()
+
+        assertTrue(generationCauses.isEmpty())
+        observer.release()
+    }
+
+    @Test
     fun folderGenerationWatchCompensatesForMissedMediaStoreCallback() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val causes = mutableListOf<LibraryOperationCause>()
+        val generationCauses = mutableListOf<LibraryOperationCause>()
         var source = ScanSource.FOLDER
         var generation = 10L
         fun snapshot(): DeviceGenerationSnapshot = DeviceGenerationSnapshot.Available(
@@ -186,6 +245,10 @@ class LibraryDirtySignalObserverTest {
                 causes += cause
                 causes.size.toLong()
             },
+            markMediaStoreGenerationDirty = { cause ->
+                generationCauses += cause
+                generationCauses.size.toLong()
+            },
             activeSource = { source },
             readMediaStoreGeneration = { snapshot() },
             safGenerationPollIntervalMs = 1_000L,
@@ -203,17 +266,16 @@ class LibraryDirtySignalObserverTest {
 
         advanceTimeBy(1L)
         runCurrent()
+        assertEquals(listOf(LibraryOperationCause.FOREGROUND_CATCH_UP), causes)
         assertEquals(
-            listOf(
-                LibraryOperationCause.FOREGROUND_CATCH_UP,
-                LibraryOperationCause.MEDIASTORE_FILES_DIRTY,
-            ),
-            causes,
+            listOf(LibraryOperationCause.MEDIASTORE_FILES_DIRTY),
+            generationCauses,
         )
 
         advanceTimeBy(1_000L)
         runCurrent()
-        assertEquals(2, causes.size)
+        assertEquals(1, causes.size)
+        assertEquals(1, generationCauses.size)
 
         source = ScanSource.DEVICE
         observer.onActiveSourceChanged()

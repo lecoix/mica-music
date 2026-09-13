@@ -146,7 +146,11 @@ internal class MusicLibraryBacking(
     val dirtySignalObserver = LibraryDirtySignalObserver(
         context = context,
         scope = scanScope,
-        markDirty = syncScheduler::markDirty,
+        markDirty = { cause -> syncScheduler.markDirty(cause) },
+        markDirtyWithMediaStoreHint = { cause, uri -> syncScheduler.markDirty(cause, uri) },
+        markMediaStoreGenerationDirty = { cause ->
+            syncScheduler.markMediaStoreGenerationDirty(cause)
+        },
         activeSource = { sourceState.active?.sourceIdentity?.source },
         activeSafTreeUri = {
             if (sourceState.active?.sourceIdentity?.source == ScanSource.FOLDER) {
@@ -244,6 +248,7 @@ internal class MusicLibraryBacking(
     suspend fun abandonPendingTransition(token: LibraryOperationToken) =
         operationAuthority.abandonPendingTransition(token)
     fun restorePersistedState(state: PersistedLibraryState) {
+        val previousActiveSourceIdentity = sourceState.active?.sourceIdentity
         intentState = state.intent
         accessState = state.access
         sourceState = state.sourceState
@@ -252,7 +257,9 @@ internal class MusicLibraryBacking(
         }
         operationAuthority.observeRestoredState(state)
 
-        dirtySignalObserver.onActiveSourceChanged()
+        if (previousActiveSourceIdentity != sourceState.active?.sourceIdentity) {
+            dirtySignalObserver.onActiveSourceChanged()
+        }
     }
 
     fun persistedState(): PersistedLibraryState = PersistedLibraryState(

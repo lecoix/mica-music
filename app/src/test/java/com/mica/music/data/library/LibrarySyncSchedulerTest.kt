@@ -208,6 +208,74 @@ class LibrarySyncSchedulerTest {
     }
 
     @Test
+    fun folderMutationBurstWaitsForQuietPastDefaultFiveSecondMaxDebounce() = runTest {
+        val backing = activeBacking(
+            SourceIdentityKey.folder("content://com.android.externalstorage.documents/tree/primary%3AMusic%2Ftest"),
+        )
+        val executed = mutableListOf<ScheduledLibraryOperation>()
+        val scheduler = testSchedulerOwner(
+            backing = backing,
+            timing = LibrarySyncSchedulerTiming(
+                debounceMs = 1_500L,
+                cooldownMs = 60_000L,
+                maxDebounceMs = 5_000L,
+            ),
+        ) { executed += it }
+
+        scheduler.markDirty(LibraryOperationCause.MEDIASTORE_AUDIO_DIRTY)
+        repeat(7) {
+            advanceTimeBy(1_000L)
+            runCurrent()
+            assertTrue(executed.isEmpty())
+            scheduler.markDirty(LibraryOperationCause.MEDIASTORE_FILES_DIRTY)
+        }
+
+        advanceTimeBy(1_499L)
+        runCurrent()
+        assertTrue(executed.isEmpty())
+
+        advanceTimeBy(1L)
+        runCurrent()
+        assertEquals(1, executed.size)
+        assertEquals(AutoSyncWakeReason.TRAILING_DEBOUNCE, scheduler.lastAutoShadowDiagnostic?.wakeReason)
+        assertEquals(8, scheduler.lastAutoShadowDiagnostic?.coalescedEventCount)
+
+        backing.release()
+        runCurrent()
+    }
+
+    @Test
+    fun foregroundCatchUpRunsImmediatelyWhenCooldownIsOpen() = runTest {
+        val backing = activeBacking()
+        val executed = mutableListOf<ScheduledLibraryOperation>()
+        val scheduler = testSchedulerOwner(
+            backing = backing,
+            timing = LibrarySyncSchedulerTiming(
+                debounceMs = 1_500L,
+                cooldownMs = 60_000L,
+                maxDebounceMs = 5_000L,
+            ),
+        ) { executed += it }
+
+        scheduler.markDirty(LibraryOperationCause.FOREGROUND_CATCH_UP)
+        runCurrent()
+
+        assertEquals(1, executed.size)
+        assertEquals(
+            LibraryOperationCause.FOREGROUND_CATCH_UP,
+            executed.single().request.cause,
+        )
+        assertEquals(
+            AutoSyncWakeReason.FOREGROUND_CATCH_UP,
+            scheduler.lastAutoShadowDiagnostic?.wakeReason,
+        )
+        assertFalse(scheduler.pendingDirty)
+
+        backing.release()
+        runCurrent()
+    }
+
+    @Test
     fun foregroundCatchUpDuringCooldownWakesAtCooldownEndInsteadOfBeingDropped() = runTest {
         val backing = activeBacking()
         val executed = mutableListOf<ScheduledLibraryOperation>()
@@ -724,6 +792,200 @@ class LibrarySyncSchedulerTest {
         runCurrent()
     }
 
+    @Test
+    fun mediaStoreHintsCoalesceIntoSingleAutoRequest() = runTest {
+        val backing = activeBacking()
+        val executed = mutableListOf<ScheduledLibraryOperation>()
+        val scheduler = testSchedulerOwner(
+            backing = backing,
+            timing = LibrarySyncSchedulerTiming(100L, 0L, 100L),
+        ) { executed += it }
+
+        scheduler.markDirty(
+            LibraryOperationCause.MEDIASTORE_AUDIO_DIRTY,
+            "content://media/external/audio/media/10",
+        )
+        scheduler.markDirty(
+            LibraryOperationCause.MEDIASTORE_FILES_DIRTY,
+            "content://media/external/file/10",
+        )
+        runCurrent()
+        assertTrue(executed.isEmpty())
+        advanceTimeBy(100L)
+        runCurrent()
+
+        val request = executed.single().request as LibraryOperationRequest.AutoSync
+        assertEquals(
+            setOf(
+                "content://media/external/audio/media/10",
+                "content://media/external/file/10",
+            ),
+            request.mediaStoreUriHints,
+        )
+        assertFalse(request.mediaStoreHintIncomplete)
+
+        backing.release()
+        runCurrent()
+    }
+
+    @Test
+    fun generationAcceleratorDoesNotPoisonConcreteMediaStoreHints() = runTest {
+        val backing = activeBacking()
+        val executed = mutableListOf<ScheduledLibraryOperation>()
+        val scheduler = testSchedulerOwner(
+            backing = backing,
+            timing = LibrarySyncSchedulerTiming(100L, 0L, 100L),
+        ) { executed += it }
+
+        scheduler.markDirty(
+            LibraryOperationCause.MEDIASTORE_AUDIO_DIRTY,
+            "content://media/external/audio/media/10",
+        )
+        scheduler.markMediaStoreGenerationDirty()
+        runCurrent()
+        assertTrue(executed.isEmpty())
+        advanceTimeBy(100L)
+        runCurrent()
+
+        val request = executed.single().request as LibraryOperationRequest.AutoSync
+        assertEquals(
+            setOf("content://media/external/audio/media/10"),
+            request.mediaStoreUriHints,
+        )
+        assertFalse(request.mediaStoreHintIncomplete)
+        assertEquals(
+            setOf(
+                LibraryOperationCause.MEDIASTORE_AUDIO_DIRTY,
+                LibraryOperationCause.MEDIASTORE_FILES_DIRTY,
+            ),
+            request.coalescedCauses,
+        )
+
+        backing.release()
+        runCurrent()
+    }
+
+    @Test
+    fun generationAcceleratorDoesNotExtendConcreteHintTrailingDebounce() = runTest {
+        val backing = activeBacking()
+        val executed = mutableListOf<ScheduledLibraryOperation>()
+        val scheduler = testSchedulerOwner(
+            backing = backing,
+            timing = LibrarySyncSchedulerTiming(100L, 0L, 1_000L),
+        ) { executed += it }
+
+        scheduler.markDirty(
+            LibraryOperationCause.MEDIASTORE_AUDIO_DIRTY,
+            "content://media/external/audio/media/10",
+        )
+        runCurrent()
+        advanceTimeBy(80L)
+        runCurrent()
+        scheduler.markMediaStoreGenerationDirty()
+        runCurrent()
+        assertTrue(executed.isEmpty())
+
+        advanceTimeBy(20L)
+        runCurrent()
+        assertEquals(1, executed.size)
+        val request = executed.single().request as LibraryOperationRequest.AutoSync
+        assertEquals(
+            setOf("content://media/external/audio/media/10"),
+            request.mediaStoreUriHints,
+        )
+        assertFalse(request.mediaStoreHintIncomplete)
+
+        backing.release()
+        runCurrent()
+    }
+
+    @Test
+    fun generationAcceleratorAloneStillUsesNormalTrailingDebounce() = runTest {
+        val backing = activeBacking()
+        val executed = mutableListOf<ScheduledLibraryOperation>()
+        val scheduler = testSchedulerOwner(
+            backing = backing,
+            timing = LibrarySyncSchedulerTiming(100L, 0L, 1_000L),
+        ) { executed += it }
+
+        scheduler.markMediaStoreGenerationDirty()
+        runCurrent()
+        assertTrue(executed.isEmpty())
+        advanceTimeBy(99L)
+        runCurrent()
+        assertTrue(executed.isEmpty())
+        advanceTimeBy(1L)
+        runCurrent()
+
+        assertEquals(1, executed.size)
+        val request = executed.single().request as LibraryOperationRequest.AutoSync
+        assertTrue(request.mediaStoreUriHints.isEmpty())
+        assertFalse(request.mediaStoreHintIncomplete)
+
+        backing.release()
+        runCurrent()
+    }
+
+    @Test
+    fun mediaStoreEventWithoutUriMarksHintSetIncomplete() = runTest {
+        val backing = activeBacking()
+        val executed = mutableListOf<ScheduledLibraryOperation>()
+        val scheduler = testSchedulerOwner(
+            backing = backing,
+            timing = LibrarySyncSchedulerTiming(100L, 0L, 100L),
+        ) { executed += it }
+
+        scheduler.markDirty(LibraryOperationCause.MEDIASTORE_AUDIO_DIRTY, null)
+        scheduler.markDirty(
+            LibraryOperationCause.MEDIASTORE_FILES_DIRTY,
+            "content://media/external/file/10",
+        )
+        runCurrent()
+        assertTrue(executed.isEmpty())
+        advanceTimeBy(100L)
+        runCurrent()
+
+        val request = executed.single().request as LibraryOperationRequest.AutoSync
+        assertTrue(request.mediaStoreHintIncomplete)
+        assertEquals(setOf("content://media/external/file/10"), request.mediaStoreUriHints)
+
+        backing.release()
+        runCurrent()
+    }
+
+    @Test
+    fun restoringSameActiveSourceDoesNotSynthesizeForegroundCatchUp() = runTest {
+        val backing = activeBacking(SourceIdentityKey.device())
+        val scheduler = backing.syncScheduler
+
+        backing.dirtySignalObserver.onForegroundChanged(true)
+        runCurrent()
+        val afterForeground = scheduler.dirtySequence
+
+        backing.restorePersistedState(backing.persistedState())
+        runCurrent()
+        assertEquals(afterForeground, scheduler.dirtySequence)
+
+        val folderIdentity = SourceIdentityKey.folder("content://com.android.externalstorage.documents/tree/primary%3AMusic%2Ftest")
+        backing.restorePersistedState(
+            PersistedLibraryState(
+                intent = LibraryIntentState.ACTIVE,
+                access = LibraryAccessState.AVAILABLE,
+                sourceState = LibrarySourceState(
+                    active = SourceActivation(folderIdentity, activationEpoch = 2L),
+                    pendingTransition = null,
+                ),
+                configFingerprint = backing.configFingerprint,
+            ),
+        )
+        runCurrent()
+        assertEquals(afterForeground + 1L, scheduler.dirtySequence)
+
+        backing.dirtySignalObserver.release()
+        backing.release()
+        runCurrent()
+    }
+
     private fun TestScope.testSchedulerOwner(
         backing: MusicLibraryBacking,
         timing: LibrarySyncSchedulerTiming = LibrarySyncSchedulerTiming(
@@ -739,7 +1001,9 @@ class LibrarySyncSchedulerTest {
         nowMs = { testScheduler.currentTime },
     )
 
-    private fun TestScope.activeBacking(): MusicLibraryBacking {
+    private fun TestScope.activeBacking(
+        sourceIdentity: SourceIdentityKey = SourceIdentityKey.device(),
+    ): MusicLibraryBacking {
         val dispatcher = StandardTestDispatcher(testScheduler)
         return MusicLibraryBacking(
             context = ApplicationProvider.getApplicationContext(),
@@ -754,7 +1018,7 @@ class LibrarySyncSchedulerTest {
                     intent = LibraryIntentState.ACTIVE,
                     access = LibraryAccessState.AVAILABLE,
                     sourceState = LibrarySourceState(
-                        active = SourceActivation(SourceIdentityKey.device(), activationEpoch = 1L),
+                        active = SourceActivation(sourceIdentity, activationEpoch = 1L),
                     ),
                     configFingerprint = backing.configFingerprint,
                 ),

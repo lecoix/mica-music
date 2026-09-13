@@ -48,18 +48,20 @@ internal class SafAutoSyncPipeline(
         if (!before.matchesOperationToken(token)) return
         val treeUriString = token.sourceIdentity.folderTreeUriOrNull() ?: return
         val treeUri = android.net.Uri.parse(treeUriString)
+        val autoRequest = operation.request as? LibraryOperationRequest.AutoSync ?: return
+        val targetedHintEligible = SafAutoSyncTargetedHintPolicy.shouldAttempt(autoRequest)
         val nowMs = backing.scanEnvironment.currentTimeMillis()
         val providerScopeKey =
             "${token.sourceIdentity.storageKey()}|" +
                 "activation=${token.activationEpoch}|" +
                 "config=${token.configFingerprint}"
-        var providerRetryDelayMs: Long? = null
         when (
             val permit = safProviderDiscoveryBackoff.permit(
                 scopeKey = providerScopeKey,
                 nowMs = backing.scanEnvironment.elapsedRealtimeMillis(),
                 bypassSlowSuccessCadence =
-                    operation.request.cause == LibraryOperationCause.PLAYBACK_IO_RELEASE,
+                    operation.request.cause == LibraryOperationCause.PLAYBACK_IO_RELEASE ||
+                        targetedHintEligible,
             )
         ) {
             SafProviderDiscoveryPermit.Allowed -> Unit
@@ -140,7 +142,24 @@ internal class SafAutoSyncPipeline(
             }
         }
 
-        val snapshot = try {
+        val targetedInitialAttempt = tryTargetedInitialDiscovery(
+            treeUri = treeUri,
+            requestSequence = operation.requestSequence,
+            request = autoRequest,
+            eligible = targetedHintEligible,
+        )
+        val targetedInitialFolderPaths = targetedInitialAttempt.folderPaths
+        val targetedInitialFallbackReason = targetedInitialAttempt.fallbackReason
+        val targetedInitialSnapshot = targetedInitialAttempt.snapshot
+
+        val snapshot = targetedInitialSnapshot ?: try {
+            if (targetedInitialFallbackReason != null) {
+                DiagnosticLog.event(
+                    "LibraryAutoSync",
+                    "saf initial-targeted-fallback request=${operation.requestSequence} " +
+                        "reason=$targetedInitialFallbackReason",
+                )
+            }
             withContext(backing.ioDispatcher) {
                 backing.libraryScanner.observeFolderMetadata(treeUri)
             }
@@ -164,6 +183,35 @@ internal class SafAutoSyncPipeline(
             )
             return
         }
+        executeObservedSnapshot(
+            operation = operation,
+            token = token,
+            scheduleBudgetContinuation = scheduleBudgetContinuation,
+            publishAuthority = publishAuthority,
+            postCommit = postCommit,
+            before = before,
+            treeUri = treeUri,
+            nowMs = nowMs,
+            providerScopeKey = providerScopeKey,
+            snapshot = snapshot,
+            targetedInitialFolderPaths = targetedInitialFolderPaths,
+        )
+    }
+
+    private suspend fun executeObservedSnapshot(
+        operation: ScheduledLibraryOperation,
+        token: LibraryOperationToken,
+        scheduleBudgetContinuation: Boolean,
+        publishAuthority: Boolean,
+        postCommit: AutoSyncPostCommitCollector,
+        before: LibraryShadowObservationStamp,
+        treeUri: android.net.Uri,
+        nowMs: Long,
+        providerScopeKey: String,
+        snapshot: SafTreeMetadataSnapshot,
+        targetedInitialFolderPaths: Set<String>?,
+    ) {
+        var providerRetryDelayMs: Long? = null
         val afterMetadataWalk = backing.captureShadowObservationStamp(ScanSource.FOLDER)
         if (afterMetadataWalk != before) {
             DiagnosticLog.event(
@@ -177,20 +225,22 @@ internal class SafAutoSyncPipeline(
             if (backing.lastScanError == SAF_PROVIDER_RESELECT_REQUIRED_ERROR) {
                 backing.lastScanError = null
             }
-            val completeState = safProviderDiscoveryBackoff.recordComplete(
-                scopeKey = providerScopeKey,
-                nowMs = backing.scanEnvironment.elapsedRealtimeMillis(),
-                wallTimeMs = snapshot.observationStats.wallTimeMs,
-            )
-            if (completeState.slowSuccess) {
-                DiagnosticLog.event(
-                    "LibraryAutoSync",
-                    "saf shadow discovery-slow-success request=${operation.requestSequence} " +
-                        "phase=initial wallMs=${completeState.wallTimeMs} " +
-                        "thresholdMs=${completeState.slowSuccessThresholdMs} " +
-                        "cadenceMs=${completeState.cadenceMs} " +
-                        "nextAllowedAt=${completeState.nextAllowedAtMs}",
+            if (targetedInitialFolderPaths == null) {
+                val completeState = safProviderDiscoveryBackoff.recordComplete(
+                    scopeKey = providerScopeKey,
+                    nowMs = backing.scanEnvironment.elapsedRealtimeMillis(),
+                    wallTimeMs = snapshot.observationStats.wallTimeMs,
                 )
+                if (completeState.slowSuccess) {
+                    DiagnosticLog.event(
+                        "LibraryAutoSync",
+                        "saf shadow discovery-slow-success request=${operation.requestSequence} " +
+                            "phase=initial wallMs=${completeState.wallTimeMs} " +
+                            "thresholdMs=${completeState.slowSuccessThresholdMs} " +
+                            "cadenceMs=${completeState.cadenceMs} " +
+                            "nextAllowedAt=${completeState.nextAllowedAtMs}",
+                    )
+                }
             }
         } else {
             val failure = safProviderDiscoveryBackoff.recordFailure(
@@ -269,9 +319,15 @@ internal class SafAutoSyncPipeline(
         val safPlaybackSnapshotProvider = {
             backing.playbackIoSnapshot().withSafProviderSerialization(treeUri.authority)
         }
+        val mutationBurstHeavyProbeBudget =
+            SafAutoProbePlanner.heavyProbeBudgetForMutationBurst(plan)
+        val mutationBurstHeavyProbeParallelism =
+            SafAutoProbePlanner.heavyProbeParallelismForProvider(treeUri.authority)
         val probePlan = SafAutoProbePlanner.plan(
             verifyPlan = plan,
             playback = safPlaybackSnapshotProvider(),
+            heavyProbeBudget = mutationBurstHeavyProbeBudget,
+            heavyProbeParallelism = mutationBurstHeavyProbeParallelism,
             observedEntries = snapshot.entries,
             retryItems = retryItems,
             sourceIdentity = token.sourceIdentity,
@@ -293,10 +349,17 @@ internal class SafAutoSyncPipeline(
         val currentRelationFolders = currentSongs.asSequence()
             .filter { it.videoCoverUri != null || it.musicVideoUri != null }
             .mapTo(linkedSetOf(), Song::folderPath)
-        val changedVideoFolders = safShadowVideoInventory.changedFolders(
-            files = snapshot.videoCovers,
-            conservativeFoldersWhenUnseeded = currentRelationFolders,
-        )
+        val changedVideoFolders = if (targetedInitialFolderPaths != null) {
+            safShadowVideoInventory.changedFoldersWithin(
+                files = snapshot.videoCovers,
+                folderPaths = targetedInitialFolderPaths.orEmpty(),
+            )
+        } else {
+            safShadowVideoInventory.changedFolders(
+                files = snapshot.videoCovers,
+                conservativeFoldersWhenUnseeded = currentRelationFolders,
+            )
+        }
         val audioWorkEntries = probePlan.objects.map(SafAutoProbeObjectPlan::entry)
         val observedVideoFolders =
             snapshot.videoCovers.mapTo(linkedSetOf(), com.mica.music.data.scanner.VideoCoverFile::folderPath)
@@ -325,13 +388,19 @@ internal class SafAutoSyncPipeline(
             }
         }
 
-        val requiresPostValidation =
-            execution.provisionalSongsByStableObjectKey.isNotEmpty() ||
-                relationPotentialFolders.isNotEmpty()
+        val postValidationFolderPaths = buildSet {
+            execution.provisionalSongsByStableObjectKey.values
+                .mapTo(this, Song::folderPath)
+            addAll(relationPotentialFolders)
+        }
+        val requiresPostValidation = postValidationFolderPaths.isNotEmpty()
         val postSnapshot = if (requiresPostValidation) {
             val observed = try {
                 withContext(backing.ioDispatcher) {
-                    backing.libraryScanner.observeFolderMetadata(treeUri)
+                    backing.libraryScanner.observeFolderMetadataTargets(
+                        treeUri = treeUri,
+                        folderPaths = postValidationFolderPaths,
+                    )
                 }
             } catch (error: Throwable) {
                 if (error is CancellationException) throw error
@@ -363,7 +432,7 @@ internal class SafAutoSyncPipeline(
                 )
                 return
             }
-            if (observed.discoveryReport.isComplete(DiscoveryPartitions.SAF_TREE)) {
+            if (observed.isComplete) {
                 val completeState = safProviderDiscoveryBackoff.recordComplete(
                     scopeKey = providerScopeKey,
                     nowMs = backing.scanEnvironment.elapsedRealtimeMillis(),
@@ -373,7 +442,7 @@ internal class SafAutoSyncPipeline(
                     DiagnosticLog.event(
                         "LibraryAutoSync",
                         "saf shadow discovery-slow-success request=${operation.requestSequence} " +
-                            "phase=post wallMs=${completeState.wallTimeMs} " +
+                            "phase=post-targeted wallMs=${completeState.wallTimeMs} " +
                             "thresholdMs=${completeState.slowSuccessThresholdMs} " +
                             "cadenceMs=${completeState.cadenceMs} " +
                             "nextAllowedAt=${completeState.nextAllowedAtMs}",
@@ -383,15 +452,16 @@ internal class SafAutoSyncPipeline(
                 val failure = safProviderDiscoveryBackoff.recordFailure(
                     scopeKey = providerScopeKey,
                     nowMs = backing.scanEnvironment.elapsedRealtimeMillis(),
-                    detail = "post-metadata-incomplete:${observed.discoveryReport.aggregate}",
+                    detail = "post-targeted-incomplete:${observed.failedFolderPaths.sorted()}",
                 )
                 providerRetryDelayMs = earlierRetryDelay(providerRetryDelayMs, failure.delayMs)
                 DiagnosticLog.event(
                     "LibraryAutoSync",
                     "saf shadow discovery-incomplete request=${operation.requestSequence} " +
-                        "phase=post failures=${failure.failureCount} " +
+                        "phase=post-targeted failures=${failure.failureCount} " +
                         "backoffMs=${failure.delayMs} " +
-                        "completeness=${observed.discoveryReport.aggregate}",
+                        "failedFolders=${observed.failedFolderPaths.size}/" +
+                        "${observed.requestedFolderPaths.size}",
                 )
             }
             observed
@@ -511,22 +581,30 @@ internal class SafAutoSyncPipeline(
         var massDeletionVerificationDue = false
         val massDeletionDiscoveryComplete =
             snapshot.discoveryReport.isComplete(DiscoveryPartitions.SAF_TREE)
-        if (
-            publishAuthority &&
-            (publicationPlan.quarantineReason != null ||
-                operation.request.cause == LibraryOperationCause.SAF_RETRY_DUE)
-        ) {
+        // Every publishing pass evaluates the durable confirmation debt, not only quarantined or
+        // RETRY_DUE passes: a pass that observes no quarantine is exactly the evidence that a
+        // previously persisted cursor (implicit "confirmed missing" proof) is stale and must go.
+        if (publishAuthority) {
             massDeletionRetryExisting = withContext(backing.ioDispatcher) {
                 backing.libraryStore.loadRetryItemsForStableObjectKeys(
                     sourceIdentity = token.sourceIdentity,
                     stableObjectKeys = listOf(LibraryRetryKey.SAF_MASS_DELETION_STABLE_OBJECT_KEY),
                 )
             }.let(SafMassDeletionConfirmationPlanner::selectExisting)
+            val afterRetryLoad = backing.captureShadowObservationStamp(ScanSource.FOLDER)
+            if (afterRetryLoad != before || !before.matchesOperationToken(token)) {
+                DiagnosticLog.event(
+                    "LibraryAutoSync",
+                    "saf auto stale-drop-mass-delete-debt-load request=${operation.requestSequence}",
+                )
+                return
+            }
             massDeletionVerificationDue =
                 massDeletionDiscoveryComplete &&
                     publicationPlan.quarantineReason != null &&
                     SafMassDeletionConfirmationPlanner.isDueFor(
                         existing = massDeletionRetryExisting,
+                        activationEpoch = token.activationEpoch,
                         removedStableObjectKeys = plan.removedStableObjectKeys,
                         nowMs = retryPlanNowMs,
                     )
@@ -537,6 +615,7 @@ internal class SafAutoSyncPipeline(
                 }
                 val confirmationCursor = SafMassDeletionConfirmationPlanner.continuationCursor(
                     existing = massDeletionRetryExisting,
+                    activationEpoch = token.activationEpoch,
                     removedStableObjectKeys = plan.removedStableObjectKeys,
                 )
                 massDeletionVerification = withContext(backing.ioDispatcher) {
@@ -556,24 +635,39 @@ internal class SafAutoSyncPipeline(
                     return
                 }
 
-                if (massDeletionVerification.batchSucceeded && !massDeletionVerification.hasMore) {
-                    publicationPlan = SafAutoSyncPublicationPlanner.plan(
-                        minDurationMs = LibraryScanSettings.scanOptions(backing.context).minDurationMs,
-                        sourceIdentity = token.sourceIdentity,
-                        activationEpoch = token.activationEpoch,
-                        configFingerprint = token.configFingerprint,
-                        nowMs = retryPlanNowMs,
-                        currentSongs = currentSongs,
-                        snapshot = snapshot,
-                        verifyPlan = plan,
-                        probePlan = probePlan,
-                        validation = validation,
-                        relationValidation = relationValidation,
-                        retryPlan = shadowRetryPlan,
-                        unknownDebtPlan = unknownDebtPlan,
-                        excludedStableObjectKeys = excludedStableObjectKeys,
-                        independentlyVerifiedMissingKeys = plan.removedStableObjectKeys,
-                    )
+                if (massDeletionVerification.batchSucceeded) {
+                    val accumulatedConfirmedMissing =
+                        SafMassDeletionConfirmationPlanner.accumulateConfirmedMissingKeys(
+                            existing = massDeletionRetryExisting,
+                            activationEpoch = token.activationEpoch,
+                            removedStableObjectKeys = plan.removedStableObjectKeys,
+                            batchVerifiedMissingKeys =
+                                massDeletionVerification.verifiedMissingStableObjectKeys,
+                        )
+                    // Open the destructive gate only when every quarantined key has durable
+                    // object-level proof from some successful batch — never from cursor alone.
+                    if (
+                        !massDeletionVerification.hasMore &&
+                        accumulatedConfirmedMissing.containsAll(plan.removedStableObjectKeys)
+                    ) {
+                        publicationPlan = SafAutoSyncPublicationPlanner.plan(
+                            minDurationMs = LibraryScanSettings.scanOptions(backing.context).minDurationMs,
+                            sourceIdentity = token.sourceIdentity,
+                            activationEpoch = token.activationEpoch,
+                            configFingerprint = token.configFingerprint,
+                            nowMs = retryPlanNowMs,
+                            currentSongs = currentSongs,
+                            snapshot = snapshot,
+                            verifyPlan = plan,
+                            probePlan = probePlan,
+                            validation = validation,
+                            relationValidation = relationValidation,
+                            retryPlan = shadowRetryPlan,
+                            unknownDebtPlan = unknownDebtPlan,
+                            excludedStableObjectKeys = excludedStableObjectKeys,
+                            independentlyVerifiedMissingKeys = accumulatedConfirmedMissing,
+                        )
+                    }
                 }
             }
 
@@ -614,7 +708,14 @@ internal class SafAutoSyncPipeline(
         }
 
         val trackersAccepted = backing.withCurrentOperationIfCurrent(token) {
-            if (changedVideoFolders.isEmpty()) {
+            if (targetedInitialFolderPaths != null) {
+                if (changedVideoFolders.isNotEmpty()) {
+                    safShadowVideoInventory.acceptFolders(
+                        files = snapshot.videoCovers,
+                        folderPaths = relationValidation.resolvedFolderPaths,
+                    )
+                }
+            } else if (changedVideoFolders.isEmpty()) {
                 safShadowVideoInventory.seedIfAbsent(snapshot.videoCovers)
             } else {
                 safShadowVideoInventory.acceptFolders(
@@ -716,7 +817,7 @@ internal class SafAutoSyncPipeline(
                 "unknownVerifyWallBudgetMs=$UNKNOWN_VERIFY_WALL_TIME_BUDGET_MS " +
                 "unknownDebtShadowOnly=${!publishAuthority} " +
                 "probePreviouslyResolved=${alreadyResolvedAudioKeys.size} " +
-                "heavyProbeBudget=${SafAutoProbePlanner.DEFAULT_HEAVY_PROBE_BUDGET} " +
+                "heavyProbeBudget=$mutationBurstHeavyProbeBudget " +
                 "heavyProbeBudgetDeferred=${probePlan.budgetDeferred.size} " +
                 "dueRetries=${probePlan.dueRetryCount} " +
                 "retryMissingObservation=${probePlan.retryMissingObservationCount} " +
@@ -760,12 +861,16 @@ internal class SafAutoSyncPipeline(
                 "publicationPlanShadowOnly=${!publishAuthority} " +
                 "publicationCommitted=${publicationResult != null} " +
                 "postWalk=${postSnapshot != null} " +
+                "initialTargeted=${targetedInitialFolderPaths != null} " +
+                "initialTargetFolders=${targetedInitialFolderPaths?.size ?: 0} " +
                 "metadataWalkMs=${snapshot.observationStats.wallTimeMs} " +
                 "providerQueries=${snapshot.observationStats.providerQueryCount} " +
                 "providerDirectQueries=${snapshot.observationStats.directQueryCount} " +
                 "providerFallbackListings=${snapshot.observationStats.fallbackListingCount} " +
                 "postMetadataWalkMs=${postSnapshot?.observationStats?.wallTimeMs ?: 0L} " +
                 "postProviderQueries=${postSnapshot?.observationStats?.providerQueryCount ?: 0} " +
+                "postTargetFolders=${postSnapshot?.requestedFolderPaths?.size ?: 0} " +
+                "postFailedFolders=${postSnapshot?.failedFolderPaths?.size ?: 0} " +
                 "totalProviderQueries=" +
                 "${snapshot.observationStats.providerQueryCount + (postSnapshot?.observationStats?.providerQueryCount ?: 0)} " +
                 "unchangedProbeCount=$unchangedProbeCount " +
@@ -774,6 +879,72 @@ internal class SafAutoSyncPipeline(
                 "pureUnknownContinuationShadowHeld=$pureUnknownContinuationShadowHeld " +
                 "completeness=${snapshot.discoveryReport.aggregate} " +
                 "metadataNoOp=${plan.isNoOp} probeNoOp=${probePlan.isNoOp}",
+        )
+    }
+
+    private data class TargetedInitialAttempt(
+        val snapshot: SafTreeMetadataSnapshot? = null,
+        val folderPaths: Set<String>? = null,
+        val fallbackReason: String? = null,
+    )
+
+    private suspend fun tryTargetedInitialDiscovery(
+        treeUri: android.net.Uri,
+        requestSequence: Long,
+        request: LibraryOperationRequest.AutoSync,
+        eligible: Boolean,
+    ): TargetedInitialAttempt {
+        if (!eligible) return TargetedInitialAttempt()
+        if (!safShadowVideoInventory.hasBaseline()) {
+            return TargetedInitialAttempt(fallbackReason = "video-baseline-unseeded")
+        }
+
+        val folderPaths = try {
+            withContext(backing.ioDispatcher) {
+                backing.libraryScanner.resolveFolderPathsForMediaStoreUris(
+                    treeUri = treeUri,
+                    mediaStoreUris = request.mediaStoreUriHints,
+                )
+            }
+        } catch (error: Throwable) {
+            if (error is CancellationException) throw error
+            null
+        }
+        if (folderPaths.isNullOrEmpty()) {
+            return TargetedInitialAttempt(fallbackReason = "hint-unresolved")
+        }
+
+        val targeted = try {
+            withContext(backing.ioDispatcher) {
+                backing.libraryScanner.observeFolderMetadataTargetsForInitialSync(
+                    treeUri = treeUri,
+                    folderPaths = folderPaths,
+                )
+            }
+        } catch (error: Throwable) {
+            if (error is CancellationException) throw error
+            return TargetedInitialAttempt(
+                fallbackReason = "target-observation-${error.javaClass.simpleName}",
+            )
+        }
+
+        val composed = SafTargetedInitialSnapshotComposer.compose(
+            currentSongs = backing.songs,
+            targeted = targeted,
+            targetFolderPaths = folderPaths,
+        ) ?: return TargetedInitialAttempt(fallbackReason = "target-observation-incomplete")
+
+        DiagnosticLog.event(
+            "LibraryAutoSync",
+            "saf initial-targeted request=$requestSequence " +
+                "hints=${request.mediaStoreUriHints.size} " +
+                "folders=${folderPaths.size} " +
+                "queries=${composed.observationStats.providerQueryCount} " +
+                "wallMs=${composed.observationStats.wallTimeMs}",
+        )
+        return TargetedInitialAttempt(
+            snapshot = composed,
+            folderPaths = folderPaths,
         )
     }
 

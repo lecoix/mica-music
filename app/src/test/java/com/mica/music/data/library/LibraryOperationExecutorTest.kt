@@ -954,6 +954,65 @@ class LibraryOperationExecutorTest {
     }
 
     @Test
+    fun folderAutoArtworkHydrateUsesDirectArtworkScannerWhileTagRefreshUsesMetadataScanner() = runTest {
+        val scanner = ControlledScanner()
+        val harness = scanHarness(scanner)
+        val tree = Uri.parse("content://com.android.externalstorage.documents/tree/primary%3AMusic%2Ftest")
+        val song = SongFixtures.song("artwork-direct").copy(
+            mediaUri = "content://com.android.externalstorage.documents/document/primary%3AMusic%2Ftest%2Fsong.mp3",
+            fileName = "song.mp3",
+            folderPath = "",
+            filePath = "song.mp3",
+        )
+        try {
+            activateFolderSource(harness.backing, tree, "Music/test")
+            harness.backing.replaceSongs(listOf(song))
+
+            val artwork = async {
+                harness.orchestrator.executeScheduled(
+                    ScheduledLibraryOperation(
+                        request = LibraryOperationRequest.TargetedRefresh(
+                            songIds = setOf(song.id),
+                            cause = LibraryOperationCause.AUTO_ARTWORK_HYDRATE,
+                        ),
+                        requestSequence = 4001L,
+                        dirtySequenceAtStart = 8001L,
+                    ),
+                )
+            }
+            runCurrent()
+            assertEquals(1, scanner.folderArtworkRequests.size)
+            assertTrue(scanner.folderTargetedRequests.isEmpty())
+            assertTrue(scanner.folderRequests.isEmpty())
+            scanner.folderArtworkRequests.single().result.complete(ScanResult(listOf(song), 1))
+            artwork.await()
+
+            val tagRefresh = async {
+                harness.orchestrator.executeScheduled(
+                    ScheduledLibraryOperation(
+                        request = LibraryOperationRequest.TargetedRefresh(
+                            songIds = setOf(song.id),
+                            cause = LibraryOperationCause.TAG_EDITOR_RETURN,
+                        ),
+                        requestSequence = 4002L,
+                        dirtySequenceAtStart = 8002L,
+                    ),
+                )
+            }
+            runCurrent()
+            assertEquals(1, scanner.folderArtworkRequests.size)
+            assertEquals(1, scanner.folderTargetedRequests.size)
+            assertTrue(scanner.folderRequests.isEmpty())
+            scanner.folderTargetedRequests.single().result.complete(ScanResult(listOf(song), 1))
+            tagRefresh.await()
+        } finally {
+            clearFolderPrefs(harness.backing)
+            harness.backing.release()
+            advanceUntilIdle()
+        }
+    }
+
+    @Test
     fun schedulerMergesTargetedRefreshIdsWithoutCancellingRunningFullScan() = runTest {
         val scanner = ControlledScanner()
         val harness = scanHarness(scanner)
@@ -2047,6 +2106,10 @@ class LibraryOperationExecutorTest {
         assertEquals(1, continued.attemptCount)
         assertEquals(firstBatch.size, continued.continuationCursor)
         assertEquals(firstRetry.observedFingerprint, continued.observedFingerprint)
+        assertEquals(
+            SafMassDeletionConfirmationPlanner.encodeConfirmedMissingKeys(firstBatch),
+            continued.confirmedMissingKeysPayload,
+        )
         assertEquals(listOf(0), scanner.folderMissingVerificationCursors)
 
         val secondBatch = removedSongs.drop(firstBatch.size).mapTo(linkedSetOf(), Song::id)
@@ -2071,6 +2134,245 @@ class LibraryOperationExecutorTest {
         assertEquals(listOf(kept.id), harness.backing.songs.map(Song::id))
         assertTrue(store.retryItems.none { it.retryKey == LibraryRetryKey.safMassDeletionVerify() })
         assertEquals(1, store.autoSyncSnapshotCommitCount)
+
+        clearFolderPrefs(harness.backing)
+        harness.backing.release()
+        advanceUntilIdle()
+    }
+
+    @Test
+    fun s4SafMassDeletionConfirmationProgressIsDroppedOnceQuarantineClearsAndNotReusedLater() = runTest {
+        var nowMs = 1_000L
+        val environment = FakeScanEnvironment(
+            nowMsProvider = { nowMs },
+            elapsedMsProvider = { nowMs },
+        )
+        val scanner = ControlledScanner()
+        val store = FakeLibraryStore()
+        val tree = Uri.parse("content://provider/tree/mass-delete-stale-proof")
+        val current = List(100) { index ->
+            SongFixtures.song("saf-stale-proof-${index + 1}").copy(
+                mediaUri = "content://provider/document/saf-stale-proof-${index + 1}",
+                fileName = "song-${index + 1}.flac",
+                folderPath = "Album",
+                filePath = "Album/song-${index + 1}.flac",
+                sizeBytes = 50_000L + index,
+                dateModifiedMs = 60_000L + index,
+            )
+        }
+        fun entry(song: Song) = SafTreeMetadataEntry(
+            stableObjectKey = song.id, mediaUri = song.mediaUri, fileName = song.fileName,
+            folderPath = song.folderPath, filePath = song.filePath,
+            mimeType = song.metadata.playbackMimeType, sizeBytes = song.sizeBytes,
+            lastModifiedMs = song.dateModifiedMs,
+            externalLyricsSignature = song.externalLyricsSignature,
+        )
+        val complete = DiscoveryReport.of(
+            DiscoveryPartitionStatus(
+                partitionKey = DiscoveryPartitions.SAF_TREE,
+                completeness = DiscoveryCompleteness.COMPLETE,
+            ),
+        )
+        val kept = current.last()
+        val removedSongs = current.dropLast(1).sortedBy(Song::id)
+        val onlyKeptSnapshot =
+            SafTreeMetadataSnapshot(entries = listOf(entry(kept)), discoveryReport = complete)
+        val allPresentSnapshot =
+            SafTreeMetadataSnapshot(entries = current.map(::entry), discoveryReport = complete)
+        scanner.folderMetadataSnapshot = onlyKeptSnapshot
+        val harness = scanHarness(scanner, store, environment)
+        activateFolderSource(harness.backing, tree, "Mass delete stale proof")
+        harness.backing.replaceSongs(current)
+        harness.backing.lastScanAtMs = 500L
+        harness.backing.lastScanSource = ScanSource.FOLDER
+
+        // Round 1: 99 of 100 disappear -> quarantine + durable debt.
+        harness.orchestrator.executeScheduled(
+            ScheduledLibraryOperation(
+                LibraryOperationRequest.AutoSync(LibraryOperationCause.SAF_TREE_DIRTY),
+                requestSequence = 29431L,
+                dirtySequenceAtStart = 6931L,
+            ),
+        )
+        val firstRetry = store.retryItems.single { it.retryKey == LibraryRetryKey.safMassDeletionVerify() }
+        assertEquals(0, firstRetry.continuationCursor)
+
+        // Round 1 continues: first 64 independently confirmed missing, cursor persisted.
+        val firstBatch = removedSongs.take(SafMissingVerificationBudget.DEFAULT_MAX_OBJECTS)
+            .mapTo(linkedSetOf(), Song::id)
+        scanner.folderMissingVerificationResult = SafIndependentMissingVerificationResult(
+            verifiedMissingStableObjectKeys = firstBatch,
+            presentStableObjectKeys = emptySet(),
+            indeterminateStableObjectKeys = emptySet(),
+            providerQueryCount = firstBatch.size,
+            wallTimeMs = 200L,
+            nextCursor = firstBatch.size,
+            hasMore = true,
+            budgetExhausted = true,
+        )
+        nowMs = firstRetry.nextRetryAtMs
+        harness.orchestrator.executeScheduled(
+            ScheduledLibraryOperation(
+                LibraryOperationRequest.AutoSync(LibraryOperationCause.SAF_RETRY_DUE),
+                requestSequence = 29432L,
+                dirtySequenceAtStart = 6932L,
+            ),
+        )
+        val continued = store.retryItems.single { it.retryKey == LibraryRetryKey.safMassDeletionVerify() }
+        assertEquals(firstBatch.size, continued.continuationCursor)
+        assertEquals(100, harness.backing.songs.size)
+
+        // All 100 are observed present again before the continuation runs. The pass publishes with
+        // no quarantine, which is the evidence that the persisted proof is stale: it must be dropped.
+        scanner.folderMetadataSnapshot = allPresentSnapshot
+        scanner.folderMissingVerificationResult = null
+        nowMs += 10L
+        harness.orchestrator.executeScheduled(
+            ScheduledLibraryOperation(
+                LibraryOperationRequest.AutoSync(LibraryOperationCause.SAF_BUDGET_CONTINUATION),
+                requestSequence = 29433L,
+                dirtySequenceAtStart = 6933L,
+            ),
+        )
+        assertEquals(100, harness.backing.songs.size)
+        assertEquals(listOf(0), scanner.folderMissingVerificationCursors)
+        assertTrue(store.retryItems.none { it.retryKey == LibraryRetryKey.safMassDeletionVerify() })
+
+        // Round 2: the same 99 disappear again. This must start a fresh round: a new 30s debt at
+        // cursor 0, no verification on this pass, and nothing removed on the strength of round 1.
+        scanner.folderMetadataSnapshot = onlyKeptSnapshot
+        scanner.folderMissingVerificationResult = SafIndependentMissingVerificationResult(
+            verifiedMissingStableObjectKeys = removedSongs.drop(firstBatch.size).mapTo(linkedSetOf(), Song::id),
+            presentStableObjectKeys = emptySet(),
+            indeterminateStableObjectKeys = emptySet(),
+            providerQueryCount = removedSongs.size - firstBatch.size,
+            wallTimeMs = 120L,
+            nextCursor = removedSongs.size,
+            hasMore = false,
+        )
+        nowMs += 10_000L
+        val roundTwoStartMs = nowMs
+        harness.orchestrator.executeScheduled(
+            ScheduledLibraryOperation(
+                LibraryOperationRequest.AutoSync(LibraryOperationCause.SAF_TREE_DIRTY),
+                requestSequence = 29434L,
+                dirtySequenceAtStart = 6934L,
+            ),
+        )
+        assertEquals(100, harness.backing.songs.size)
+        assertEquals(listOf(0), scanner.folderMissingVerificationCursors)
+        val freshDebt = store.retryItems.single { it.retryKey == LibraryRetryKey.safMassDeletionVerify() }
+        assertEquals(1, freshDebt.attemptCount)
+        assertEquals(0, freshDebt.continuationCursor)
+        assertEquals(roundTwoStartMs + 30_000L, freshDebt.nextRetryAtMs)
+
+        // When round 2 is due, verification restarts from cursor 0, not from round 1's progress.
+        scanner.folderMissingVerificationResult = SafIndependentMissingVerificationResult(
+            verifiedMissingStableObjectKeys = firstBatch,
+            presentStableObjectKeys = emptySet(),
+            indeterminateStableObjectKeys = emptySet(),
+            providerQueryCount = firstBatch.size,
+            wallTimeMs = 200L,
+            nextCursor = firstBatch.size,
+            hasMore = true,
+            budgetExhausted = true,
+        )
+        nowMs = freshDebt.nextRetryAtMs
+        harness.orchestrator.executeScheduled(
+            ScheduledLibraryOperation(
+                LibraryOperationRequest.AutoSync(LibraryOperationCause.SAF_RETRY_DUE),
+                requestSequence = 29435L,
+                dirtySequenceAtStart = 6935L,
+            ),
+        )
+        assertEquals(listOf(0, 0), scanner.folderMissingVerificationCursors)
+        assertEquals(100, harness.backing.songs.size)
+
+        clearFolderPrefs(harness.backing)
+        harness.backing.release()
+        advanceUntilIdle()
+    }
+
+    @Test
+    fun s4SafMassDeletionZeroProgressVerificationBacksOffInsteadOfSpinning() = runTest {
+        var nowMs = 1_000L
+        val environment = FakeScanEnvironment(
+            nowMsProvider = { nowMs },
+            elapsedMsProvider = { nowMs },
+        )
+        val scanner = ControlledScanner()
+        val store = FakeLibraryStore()
+        val tree = Uri.parse("content://provider/tree/mass-delete-zero-progress")
+        val current = List(100) { index ->
+            SongFixtures.song("saf-zero-progress-${index + 1}").copy(
+                mediaUri = "content://provider/document/saf-zero-progress-${index + 1}",
+                fileName = "song-${index + 1}.flac",
+                folderPath = "Album",
+                filePath = "Album/song-${index + 1}.flac",
+                sizeBytes = 50_000L + index,
+                dateModifiedMs = 60_000L + index,
+            )
+        }
+        val kept = current.last()
+        scanner.folderMetadataSnapshot = SafTreeMetadataSnapshot(
+            entries = listOf(
+                SafTreeMetadataEntry(
+                    stableObjectKey = kept.id, mediaUri = kept.mediaUri, fileName = kept.fileName,
+                    folderPath = kept.folderPath, filePath = kept.filePath,
+                    mimeType = kept.metadata.playbackMimeType, sizeBytes = kept.sizeBytes,
+                    lastModifiedMs = kept.dateModifiedMs,
+                    externalLyricsSignature = kept.externalLyricsSignature,
+                ),
+            ),
+            discoveryReport = DiscoveryReport.of(
+                DiscoveryPartitionStatus(
+                    partitionKey = DiscoveryPartitions.SAF_TREE,
+                    completeness = DiscoveryCompleteness.COMPLETE,
+                ),
+            ),
+        )
+        val harness = scanHarness(scanner, store, environment)
+        activateFolderSource(harness.backing, tree, "Mass delete zero progress")
+        harness.backing.replaceSongs(current)
+        harness.backing.lastScanAtMs = 500L
+        harness.backing.lastScanSource = ScanSource.FOLDER
+
+        harness.orchestrator.executeScheduled(
+            ScheduledLibraryOperation(
+                LibraryOperationRequest.AutoSync(LibraryOperationCause.SAF_TREE_DIRTY),
+                requestSequence = 39431L,
+                dirtySequenceAtStart = 7931L,
+            ),
+        )
+        val firstRetry = store.retryItems.single { it.retryKey == LibraryRetryKey.safMassDeletionVerify() }
+
+        // Provider is too slow: the first query exhausts the wall budget, nothing gets processed.
+        scanner.folderMissingVerificationResult = SafIndependentMissingVerificationResult(
+            verifiedMissingStableObjectKeys = emptySet(),
+            presentStableObjectKeys = emptySet(),
+            indeterminateStableObjectKeys = emptySet(),
+            providerQueryCount = 1,
+            wallTimeMs = SafMissingVerificationBudget.DEFAULT_MAX_WALL_TIME_MS,
+            nextCursor = 0,
+            hasMore = true,
+            budgetExhausted = true,
+        )
+        nowMs = firstRetry.nextRetryAtMs
+        harness.orchestrator.executeScheduled(
+            ScheduledLibraryOperation(
+                LibraryOperationRequest.AutoSync(LibraryOperationCause.SAF_RETRY_DUE),
+                requestSequence = 39432L,
+                dirtySequenceAtStart = 7932L,
+            ),
+        )
+
+        assertEquals(100, harness.backing.songs.size)
+        assertEquals(listOf(0), scanner.folderMissingVerificationCursors)
+        val backedOff = store.retryItems.single { it.retryKey == LibraryRetryKey.safMassDeletionVerify() }
+        assertEquals(2, backedOff.attemptCount)
+        assertEquals(0, backedOff.continuationCursor)
+        assertTrue(backedOff.nextRetryAtMs > nowMs)
+        assertEquals(firstRetry.observedFingerprint, backedOff.observedFingerprint)
 
         clearFolderPrefs(harness.backing)
         harness.backing.release()
@@ -2157,7 +2459,6 @@ class LibraryOperationExecutorTest {
         harness.backing.release()
         advanceUntilIdle()
     }
-
 
     @Test
     fun s4SafShadowRetryCompensationPlanDoesNotWriteProductionState() = runTest {
@@ -5543,6 +5844,8 @@ class LibraryOperationExecutorTest {
     private class ControlledScanner : LibraryScanner {
         val deviceRequests = mutableListOf<ScanRequest>()
         val folderRequests = mutableListOf<ScanRequest>()
+        val folderTargetedRequests = mutableListOf<ScanRequest>()
+        val folderArtworkRequests = mutableListOf<ScanRequest>()
         val folderMetadataRequests = mutableListOf<Uri>()
         val folderMissingVerificationRequests = mutableListOf<List<String>>()
         val folderMissingVerificationCursors = mutableListOf<Int>()
@@ -5632,6 +5935,41 @@ class LibraryOperationExecutorTest {
                 forceRefreshArtwork = forceRefreshArtwork,
                 onLyricsBatch = onLyricsBatch,
             ).also(folderRequests::add).result.await()
+        }
+
+        override suspend fun scanFolderForSongs(
+            treeUri: Uri,
+            songIds: Set<String>,
+            cachedSongs: List<Song>,
+            onProgress: (Int, Int) -> Unit,
+            forceRefreshLyrics: Boolean,
+            forceRefreshArtwork: Boolean,
+            onLyricsBatch: (suspend (LyricsScanBatch) -> Unit)?,
+        ): ScanResult {
+            onProgress(0, songIds.size)
+            return ScanRequest(
+                cachedSongs = cachedSongs,
+                forceRefreshLyrics = forceRefreshLyrics,
+                forceRefreshArtwork = forceRefreshArtwork,
+                forceRefreshSongIds = songIds,
+                onLyricsBatch = onLyricsBatch,
+            ).also(folderTargetedRequests::add).result.await()
+        }
+
+        override suspend fun scanFolderArtworkForSongs(
+            treeUri: Uri,
+            songIds: Set<String>,
+            cachedSongs: List<Song>,
+            onProgress: (Int, Int) -> Unit,
+        ): ScanResult {
+            onProgress(0, songIds.size)
+            return ScanRequest(
+                cachedSongs = cachedSongs,
+                forceRefreshLyrics = false,
+                forceRefreshArtwork = true,
+                forceRefreshSongIds = songIds,
+                onLyricsBatch = null,
+            ).also(folderArtworkRequests::add).result.await()
         }
     }
 

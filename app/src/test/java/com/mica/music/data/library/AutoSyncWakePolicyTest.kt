@@ -109,6 +109,54 @@ class AutoSyncWakePolicyTest {
     }
 
     @Test
+    fun pureForegroundCatchUpBypassesDebounceButStillRespectsCooldown() {
+        assertEquals(
+            1_000L,
+            AutoSyncWakePolicy.dueAtMs(
+                timing = timing,
+                burstStartedAtMs = 1_000L,
+                lastDirtyAtMs = 1_000L,
+                nextAllowedAutoSyncAtMs = 0L,
+                usesCooldown = true,
+                bypassDebounce = true,
+            ),
+        )
+        assertEquals(
+            AutoSyncWakeReason.FOREGROUND_CATCH_UP,
+            AutoSyncWakePolicy.wakeReason(
+                timing = timing,
+                burstStartedAtMs = 1_000L,
+                lastDirtyAtMs = 1_000L,
+                nextAllowedAutoSyncAtMs = 0L,
+                usesCooldown = true,
+                bypassDebounce = true,
+            ),
+        )
+        assertEquals(
+            60_000L,
+            AutoSyncWakePolicy.dueAtMs(
+                timing = timing,
+                burstStartedAtMs = 1_000L,
+                lastDirtyAtMs = 1_000L,
+                nextAllowedAutoSyncAtMs = 60_000L,
+                usesCooldown = true,
+                bypassDebounce = true,
+            ),
+        )
+        assertEquals(
+            AutoSyncWakeReason.COOLDOWN,
+            AutoSyncWakePolicy.wakeReason(
+                timing = timing,
+                burstStartedAtMs = 1_000L,
+                lastDirtyAtMs = 1_000L,
+                nextAllowedAutoSyncAtMs = 60_000L,
+                usesCooldown = true,
+                bypassDebounce = true,
+            ),
+        )
+    }
+
+    @Test
     fun safeAddSaturatesAtLongMaxValue() {
         assertEquals(Long.MAX_VALUE, AutoSyncWakePolicy.safeAdd(Long.MAX_VALUE - 5L, 10L))
         assertEquals(15L, AutoSyncWakePolicy.safeAdd(5L, 10L))

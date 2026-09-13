@@ -37,6 +37,7 @@ internal class FullLibraryScanExecutor(
         forceRefreshSongIds: Set<String> = emptySet(),
         userVisible: Boolean = forceRefreshSongIds.isEmpty(),
         operation: ScheduledLibraryOperation? = null,
+        artworkOnly: Boolean = false,
     ) {
         val treeUri = folder.scanTreeUri() ?: return
         if (!backing.scanEnvironment.canReadTree(treeUri)) {
@@ -60,6 +61,7 @@ internal class FullLibraryScanExecutor(
                 onProgress = onProgress,
                 onLyricsBatch = onLyricsBatch,
                 policy = policy,
+                artworkOnly = artworkOnly,
             )
         }
     }
@@ -94,6 +96,7 @@ internal class FullLibraryScanExecutor(
         onProgress: (Int, Int) -> Unit,
         onLyricsBatch: suspend (com.mica.music.data.LyricsScanBatch) -> Unit,
         policy: ScanProbePolicy,
+        artworkOnly: Boolean,
     ): ScanResult = if (policy.forceRefreshSongIds.isEmpty()) {
         backing.libraryScanner.scanFolder(
             treeUri = treeUri,
@@ -102,6 +105,13 @@ internal class FullLibraryScanExecutor(
             forceRefreshLyrics = policy.forceRefreshLyrics,
             forceRefreshArtwork = false,
             onLyricsBatch = onLyricsBatch,
+        )
+    } else if (artworkOnly) {
+        backing.libraryScanner.scanFolderArtworkForSongs(
+            treeUri = treeUri,
+            songIds = policy.forceRefreshSongIds,
+            cachedSongs = cachedSongs,
+            onProgress = onProgress,
         )
     } else {
         backing.libraryScanner.scanFolderForSongs(

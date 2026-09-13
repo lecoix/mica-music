@@ -32,6 +32,7 @@ import com.mica.music.data.scanner.DiscoveryPartitionStatus
 import com.mica.music.data.scanner.DiscoveryCompleteness
 import com.mica.music.data.scanner.SafIndependentMissingVerificationResult
 import com.mica.music.data.scanner.SafMissingVerificationBudget
+import com.mica.music.data.scanner.SafTargetedMetadataSnapshot
 import com.mica.music.data.scanner.SafTreeMetadataSnapshot
 import com.mica.music.data.scanner.VideoCoverPosterPrefetcher
 
@@ -71,6 +72,33 @@ internal interface LibraryScanner {
             ),
         ),
     )
+
+    suspend fun resolveFolderPathsForMediaStoreUris(
+        treeUri: Uri,
+        mediaStoreUris: Set<String>,
+    ): Set<String>? = null
+
+    suspend fun observeFolderMetadataTargets(
+        treeUri: Uri,
+        folderPaths: Set<String>,
+    ): SafTargetedMetadataSnapshot {
+        val requested = folderPaths.mapTo(linkedSetOf()) { it.trim('/') }
+        val full = observeFolderMetadata(treeUri)
+        val complete = full.discoveryReport.isComplete(DiscoveryPartitions.SAF_TREE)
+        return SafTargetedMetadataSnapshot(
+            entries = full.entries.filter { it.folderPath in requested },
+            videoCovers = full.videoCovers.filter { it.folderPath in requested },
+            requestedFolderPaths = requested,
+            completeFolderPaths = if (complete) requested else emptySet(),
+            failedFolderPaths = if (complete) emptySet() else requested,
+            observationStats = full.observationStats,
+        )
+    }
+
+    suspend fun observeFolderMetadataTargetsForInitialSync(
+        treeUri: Uri,
+        folderPaths: Set<String>,
+    ): SafTargetedMetadataSnapshot = observeFolderMetadataTargets(treeUri, folderPaths)
 
     /** Independent object-level recheck used only after mass-deletion quarantine. */
     suspend fun verifyFolderObjectsMissing(
@@ -115,6 +143,25 @@ internal interface LibraryScanner {
         forceRefreshLyrics = forceRefreshLyrics,
         forceRefreshArtwork = forceRefreshArtwork,
         onLyricsBatch = onLyricsBatch,
+    )
+
+    /**
+     * Artwork-only targeted refresh for already-published FOLDER songs. Production overrides this
+     * with direct object probes; the default preserves compatibility for test/fake scanners.
+     */
+    suspend fun scanFolderArtworkForSongs(
+        treeUri: Uri,
+        songIds: Set<String>,
+        cachedSongs: List<Song>,
+        onProgress: (Int, Int) -> Unit,
+    ): ScanResult = scanFolderForSongs(
+        treeUri = treeUri,
+        songIds = songIds,
+        cachedSongs = cachedSongs,
+        onProgress = onProgress,
+        forceRefreshLyrics = false,
+        forceRefreshArtwork = true,
+        onLyricsBatch = null,
     )
 }
 
@@ -522,6 +569,36 @@ internal class AndroidLibraryScanner(
         options = LibraryScanSettings.scanOptions(context),
     )
 
+    override suspend fun resolveFolderPathsForMediaStoreUris(
+        treeUri: Uri,
+        mediaStoreUris: Set<String>,
+    ): Set<String>? = FolderScanner.resolveMediaStoreFolderPaths(
+        context = context,
+        treeUri = treeUri,
+        mediaStoreUris = mediaStoreUris,
+    )
+
+    override suspend fun observeFolderMetadataTargets(
+        treeUri: Uri,
+        folderPaths: Set<String>,
+    ): SafTargetedMetadataSnapshot = FolderScanner.observeTargetedMetadata(
+        context = context,
+        treeUri = treeUri,
+        folderPaths = folderPaths,
+        options = LibraryScanSettings.scanOptions(context),
+    )
+
+    override suspend fun observeFolderMetadataTargetsForInitialSync(
+        treeUri: Uri,
+        folderPaths: Set<String>,
+    ): SafTargetedMetadataSnapshot = FolderScanner.observeTargetedMetadata(
+        context = context,
+        treeUri = treeUri,
+        folderPaths = folderPaths,
+        options = LibraryScanSettings.scanOptions(context),
+        retainProbeDrafts = true,
+    )
+
     override suspend fun verifyFolderObjectsMissing(
         treeUri: Uri,
         songs: Collection<Song>,
@@ -574,6 +651,19 @@ internal class AndroidLibraryScanner(
         cachedSongs = cachedSongs,
         onProgress = onProgress,
         onLyricsBatch = onLyricsBatch,
+    )
+
+    override suspend fun scanFolderArtworkForSongs(
+        treeUri: Uri,
+        songIds: Set<String>,
+        cachedSongs: List<Song>,
+        onProgress: (Int, Int) -> Unit,
+    ): ScanResult = FolderScanner.scanArtworkForSongs(
+        context = context,
+        treeUri = treeUri,
+        songIds = songIds,
+        cachedSongs = cachedSongs,
+        onProgress = onProgress,
     )
 }
 

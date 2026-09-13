@@ -261,6 +261,67 @@ class SafAutoSyncPublicationPlannerTest {
     }
 
     @Test
+    fun independentlyVerifiedMassRemovalReleasesQuarantineAndPublishes() {
+        val current = List(100) { index -> song("verified-${index + 1}") }
+        val kept = current.last()
+        val snapshot = snapshot(listOf(entry(kept)))
+        val verifyPlan = SafFastVerifyPlanner.plan(snapshot, current)
+        val missing = current.dropLast(1).mapTo(linkedSetOf(), Song::id)
+
+        val plan = SafAutoSyncPublicationPlanner.plan(
+            sourceIdentity = source,
+            activationEpoch = 7L,
+            configFingerprint = "cfg",
+            nowMs = 5_500L,
+            currentSongs = current,
+            snapshot = snapshot,
+            verifyPlan = verifyPlan,
+            probePlan = emptyProbePlan(),
+            validation = emptyValidation(),
+            relationValidation = emptyRelationValidation(),
+            retryPlan = emptyRetryPlan(),
+            unknownDebtPlan = emptyUnknownDebtPlan(),
+            independentlyVerifiedMissingKeys = missing,
+        )
+
+        assertEquals(null, plan.quarantineReason)
+        assertEquals(missing, plan.visibleDelta.removedStableObjectKeys)
+        assertEquals(listOf(kept.id), plan.nextSnapshot.map(Song::id))
+        assertEquals(missing.size, plan.membershipChanges.size)
+        assertTrue(plan.checkpointIncluded)
+    }
+
+    @Test
+    fun partiallyVerifiedMassRemovalRemainsQuarantined() {
+        val current = List(100) { index -> song("partial-${index + 1}") }
+        val kept = current.last()
+        val snapshot = snapshot(listOf(entry(kept)))
+        val verifyPlan = SafFastVerifyPlanner.plan(snapshot, current)
+        val onlySomeMissing = current.take(50).mapTo(linkedSetOf(), Song::id)
+
+        val plan = SafAutoSyncPublicationPlanner.plan(
+            sourceIdentity = source,
+            activationEpoch = 7L,
+            configFingerprint = "cfg",
+            nowMs = 5_600L,
+            currentSongs = current,
+            snapshot = snapshot,
+            verifyPlan = verifyPlan,
+            probePlan = emptyProbePlan(),
+            validation = emptyValidation(),
+            relationValidation = emptyRelationValidation(),
+            retryPlan = emptyRetryPlan(),
+            unknownDebtPlan = emptyUnknownDebtPlan(),
+            independentlyVerifiedMissingKeys = onlySomeMissing,
+        )
+
+        assertEquals(MassDeletionQuarantineReason.LARGE_UNVERIFIED_BATCH, plan.quarantineReason)
+        assertTrue(plan.visibleDelta.removedStableObjectKeys.isEmpty())
+        assertEquals(100, plan.nextSnapshot.size)
+        assertFalse(plan.checkpointIncluded)
+    }
+
+    @Test
     fun excludedNewObjectCannotEnterAuthorityOrStageLyrics() {
         val candidate = song("doc-new")
         val observed = entry(candidate)

@@ -22,10 +22,15 @@ internal object AutoSyncWakePolicy {
         lastDirtyAtMs: Long,
         nextAllowedAutoSyncAtMs: Long,
         usesCooldown: Boolean,
+        bypassDebounce: Boolean = false,
     ): Long {
         val trailingDeadline = lastDirtyAtMs + timing.debounceMs
         val starvationDeadline = burstStartedAtMs + timing.maxDebounceMs
-        val debounceDeadline = min(trailingDeadline, starvationDeadline)
+        val debounceDeadline = if (bypassDebounce) {
+            burstStartedAtMs
+        } else {
+            min(trailingDeadline, starvationDeadline)
+        }
         return if (usesCooldown) {
             max(nextAllowedAutoSyncAtMs, debounceDeadline)
         } else {
@@ -39,13 +44,19 @@ internal object AutoSyncWakePolicy {
         lastDirtyAtMs: Long,
         nextAllowedAutoSyncAtMs: Long,
         usesCooldown: Boolean,
+        bypassDebounce: Boolean = false,
     ): AutoSyncWakeReason {
         val trailingDeadline = lastDirtyAtMs + timing.debounceMs
         val starvationDeadline = burstStartedAtMs + timing.maxDebounceMs
-        val debounceDeadline = min(trailingDeadline, starvationDeadline)
+        val debounceDeadline = if (bypassDebounce) {
+            burstStartedAtMs
+        } else {
+            min(trailingDeadline, starvationDeadline)
+        }
         return when {
             usesCooldown && nextAllowedAutoSyncAtMs > debounceDeadline ->
                 AutoSyncWakeReason.COOLDOWN
+            bypassDebounce -> AutoSyncWakeReason.FOREGROUND_CATCH_UP
             starvationDeadline <= trailingDeadline -> AutoSyncWakeReason.MAX_DEBOUNCE
             else -> AutoSyncWakeReason.TRAILING_DEBOUNCE
         }

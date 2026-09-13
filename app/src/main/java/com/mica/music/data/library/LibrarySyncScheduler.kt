@@ -2,6 +2,7 @@ package com.mica.music.data.library
 
 import android.os.SystemClock
 import com.mica.music.data.AlbumArtRepairPlan
+import com.mica.music.data.ScanSource
 import com.mica.music.util.DiagnosticLog
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -19,10 +20,14 @@ internal data class LibrarySyncSchedulerTiming(
     }
 }
 
+private const val FOLDER_MUTATION_MAX_DEBOUNCE_MS = 30_000L
+private const val MAX_MEDIASTORE_URI_HINTS = 32
+
 internal enum class AutoSyncWakeReason {
     TRAILING_DEBOUNCE,
     MAX_DEBOUNCE,
     COOLDOWN,
+    FOREGROUND_CATCH_UP,
     IN_PASS_FOLLOW_UP,
     RETRY_DUE,
 }
@@ -72,6 +77,8 @@ internal class LibrarySyncScheduler(
     private var pendingAutoCause: LibraryOperationCause? = null
     private val pendingAutoCauseCounts = linkedMapOf<LibraryOperationCause, Int>()
     private var pendingAutoEventCount: Int = 0
+    private val pendingMediaStoreUriHints = linkedSetOf<String>()
+    private var pendingMediaStoreHintIncomplete: Boolean = false
     private var nextAllowedAutoSyncAtMs: Long = 0L
 
     @Volatile
@@ -126,11 +133,30 @@ internal class LibrarySyncScheduler(
 
     fun markDirty(
         cause: LibraryOperationCause = LibraryOperationCause.MEDIASTORE_AUDIO_DIRTY,
+        mediaStoreUriHint: String? = null,
     ): Long = synchronized(stateLock) {
-        markDirtyLocked(cause)
+        markDirtyLocked(cause, mediaStoreUriHint)
     }
 
-    private fun markDirtyLocked(cause: LibraryOperationCause): Long {
+    fun markMediaStoreGenerationDirty(
+        cause: LibraryOperationCause = LibraryOperationCause.MEDIASTORE_FILES_DIRTY,
+    ): Long = synchronized(stateLock) {
+        val preciseMediaStoreBurstPending =
+            pendingMediaStoreUriHints.isNotEmpty() && !pendingMediaStoreHintIncomplete
+        markDirtyLocked(
+            cause = cause,
+            mediaStoreUriHint = null,
+            mediaStoreHintCompletenessRelevant = false,
+            refreshTrailingDebounce = !preciseMediaStoreBurstPending,
+        )
+    }
+
+    private fun markDirtyLocked(
+        cause: LibraryOperationCause,
+        mediaStoreUriHint: String? = null,
+        mediaStoreHintCompletenessRelevant: Boolean = true,
+        refreshTrailingDebounce: Boolean = true,
+    ): Long {
         dirtySequence += 1L
 
         // Never repopulate an uninitialized or user-cleared library from background activity.
@@ -145,6 +171,16 @@ internal class LibrarySyncScheduler(
         pendingAutoCause = cause
         pendingAutoEventCount += 1
         pendingAutoCauseCounts[cause] = (pendingAutoCauseCounts[cause] ?: 0) + 1
+        if (cause.isMediaStoreDirtyCause() && mediaStoreHintCompletenessRelevant) {
+            val hint = mediaStoreUriHint?.takeIf(String::isNotBlank)
+            when {
+                hint == null -> pendingMediaStoreHintIncomplete = true
+                hint in pendingMediaStoreUriHints -> Unit
+                pendingMediaStoreUriHints.size < MAX_MEDIASTORE_URI_HINTS ->
+                    pendingMediaStoreUriHints += hint
+                else -> pendingMediaStoreHintIncomplete = true
+            }
+        }
         if (dirtyBurstStartedAtMs == null || (causeBypassesCooldown && !hadCooldownBypassCause)) {
             // A real dirty signal that arrives while only a throttled catch-up/periodic request is
             // waiting starts its own debounce window. This avoids both extremes: it must not wait
@@ -152,7 +188,9 @@ internal class LibrarySyncScheduler(
             // max-debounce deadline and launch with effectively zero debounce.
             dirtyBurstStartedAtMs = now
         }
-        lastDirtyAtMs = now
+        if (refreshTrailingDebounce || lastDirtyAtMs == null) {
+            lastDirtyAtMs = now
+        }
 
         // Dirty arriving while any operation is running is retained. AUTO specifically must not be
         // invalidated/cancelled; its completion path detects the higher dirtySequence and follows up.
@@ -263,6 +301,8 @@ internal class LibrarySyncScheduler(
             pendingAutoCause = null
             pendingAutoEventCount = 0
             pendingAutoCauseCounts.clear()
+            pendingMediaStoreUriHints.clear()
+            pendingMediaStoreHintIncomplete = false
             dirtyBurstStartedAtMs = null
             lastDirtyAtMs = null
             cancelWakeLocked()
@@ -288,6 +328,8 @@ internal class LibrarySyncScheduler(
             pendingAutoCause = null
             pendingAutoEventCount = 0
             pendingAutoCauseCounts.clear()
+            pendingMediaStoreUriHints.clear()
+            pendingMediaStoreHintIncomplete = false
             dirtyBurstStartedAtMs = null
             lastDirtyAtMs = null
             nextAllowedAutoSyncAtMs = 0L
@@ -386,27 +428,48 @@ internal class LibrarySyncScheduler(
         val burstStart = dirtyBurstStartedAtMs ?: now.also { dirtyBurstStartedAtMs = it }
         val lastDirty = lastDirtyAtMs ?: burstStart.also { lastDirtyAtMs = it }
         return AutoSyncWakePolicy.dueAtMs(
-            timing = timing,
+            timing = effectiveAutoTimingLocked(),
             burstStartedAtMs = burstStart,
             lastDirtyAtMs = lastDirty,
             nextAllowedAutoSyncAtMs = nextAllowedAutoSyncAtMs,
             usesCooldown = pendingAutoUsesCooldownLocked(),
+            bypassDebounce = pendingAutoBypassesDebounceLocked(),
         )
     }
 
     private fun pendingAutoUsesCooldownLocked(): Boolean =
         AutoSyncWakePolicy.pendingUsesCooldown(pendingAutoCauseCounts.keys)
 
+    private fun pendingAutoBypassesDebounceLocked(): Boolean =
+        pendingAutoCauseCounts.isNotEmpty() &&
+            pendingAutoCauseCounts.keys.all { it == LibraryOperationCause.FOREGROUND_CATCH_UP }
+
+    private fun effectiveAutoTimingLocked(): LibrarySyncSchedulerTiming {
+        val isFolderSource =
+            backing.sourceState.active?.sourceIdentity?.source == ScanSource.FOLDER
+        val hasFolderMutationBurst = pendingAutoCauseCounts.keys.any { cause ->
+            cause == LibraryOperationCause.MEDIASTORE_AUDIO_DIRTY ||
+                cause == LibraryOperationCause.MEDIASTORE_FILES_DIRTY ||
+                cause == LibraryOperationCause.SAF_TREE_DIRTY
+        }
+        if (!isFolderSource || !hasFolderMutationBurst) return timing
+        if (timing.maxDebounceMs >= FOLDER_MUTATION_MAX_DEBOUNCE_MS) return timing
+        return timing.copy(
+            maxDebounceMs = maxOf(timing.debounceMs, FOLDER_MUTATION_MAX_DEBOUNCE_MS),
+        )
+    }
+
     private fun resolveAutoWakeReasonLocked(): AutoSyncWakeReason {
         val now = nowMs()
         val burstStart = dirtyBurstStartedAtMs ?: now
         val lastDirty = lastDirtyAtMs ?: burstStart
         return AutoSyncWakePolicy.wakeReason(
-            timing = timing,
+            timing = effectiveAutoTimingLocked(),
             burstStartedAtMs = burstStart,
             lastDirtyAtMs = lastDirty,
             nextAllowedAutoSyncAtMs = nextAllowedAutoSyncAtMs,
             usesCooldown = pendingAutoUsesCooldownLocked(),
+            bypassDebounce = pendingAutoBypassesDebounceLocked(),
         )
     }
 
@@ -424,6 +487,8 @@ internal class LibrarySyncScheduler(
         val cause = pendingAutoCause ?: LibraryOperationCause.FOREGROUND_CATCH_UP
         val eventCount = pendingAutoEventCount.coerceAtLeast(1)
         val causeCounts = pendingAutoCauseCounts.toMap()
+        val mediaStoreUriHints = pendingMediaStoreUriHints.toSet()
+        val mediaStoreHintIncomplete = pendingMediaStoreHintIncomplete
         val nextSequence = requestSequence + 1L
         val diagnostic = AutoSyncShadowDiagnostic(
             requestSequence = nextSequence,
@@ -444,6 +509,8 @@ internal class LibrarySyncScheduler(
         pendingAutoCause = null
         pendingAutoEventCount = 0
         pendingAutoCauseCounts.clear()
+        pendingMediaStoreUriHints.clear()
+        pendingMediaStoreHintIncomplete = false
         dirtyBurstStartedAtMs = null
         lastDirtyAtMs = null
         cancelWakeLocked()
@@ -451,6 +518,8 @@ internal class LibrarySyncScheduler(
             LibraryOperationRequest.AutoSync(
                 cause = cause,
                 coalescedCauses = causeCounts.keys + cause,
+                mediaStoreUriHints = mediaStoreUriHints,
+                mediaStoreHintIncomplete = mediaStoreHintIncomplete,
             ),
         )
     }
@@ -561,5 +630,9 @@ internal class LibrarySyncScheduler(
             incoming == LibraryOperationCause.TAG_EDITOR_RETURN -> incoming
             else -> current
         }
+
+    private fun LibraryOperationCause.isMediaStoreDirtyCause(): Boolean =
+        this == LibraryOperationCause.MEDIASTORE_AUDIO_DIRTY ||
+            this == LibraryOperationCause.MEDIASTORE_FILES_DIRTY
 
 }
