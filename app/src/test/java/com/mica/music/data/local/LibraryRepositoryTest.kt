@@ -30,12 +30,14 @@ import com.mica.music.data.library.LibraryRetryPaging
 import com.mica.music.data.library.LibraryIntentState
 import com.mica.music.data.library.LibraryRetryItem
 import com.mica.music.data.library.LibraryRetryKind
+import com.mica.music.data.library.MassDeletionQuarantineReason
 import com.mica.music.data.library.LibrarySyncCheckpoint
 import com.mica.music.data.library.LibraryUserExclusion
 import com.mica.music.data.library.PersistedLibraryState
 import com.mica.music.data.library.SourceActivation
 import com.mica.music.data.library.SourceIdentityKey
 import com.mica.music.data.library.LibrarySourceState
+import com.mica.music.data.library.SafMassDeletionConfirmationPlanner
 import com.mica.music.testutil.SongFixtures
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -68,6 +70,63 @@ class LibraryRepositoryTest {
     @After
     fun tearDown() {
         database.close()
+    }
+
+    @Test
+    fun fullFolderAuthorityRevokesHistoricalMissingProofForReturnedSongs() = runTest {
+        val source = SourceIdentityKey.folder("content://provider/tree/music")
+        val returnedKeys = linkedSetOf("doc-returned-a", "doc-returned-b")
+        val stillMissing = "doc-still-missing"
+        val provedMissing = returnedKeys + stillMissing
+        val retry = SafMassDeletionConfirmationPlanner.plan(
+            sourceIdentity = source,
+            activationEpoch = 7L,
+            nowMs = 1_000L,
+            quarantineReason = MassDeletionQuarantineReason.LARGE_UNVERIFIED_BATCH,
+            removedStableObjectKeys = provedMissing,
+            existing = null,
+        ).retryUpserts.single().copy(
+            attemptCount = 3,
+            nextRetryAtMs = 999_999L,
+            continuationCursor = 64,
+            confirmedMissingKeysPayload =
+                SafMassDeletionConfirmationPlanner.encodeConfirmedMissingKeys(provedMissing),
+        )
+        repository.applyAutoSyncState(
+            LibraryAutoSyncStateMutation(
+                sourceIdentity = source,
+                retryUpserts = listOf(retry),
+            ),
+        )
+        val state = PersistedLibraryState(
+            intent = LibraryIntentState.ACTIVE,
+            access = LibraryAccessState.AVAILABLE,
+            sourceState = LibrarySourceState(
+                active = SourceActivation(source, activationEpoch = 7L),
+            ),
+            configFingerprint = "folder-config",
+        )
+
+        repository.commitScanAuthority(
+            songs = returnedKeys.map(SongFixtures::song),
+            lastScanAtMs = 200L,
+            lastScanSource = ScanSource.FOLDER,
+            totalSizeMb = 1,
+            state = state,
+        )
+
+        val persisted = repository.loadRetryItemsPage(
+            sourceIdentity = source,
+            cursor = LibraryRetryCursor.Start,
+            limit = LibraryRetryPaging.PAGE_SIZE,
+        ).items.single()
+        assertEquals(0, persisted.continuationCursor)
+        assertEquals(
+            setOf(stillMissing),
+            SafMassDeletionConfirmationPlanner.decodeConfirmedMissingKeys(
+                persisted.confirmedMissingKeysPayload,
+            ),
+        )
     }
 
     @Test

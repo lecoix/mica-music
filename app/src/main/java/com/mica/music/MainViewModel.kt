@@ -38,8 +38,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val libraryPlaybackQueueSync = LibraryPlaybackQueueCoordinator()
     private val libraryFollowupConsumer = LibraryFollowupConsumer(
         loadOutboxPage = library::loadFollowupOutboxPage,
-        consumeConfirmedMissing = { item, songId ->
-            library.consumeConfirmedMissingFollowup(playlistStore, item, songId)
+        consumeConfirmedMissing = { requests ->
+            library.consumeConfirmedMissingFollowups(playlistStore, requests)
         },
     )
 

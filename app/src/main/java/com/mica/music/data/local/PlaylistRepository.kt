@@ -4,6 +4,7 @@ import androidx.room.withTransaction
 import com.mica.music.data.SortDirection
 import com.mica.music.data.SongSortField
 import com.mica.music.data.UserPlaylist
+import com.mica.music.data.library.LibraryConfirmedMissingFollowup
 import com.mica.music.data.library.LibraryFollowupOutboxItem
 import com.mica.music.data.library.LibraryFollowupProtocol
 import com.mica.music.data.library.MembershipRemovalReason
@@ -103,65 +104,93 @@ internal class PlaylistRepository(
     suspend fun consumeConfirmedMissingFollowup(
         expected: LibraryFollowupOutboxItem,
         songId: String,
-    ): PlaylistFollowupConsumeOutcome = database.withTransaction {
-        val persistedEntity = followupDao.getById(expected.eventId)
-            ?: return@withTransaction PlaylistFollowupConsumeOutcome(
-                acknowledged = true,
-                disposition = PlaylistFollowupDisposition.ALREADY_CONSUMED,
-                playlistRevision = null,
-            )
-        val persisted = persistedEntity.toModel()
-        if (
-            persisted != expected ||
-            persisted.action != LibraryFollowupProtocol.PLAYLIST_REMOVE_CONFIRMED_MISSING ||
-            persisted.removalReason != MembershipRemovalReason.CONFIRMED_MISSING ||
-            persisted.evidenceRevision.isBlank()
-        ) {
-            return@withTransaction PlaylistFollowupConsumeOutcome(
-                acknowledged = false,
-                disposition = PlaylistFollowupDisposition.REJECTED,
-                playlistRevision = null,
-            )
-        }
-
-        val persistedState = libraryStateDao.get()?.toModel()
-            ?: return@withTransaction PlaylistFollowupConsumeOutcome(
-                acknowledged = false,
-                disposition = PlaylistFollowupDisposition.REJECTED,
-                playlistRevision = null,
-            )
-        val eventSourceIsActive =
-            persistedState.sourceState.active?.sourceIdentity == persisted.sourceIdentity
-        val objectIsPresentAgain =
-            eventSourceIsActive && songDao.getById(persisted.stableObjectKey) != null
-        val currentEvidence = membershipEvidenceDao.get(
-            source = persisted.sourceIdentity.source.storageValue,
-            stableIdentity = persisted.sourceIdentity.stableIdentity,
-            stableObjectKey = persisted.stableObjectKey,
+    ): PlaylistFollowupConsumeOutcome {
+        val batch = consumeConfirmedMissingFollowups(
+            listOf(LibraryConfirmedMissingFollowup(expected, songId)),
         )
-        val removalEvidenceStillCurrent =
-            currentEvidence?.removalReason == MembershipRemovalReason.CONFIRMED_MISSING.name &&
-                currentEvidence.evidenceRevision == persisted.evidenceRevision &&
-                currentEvidence.songId == songId
+        val disposition = batch.dispositions[expected.eventId]
+            ?: PlaylistFollowupDisposition.REJECTED
+        return PlaylistFollowupConsumeOutcome(
+            acknowledged = disposition != PlaylistFollowupDisposition.REJECTED,
+            disposition = disposition,
+            playlistRevision = batch.playlistRevision,
+            playlists = batch.playlists,
+        )
+    }
 
-        if (objectIsPresentAgain || !removalEvidenceStillCurrent) {
-            followupDao.deleteById(persisted.eventId)
-            return@withTransaction PlaylistFollowupConsumeOutcome(
-                acknowledged = true,
-                disposition = PlaylistFollowupDisposition.OBSOLETE,
-                playlistRevision = null,
+    /**
+     * Validates and consumes one bounded outbox batch in a single Room transaction.
+     *
+     * APPLIED events are coalesced into one playlist mutation: every affected playlist is compacted
+     * once, playlist revision is bumped once, and the post-commit snapshot is materialized once.
+     * OBSOLETE/ALREADY_CONSUMED/REJECTED events never force a playlist snapshot read.
+     */
+    suspend fun consumeConfirmedMissingFollowups(
+        requests: List<LibraryConfirmedMissingFollowup>,
+    ): PlaylistFollowupBatchOutcome = database.withTransaction {
+        if (requests.isEmpty()) return@withTransaction PlaylistFollowupBatchOutcome(emptyMap())
+
+        val dispositions = linkedMapOf<String, PlaylistFollowupDisposition>()
+        val appliedEventIds = mutableListOf<String>()
+        val appliedSongIds = mutableListOf<String>()
+        val persistedState = libraryStateDao.get()?.toModel()
+
+        requests.distinctBy { it.item.eventId }.forEach { request ->
+            val expected = request.item
+            val songId = request.songId
+            val persistedEntity = followupDao.getById(expected.eventId)
+            if (persistedEntity == null) {
+                dispositions[expected.eventId] = PlaylistFollowupDisposition.ALREADY_CONSUMED
+                return@forEach
+            }
+            val persisted = persistedEntity.toModel()
+            if (
+                persisted != expected ||
+                persisted.action != LibraryFollowupProtocol.PLAYLIST_REMOVE_CONFIRMED_MISSING ||
+                persisted.removalReason != MembershipRemovalReason.CONFIRMED_MISSING ||
+                persisted.evidenceRevision.isBlank() ||
+                persistedState == null
+            ) {
+                dispositions[expected.eventId] = PlaylistFollowupDisposition.REJECTED
+                return@forEach
+            }
+
+            val eventSourceIsActive =
+                persistedState.sourceState.active?.sourceIdentity == persisted.sourceIdentity
+            val objectIsPresentAgain =
+                eventSourceIsActive && songDao.getById(persisted.stableObjectKey) != null
+            val currentEvidence = membershipEvidenceDao.get(
+                source = persisted.sourceIdentity.source.storageValue,
+                stableIdentity = persisted.sourceIdentity.stableIdentity,
+                stableObjectKey = persisted.stableObjectKey,
             )
+            val removalEvidenceStillCurrent =
+                currentEvidence?.removalReason == MembershipRemovalReason.CONFIRMED_MISSING.name &&
+                    currentEvidence.evidenceRevision == persisted.evidenceRevision &&
+                    currentEvidence.songId == songId
+
+            if (objectIsPresentAgain || !removalEvidenceStillCurrent) {
+                followupDao.deleteById(persisted.eventId)
+                dispositions[expected.eventId] = PlaylistFollowupDisposition.OBSOLETE
+                return@forEach
+            }
+
+            dispositions[expected.eventId] = PlaylistFollowupDisposition.APPLIED
+            appliedEventIds += persisted.eventId
+            appliedSongIds += songId
         }
 
-        dao.removeSongEverywhere(songId)
+        if (appliedEventIds.isEmpty()) {
+            return@withTransaction PlaylistFollowupBatchOutcome(dispositions = dispositions)
+        }
+
+        dao.removeSongsEverywhere(appliedSongIds)
         val playlistRevision = bumpRevisionInTransaction()
-        followupDao.deleteById(persisted.eventId)
-        // Read the post-removal snapshot inside the same transaction so the in-memory publication
-        // is by construction the durable state at [playlistRevision]. Non-APPLIED outcomes never
-        // pay for a full playlist read.
-        PlaylistFollowupConsumeOutcome(
-            acknowledged = true,
-            disposition = PlaylistFollowupDisposition.APPLIED,
+        check(followupDao.deleteByIds(appliedEventIds) == appliedEventIds.size) {
+            "followup batch acknowledgement mismatch"
+        }
+        PlaylistFollowupBatchOutcome(
+            dispositions = dispositions,
             playlistRevision = playlistRevision,
             playlists = loadPlaylistsInTransaction(),
         )
@@ -228,6 +257,16 @@ internal data class PlaylistFollowupConsumeOutcome(
     /** Durable playlists at [playlistRevision]; only present when the disposition is APPLIED. */
     val playlists: List<UserPlaylist>? = null,
 )
+
+internal data class PlaylistFollowupBatchOutcome(
+    val dispositions: Map<String, PlaylistFollowupDisposition>,
+    val playlistRevision: Long? = null,
+    /** Durable playlists at [playlistRevision]; materialized at most once per APPLIED batch. */
+    val playlists: List<UserPlaylist>? = null,
+) {
+    val acknowledgedCount: Int
+        get() = dispositions.values.count { it != PlaylistFollowupDisposition.REJECTED }
+}
 
 private fun UserPlaylist.toEntity(position: Int): PlaylistEntity = PlaylistEntity(
     id = id,

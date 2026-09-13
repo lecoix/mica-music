@@ -91,6 +91,27 @@ internal object SafMassDeletionConfirmationPlanner {
     }
 
     /**
+     * A fresh Present observation always beats historical missing proof, regardless of whether the
+     * surrounding discovery is FULL, AUTO or PARTIAL. If any proved-missing object is observed
+     * again, reset traversal progress too: should that object disappear again later, it must be
+     * independently verified from the beginning rather than inherit progress from disproved proof.
+     */
+    fun invalidatePresentEvidence(
+        existing: LibraryRetryItem?,
+        observedPresentStableObjectKeys: Set<String>,
+    ): LibraryRetryItem? {
+        if (existing == null || observedPresentStableObjectKeys.isEmpty()) return existing
+        val prior = decodeConfirmedMissingKeys(existing.confirmedMissingKeysPayload)
+        if (prior.isEmpty()) return existing
+        val retained = prior - observedPresentStableObjectKeys
+        if (retained.size == prior.size) return existing
+        return existing.copy(
+            continuationCursor = 0,
+            confirmedMissingKeysPayload = encodeConfirmedMissingKeys(retained),
+        )
+    }
+
+    /**
      * Accumulates this batch's verified-missing keys onto any durable proof from earlier batches.
      * Only keys that still belong to the current removal set are retained.
      */
@@ -113,20 +134,30 @@ internal object SafMassDeletionConfirmationPlanner {
         quarantineReason: MassDeletionQuarantineReason?,
         removedStableObjectKeys: Set<String>,
         existing: LibraryRetryItem?,
+        observedPresentStableObjectKeys: Set<String> = emptySet(),
         verification: SafIndependentMissingVerificationResult? = null,
     ): SafMassDeletionRetryPlan {
         val retryKey = LibraryRetryKey.safMassDeletionVerify()
+        val reconciledExisting = invalidatePresentEvidence(
+            existing = existing,
+            observedPresentStableObjectKeys = observedPresentStableObjectKeys,
+        )
+        val presentInvalidatedProof = reconciledExisting != existing
 
-        // Incomplete discovery cannot prove that a prior quarantine has disappeared. Preserve the
-        // durable debt exactly as-is and let provider backoff schedule the next observation.
-        if (!discoveryComplete) return SafMassDeletionRetryPlan()
+        // Incomplete discovery cannot prove that a prior quarantine has disappeared, so preserve
+        // the debt/backoff. It can positively prove individual objects are present, however, and
+        // that fresh fact must revoke their old missing proof even on a PARTIAL pass.
+        if (!discoveryComplete) {
+            return if (presentInvalidatedProof && reconciledExisting != null) {
+                SafMassDeletionRetryPlan(retryUpserts = listOf(reconciledExisting))
+            } else {
+                SafMassDeletionRetryPlan()
+            }
+        }
 
-        // No quarantine in a complete observation means any persisted confirmation debt is stale:
-        // its cursor and confirmed-key payload claim proof for objects that may be present again.
-        // Drop it so a later quarantine of the same set starts a fresh round. Only emit the delete
-        // when a row actually exists, otherwise every quiet pass would force a commit.
+        // No quarantine in a complete observation means any persisted confirmation debt is stale.
         if (quarantineReason == null || removedStableObjectKeys.isEmpty()) {
-            return if (existing != null) {
+            return if (reconciledExisting != null) {
                 SafMassDeletionRetryPlan(retryDeleteKeys = setOf(retryKey))
             } else {
                 SafMassDeletionRetryPlan()
@@ -134,7 +165,7 @@ internal object SafMassDeletionConfirmationPlanner {
         }
 
         val fingerprint = removalFingerprint(removedStableObjectKeys)
-        val sameRound = matchesCurrentRound(existing, activationEpoch, removedStableObjectKeys)
+        val sameRound = matchesCurrentRound(reconciledExisting, activationEpoch, removedStableObjectKeys)
 
         if (!sameRound) {
             return scheduleRetry(
@@ -149,6 +180,7 @@ internal object SafMassDeletionConfirmationPlanner {
             )
         }
 
+        val current = checkNotNull(reconciledExisting)
         if (verification != null) {
             if (!verification.batchSucceeded) {
                 return scheduleRetry(
@@ -157,23 +189,20 @@ internal object SafMassDeletionConfirmationPlanner {
                     nowMs = nowMs,
                     quarantineReason = quarantineReason,
                     fingerprint = fingerprint,
-                    attempt = existing!!.attemptCount.coerceAtLeast(0) + 1,
+                    attempt = current.attemptCount.coerceAtLeast(0) + 1,
                     continuationCursor = 0,
                     confirmedMissingKeysPayload = "",
                 )
             }
 
             val accumulated = accumulateConfirmedMissingKeys(
-                existing = existing,
+                existing = current,
                 activationEpoch = activationEpoch,
                 removedStableObjectKeys = removedStableObjectKeys,
                 batchVerifiedMissingKeys = verification.verifiedMissingStableObjectKeys,
             )
             val accumulatedPayload = encodeConfirmedMissingKeys(accumulated)
 
-            // A batch that processed nothing (typically the first provider query exceeded the wall
-            // budget) is not a success and must not request an immediate continuation, or a slow
-            // provider would spin full-tree passes forever. Keep the confirmed progress, back off.
             if (verification.madeNoProgress) {
                 return scheduleRetry(
                     sourceIdentity = sourceIdentity,
@@ -181,14 +210,14 @@ internal object SafMassDeletionConfirmationPlanner {
                     nowMs = nowMs,
                     quarantineReason = quarantineReason,
                     fingerprint = fingerprint,
-                    attempt = existing!!.attemptCount.coerceAtLeast(0) + 1,
-                    continuationCursor = existing.continuationCursor.coerceAtLeast(0),
+                    attempt = current.attemptCount.coerceAtLeast(0) + 1,
+                    continuationCursor = current.continuationCursor.coerceAtLeast(0),
                     confirmedMissingKeysPayload = accumulatedPayload,
                 )
             }
 
             if (verification.hasMore) {
-                val continuation = existing!!.copy(
+                val continuation = current.copy(
                     activationEpoch = activationEpoch,
                     failureKind = "MASS_DELETION_${quarantineReason.name}_CONTINUING",
                     nextRetryAtMs = nowMs,
@@ -203,23 +232,22 @@ internal object SafMassDeletionConfirmationPlanner {
             }
 
             // A successful final batch should have produced durable proof for every quarantined
-            // key via per-batch accumulation. If the publication planner did not clear quarantine,
-            // fail closed and restart with empty proof.
+            // key. If publication still remains quarantined, fail closed and restart cleanly.
             return scheduleRetry(
                 sourceIdentity = sourceIdentity,
                 activationEpoch = activationEpoch,
                 nowMs = nowMs,
                 quarantineReason = quarantineReason,
                 fingerprint = fingerprint,
-                attempt = existing!!.attemptCount.coerceAtLeast(0) + 1,
+                attempt = current.attemptCount.coerceAtLeast(0) + 1,
                 continuationCursor = 0,
                 confirmedMissingKeysPayload = "",
             )
         }
 
-        if (existing!!.nextRetryAtMs > nowMs) {
+        if (current.nextRetryAtMs > nowMs) {
             return SafMassDeletionRetryPlan(
-                nextRetryDelayMs = (existing.nextRetryAtMs - nowMs).coerceAtLeast(0L),
+                nextRetryDelayMs = (current.nextRetryAtMs - nowMs).coerceAtLeast(0L),
             )
         }
 

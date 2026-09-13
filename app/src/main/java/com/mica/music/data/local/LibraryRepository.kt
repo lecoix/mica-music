@@ -39,6 +39,7 @@ import com.mica.music.data.library.MembershipRemovalReason
 import com.mica.music.data.library.LyricsStagingMode
 import com.mica.music.data.library.LibraryUserExclusion
 import com.mica.music.data.library.PersistedLibraryState
+import com.mica.music.data.library.SafMassDeletionConfirmationPlanner
 import com.mica.music.data.library.SourceIdentityKey
 import com.mica.music.util.DiagnosticLog
 import org.json.JSONObject
@@ -586,6 +587,10 @@ class LibraryRepository internal constructor(
                 sourceIdentity = state.sourceState.active?.sourceIdentity,
                 presentSongIds = upserts.map(SongEntity::id),
             )
+            invalidateSafMassDeletionProofForPresentSongs(
+                sourceIdentity = state.sourceState.active?.sourceIdentity,
+                presentSongIds = upserts.map(SongEntity::id),
+            )
             followupOutboxItems.forEach { persistFollowupAndMembershipEvidence(it) }
             if (removeIds.isNotEmpty()) lyricsDao.deleteBySongIds(removeIds)
             stagedLyricsId?.let { scanId ->
@@ -736,6 +741,10 @@ class LibraryRepository internal constructor(
                 sourceIdentity = authorityState?.sourceState?.active?.sourceIdentity,
                 presentSongIds = incomingIds,
             )
+            invalidateSafMassDeletionProofForPresentSongs(
+                sourceIdentity = authorityState?.sourceState?.active?.sourceIdentity,
+                presentSongIds = incomingIds,
+            )
             followupOutboxItems.forEach { persistFollowupAndMembershipEvidence(it) }
             if (removeIds.isNotEmpty()) lyricsDao.deleteBySongIds(removeIds)
             if (directlyLoadedLyrics.isNotEmpty()) lyricsDao.insertAll(directlyLoadedLyrics)
@@ -824,6 +833,34 @@ class LibraryRepository internal constructor(
                     stableObjectKeys = stableObjectKeys,
                 )
             }
+    }
+
+    /**
+     * Authority-level proof invalidation. FULL scans do not necessarily pass through the SAF AUTO
+     * planner, so every authoritative FOLDER commit also applies the same Present > Missing rule to
+     * the durable mass-deletion retry row inside the Room transaction.
+     */
+    private suspend fun invalidateSafMassDeletionProofForPresentSongs(
+        sourceIdentity: SourceIdentityKey?,
+        presentSongIds: Collection<String>,
+    ) {
+        if (sourceIdentity?.source != ScanSource.FOLDER || presentSongIds.isEmpty()) return
+        val retryKey = LibraryRetryKey.safMassDeletionVerify()
+        val existing = retryItemDao.getByKeys(
+            source = sourceIdentity.source.storageValue,
+            stableIdentity = sourceIdentity.stableIdentity,
+            retryKeys = listOf(retryKey),
+        ).firstOrNull()?.toModel() ?: return
+        val reconciled = SafMassDeletionConfirmationPlanner.invalidatePresentEvidence(
+            existing = existing,
+            observedPresentStableObjectKeys = presentSongIds
+                .asSequence()
+                .filter(String::isNotBlank)
+                .toSet(),
+        ) ?: return
+        if (reconciled != existing) {
+            retryItemDao.upsertAll(listOf(reconciled.toEntity()))
+        }
     }
 
     suspend fun updateCoverColorArgb(songId: String, coverColorArgb: Int) {

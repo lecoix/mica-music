@@ -679,6 +679,8 @@ internal class SafAutoSyncPipeline(
                 quarantineReason = publicationPlan.quarantineReason,
                 removedStableObjectKeys = plan.removedStableObjectKeys,
                 existing = massDeletionRetryExisting,
+                observedPresentStableObjectKeys = snapshot.entries
+                    .mapTo(linkedSetOf(), com.mica.music.data.scanner.SafTreeMetadataEntry::stableObjectKey),
                 verification = massDeletionVerification,
             )
             publicationPlan = publicationPlan.withMassDeletionRetryPlan(massDeletionRetryPlan)

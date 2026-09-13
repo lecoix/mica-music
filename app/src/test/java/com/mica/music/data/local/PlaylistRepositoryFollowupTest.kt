@@ -6,6 +6,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.mica.music.data.ScanSource
 import com.mica.music.data.UserPlaylist
 import com.mica.music.data.library.LibraryAccessState
+import com.mica.music.data.library.LibraryConfirmedMissingFollowup
 import com.mica.music.data.library.LibraryFollowupOutboxCursor
 import com.mica.music.data.library.LibraryFollowupOutboxItem
 import com.mica.music.data.library.LibraryFollowupProtocol
@@ -161,6 +162,45 @@ class PlaylistRepositoryFollowupTest {
         )
 
         assertEquals(listOf(event), libraryRepository.loadFollowupOutbox())
+    }
+
+    @Test
+    fun appliedBacklogBatchCompactsTenThousandMemberPlaylistOncePerBatch() = runTest {
+        seedActiveLibrary(emptyList())
+        val songIds = List(10_000) { index -> "missing-${index.toString().padStart(5, '0')}" }
+        playlistRepository.replaceAll(
+            listOf(
+                UserPlaylist(
+                    id = "large-playlist",
+                    name = "Large",
+                    songIds = songIds,
+                ),
+            ),
+        )
+        val events = songIds.take(512).mapIndexed { index, songId ->
+            confirmedMissing(songId, evidenceRevision = "batch-$index").copy(createdAtMs = index.toLong())
+        }
+        libraryRepository.commitScanAuthorityWithFollowups(
+            songs = emptyList(),
+            lastScanAtMs = 200L,
+            lastScanSource = ScanSource.DEVICE,
+            totalSizeMb = 0,
+            state = activeState(source),
+            followupOutboxItems = events,
+        )
+        val revisionBefore = requireNotNull(database.playlistDao().getRevision())
+
+        val outcome = playlistRepository.consumeConfirmedMissingFollowups(
+            events.map { event ->
+                LibraryConfirmedMissingFollowup(event, event.stableObjectKey)
+            },
+        )
+
+        assertEquals(512, outcome.acknowledgedCount)
+        assertEquals(revisionBefore + 1L, outcome.playlistRevision)
+        assertEquals(songIds.drop(512), outcome.playlists?.single()?.songIds)
+        assertEquals(songIds.drop(512), playlistRepository.load().single().songIds)
+        assertTrue(libraryRepository.loadFollowupOutbox().isEmpty())
     }
 
     private suspend fun LibraryRepository.loadFollowupOutbox(): List<LibraryFollowupOutboxItem> {

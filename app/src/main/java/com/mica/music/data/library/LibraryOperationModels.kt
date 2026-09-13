@@ -225,6 +225,11 @@ internal data class LibraryFollowupOutboxItem(
     val createdAtMs: Long,
 )
 
+internal data class LibraryConfirmedMissingFollowup(
+    val item: LibraryFollowupOutboxItem,
+    val songId: String,
+)
+
 internal data class LibraryUserExclusion(
     val sourceIdentity: SourceIdentityKey,
     val stableObjectKey: String,

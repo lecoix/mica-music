@@ -1,7 +1,7 @@
 package com.mica.music
 
+import com.mica.music.data.library.LibraryConfirmedMissingFollowup
 import com.mica.music.data.library.LibraryFollowupOutboxCursor
-import com.mica.music.data.library.LibraryFollowupOutboxItem
 import com.mica.music.data.library.LibraryFollowupOutboxPage
 import com.mica.music.data.library.LibraryFollowupPaging
 import com.mica.music.data.library.LibraryFollowupProtocol
@@ -15,7 +15,7 @@ internal class LibraryFollowupConsumer(
         LibraryFollowupOutboxCursor,
         Int,
     ) -> LibraryFollowupOutboxPage,
-    private val consumeConfirmedMissing: suspend (LibraryFollowupOutboxItem, String) -> Boolean,
+    private val consumeConfirmedMissing: suspend (List<LibraryConfirmedMissingFollowup>) -> Int,
 ) {
     private val drainMutex = Mutex()
     private var resumeCursor = LibraryFollowupOutboxCursor.Start
@@ -40,7 +40,7 @@ internal class LibraryFollowupConsumer(
     }
 
     private suspend fun drainBatchLocked(): DrainBatchResult {
-        var acknowledgedCount = 0
+        val confirmedMissingRequests = mutableListOf<LibraryConfirmedMissingFollowup>()
         var cursor = resumeCursor
         var pagesRead = 0
         var itemsRead = 0
@@ -55,7 +55,7 @@ internal class LibraryFollowupConsumer(
             }
 
             page.items.forEach { item ->
-                val handled = when (item.action) {
+                when (item.action) {
                     LibraryFollowupProtocol.PLAYLIST_REMOVE_CONFIRMED_MISSING -> {
                         val songId = LibraryFollowupProtocol.playlistRemovalSongId(item.payload)
                         if (songId.isNullOrBlank()) {
@@ -63,9 +63,8 @@ internal class LibraryFollowupConsumer(
                                 "LibraryFollowup",
                                 "invalid playlist-removal payload event=${item.eventId}",
                             )
-                            false
                         } else {
-                            consumeConfirmedMissing(item, songId)
+                            confirmedMissingRequests += LibraryConfirmedMissingFollowup(item, songId)
                         }
                     }
                     else -> {
@@ -73,11 +72,7 @@ internal class LibraryFollowupConsumer(
                             "LibraryFollowup",
                             "unknown action=${item.action} event=${item.eventId}",
                         )
-                        false
                     }
-                }
-                if (handled) {
-                    acknowledgedCount++
                 }
             }
 
@@ -93,6 +88,14 @@ internal class LibraryFollowupConsumer(
                 reachedTail = true
                 break
             }
+        }
+
+        // One bounded consumer batch maps to one playlist transaction/adoption. This prevents a
+        // large deletion backlog from re-reading and re-compacting the same playlists per event.
+        val acknowledgedCount = if (confirmedMissingRequests.isEmpty()) {
+            0
+        } else {
+            consumeConfirmedMissing(confirmedMissingRequests)
         }
 
         val budgetExhausted =

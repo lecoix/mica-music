@@ -7,12 +7,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.mica.music.data.local.MicaDatabase
 import com.mica.music.data.local.PlaylistRepository
-import com.mica.music.data.local.PlaylistFollowupDisposition
-import com.mica.music.data.library.LibraryFollowupOutboxItem
+import com.mica.music.data.library.LibraryConfirmedMissingFollowup
 import com.mica.music.util.DiagnosticLog
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -48,12 +48,6 @@ private data class PlaylistMutationResult<T>(
     val publication: PlaylistPublication? = null,
 )
 
-internal data class PlaylistFollowupStoreCommit(
-    val acknowledged: Boolean,
-    val playlists: List<UserPlaylist>?,
-    val expectedRevision: Long?,
-)
-
 /** Process-scoped playlist facade backed by ordered Room rows. */
 class PlaylistStore(
     context: Context,
@@ -70,6 +64,9 @@ class PlaylistStore(
 
     var revision by mutableIntStateOf(0)
         private set
+
+    /** Test seam for the durable-commit -> memory-adopt cancellation boundary. */
+    internal var beforeMutationAdoptForTest: suspend () -> Unit = {}
 
     init {
         ownerScope.launch(Dispatchers.IO) {
@@ -380,42 +377,28 @@ class PlaylistStore(
         )
     }
 
-    internal suspend fun commitConfirmedMissingFollowup(
-        item: LibraryFollowupOutboxItem,
-        songId: String,
-    ): PlaylistFollowupStoreCommit {
+    internal suspend fun consumeConfirmedMissingFollowups(
+        requests: List<LibraryConfirmedMissingFollowup>,
+    ): Int {
+        if (requests.isEmpty()) return 0
         awaitReady()
         return mutationMutex.withLock {
             mutationGeneration.incrementAndGet()
-            // The repository verifies, removes, acknowledges and reads the resulting snapshot in one
-            // Room transaction. Obsolete/rejected/already-consumed events therefore cost no full
-            // playlist read, which matters when a mass deletion drains thousands of events.
-            val outcome = withContext(Dispatchers.IO) {
-                repository.consumeConfirmedMissingFollowup(item, songId)
+            withContext(NonCancellable) {
+                val outcome = withContext(Dispatchers.IO) {
+                    repository.consumeConfirmedMissingFollowups(requests)
+                }
+                val expectedRevision = outcome.playlistRevision
+                val committedPlaylists = outcome.playlists
+                if (expectedRevision != null && committedPlaylists != null) {
+                    beforeMutationAdoptForTest()
+                    adoptCommittedPublicationLocked(
+                        PlaylistPublication(committedPlaylists, expectedRevision),
+                    )
+                }
+                outcome.acknowledgedCount
             }
-            val applied =
-                outcome.disposition == PlaylistFollowupDisposition.APPLIED &&
-                    outcome.playlistRevision != null &&
-                    outcome.playlists != null
-            PlaylistFollowupStoreCommit(
-                acknowledged = outcome.acknowledged,
-                playlists = if (applied) outcome.playlists else null,
-                expectedRevision = if (applied) outcome.playlistRevision else null,
-            )
         }
-    }
-
-    internal suspend fun publishConfirmedMissingFollowup(
-        commit: PlaylistFollowupStoreCommit,
-        beforePublish: suspend () -> Unit = {},
-    ): Boolean {
-        val expectedRevision = commit.expectedRevision
-        val committedPlaylists = commit.playlists
-        if (expectedRevision != null && committedPlaylists != null) {
-            beforePublish()
-            publishIfCurrent(PlaylistPublication(committedPlaylists, expectedRevision))
-        }
-        return commit.acknowledged
     }
 
     private suspend fun initializeFromStorage() {
@@ -451,23 +434,37 @@ class PlaylistStore(
         block: suspend (List<UserPlaylist>) -> PlaylistMutationResult<T>,
     ): T {
         awaitReady()
-        val result = mutationMutex.withLock {
+        return mutationMutex.withLock {
             mutationGeneration.incrementAndGet()
-            val current = withContext(Dispatchers.IO) { repository.loadSnapshot() }
-            block(current.playlists)
+            withContext(NonCancellable) {
+                val current = withContext(Dispatchers.IO) { repository.loadSnapshot() }
+                val result = block(current.playlists)
+                result.publication?.let { publication ->
+                    beforeMutationAdoptForTest()
+                    adoptCommittedPublicationLocked(publication)
+                }
+                result.value
+            }
         }
-        result.publication?.let { publishIfCurrent(it) }
-        return result.value
     }
 
     private suspend fun publishIfCurrent(publication: PlaylistPublication) {
         mutationMutex.withLock {
             val durableRevision = withContext(Dispatchers.IO) { repository.currentRevision() }
             if (durableRevision != publication.expectedRevision) return@withLock
-            if (playlists != publication.playlists) {
-                playlists = publication.playlists
-                revision++
-            }
+            adoptCommittedPublicationLocked(publication)
+        }
+    }
+
+    /**
+     * Adopt a snapshot returned by a durable write performed while [mutationMutex] is held.
+     * No post-commit I/O is allowed here: once Room commits successfully, memory adoption is the
+     * remaining half of the same owner operation and cannot fail because of another DB round-trip.
+     */
+    private fun adoptCommittedPublicationLocked(publication: PlaylistPublication) {
+        if (playlists != publication.playlists) {
+            playlists = publication.playlists
+            revision++
         }
     }
 

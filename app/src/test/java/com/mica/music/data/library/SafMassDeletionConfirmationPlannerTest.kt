@@ -212,6 +212,49 @@ class SafMassDeletionConfirmationPlannerTest {
     }
 
     @Test
+    fun partialDiscoveryRevokesProofForExplicitlyPresentObjectsAndResetsCursor() {
+        val provedMissing = removed.toList().sorted().take(64).toSet()
+        val returned = provedMissing.take(2).toSet()
+        val existing = SafMassDeletionConfirmationPlanner.plan(
+            sourceIdentity = source,
+            activationEpoch = 3L,
+            nowMs = 1_000L,
+            quarantineReason = MassDeletionQuarantineReason.LARGE_UNVERIFIED_BATCH,
+            removedStableObjectKeys = removed,
+            existing = null,
+        ).retryUpserts.single().copy(
+            attemptCount = 4,
+            nextRetryAtMs = 500_000L,
+            continuationCursor = 64,
+            confirmedMissingKeysPayload =
+                SafMassDeletionConfirmationPlanner.encodeConfirmedMissingKeys(provedMissing),
+        )
+
+        val plan = SafMassDeletionConfirmationPlanner.plan(
+            sourceIdentity = source,
+            activationEpoch = 3L,
+            nowMs = 100_000L,
+            discoveryComplete = false,
+            quarantineReason = null,
+            removedStableObjectKeys = emptySet(),
+            existing = existing,
+            observedPresentStableObjectKeys = returned,
+        )
+
+        val reconciled = plan.retryUpserts.single()
+        assertEquals(existing.attemptCount, reconciled.attemptCount)
+        assertEquals(existing.nextRetryAtMs, reconciled.nextRetryAtMs)
+        assertEquals(0, reconciled.continuationCursor)
+        assertEquals(
+            provedMissing - returned,
+            SafMassDeletionConfirmationPlanner.decodeConfirmedMissingKeys(
+                reconciled.confirmedMissingKeysPayload,
+            ),
+        )
+        assertTrue(plan.retryDeleteKeys.isEmpty())
+    }
+
+    @Test
     fun successfulBudgetBatchAdvancesCursorWithoutIncreasingAttempt() {
         val existing = SafMassDeletionConfirmationPlanner.plan(
             sourceIdentity = source,

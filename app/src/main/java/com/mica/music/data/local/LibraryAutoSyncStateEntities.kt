@@ -234,6 +234,9 @@ interface LibraryFollowupOutboxDao {
 
     @Query("DELETE FROM library_followup_outbox WHERE eventId = :eventId")
     suspend fun deleteById(eventId: String): Int
+
+    @Query("DELETE FROM library_followup_outbox WHERE eventId IN (:eventIds)")
+    suspend fun deleteByIds(eventIds: List<String>): Int
 }
 
 @Dao

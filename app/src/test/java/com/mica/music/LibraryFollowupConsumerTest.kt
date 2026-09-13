@@ -20,9 +20,9 @@ class LibraryFollowupConsumerTest {
         val consumed = mutableListOf<Pair<String, String>>()
         val consumer = LibraryFollowupConsumer(
             loadOutboxPage = pageLoader(listOf(event)),
-            consumeConfirmedMissing = { item, songId ->
-                consumed += item.eventId to songId
-                true
+            consumeConfirmedMissing = { requests ->
+                consumed += requests.map { it.item.eventId to it.songId }
+                requests.size
             },
         )
 
@@ -36,7 +36,7 @@ class LibraryFollowupConsumerTest {
         var consumed = false
         val consumer = LibraryFollowupConsumer(
             loadOutboxPage = pageLoader(listOf(event)),
-            consumeConfirmedMissing = { _, _ -> consumed = true; false },
+            consumeConfirmedMissing = { consumed = true; 0 },
         )
 
         assertEquals(0, consumer.drain())
@@ -49,7 +49,7 @@ class LibraryFollowupConsumerTest {
         var consumed = false
         val consumer = LibraryFollowupConsumer(
             loadOutboxPage = pageLoader(listOf(event)),
-            consumeConfirmedMissing = { _, _ -> consumed = true; true },
+            consumeConfirmedMissing = { requests -> consumed = true; requests.size },
         )
 
         assertEquals(0, consumer.drain())
@@ -62,7 +62,7 @@ class LibraryFollowupConsumerTest {
         var consumed = false
         val consumer = LibraryFollowupConsumer(
             loadOutboxPage = pageLoader(listOf(event)),
-            consumeConfirmedMissing = { _, _ -> consumed = true; true },
+            consumeConfirmedMissing = { requests -> consumed = true; requests.size },
         )
 
         assertEquals(0, consumer.drain())
@@ -83,10 +83,10 @@ class LibraryFollowupConsumerTest {
         val loader = pageLoader(events) { _, limit -> pageLimits += limit }
         val consumer = LibraryFollowupConsumer(
             loadOutboxPage = loader,
-            consumeConfirmedMissing = { item, songId ->
-                acknowledged += item.eventId
-                removed += songId
-                true
+            consumeConfirmedMissing = { requests ->
+                acknowledged += requests.map { it.item.eventId }
+                removed += requests.map { it.songId }
+                requests.size
             },
         )
 
@@ -107,9 +107,10 @@ class LibraryFollowupConsumerTest {
         val pageLimits = mutableListOf<Int>()
         val consumer = LibraryFollowupConsumer(
             loadOutboxPage = pageLoader({ backlog.toList() }) { _, limit -> pageLimits += limit },
-            consumeConfirmedMissing = { item, _ ->
-                backlog.removeAll { it.eventId == item.eventId }
-                true
+            consumeConfirmedMissing = { requests ->
+                val ids = requests.mapTo(hashSetOf()) { it.item.eventId }
+                backlog.removeAll { it.eventId in ids }
+                requests.size
             },
         )
 
@@ -151,9 +152,9 @@ class LibraryFollowupConsumerTest {
                 }
                 LibraryFollowupOutboxPage(items, nextCursor)
             },
-            consumeConfirmedMissing = { _, _ ->
-                acknowledgedCount += 1
-                true
+            consumeConfirmedMissing = { requests ->
+                acknowledgedCount += requests.size
+                requests.size
             },
         )
 
@@ -181,7 +182,10 @@ class LibraryFollowupConsumerTest {
         val acknowledged = mutableListOf<String>()
         val consumer = LibraryFollowupConsumer(
             loadOutboxPage = pageLoader(events),
-            consumeConfirmedMissing = { item, _ -> acknowledged += item.eventId; true },
+            consumeConfirmedMissing = { requests ->
+                acknowledged += requests.map { it.item.eventId }
+                requests.size
+            },
         )
 
         assertEquals(0, consumer.drain())

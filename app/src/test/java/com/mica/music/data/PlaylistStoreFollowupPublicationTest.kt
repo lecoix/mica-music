@@ -3,6 +3,8 @@ package com.mica.music.data
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.mica.music.data.library.LibraryAccessState
+import com.mica.music.data.library.LibraryConfirmedMissingFollowup
+import com.mica.music.data.library.LibraryFollowupOutboxCursor
 import com.mica.music.data.library.LibraryFollowupOutboxItem
 import com.mica.music.data.library.LibraryFollowupProtocol
 import com.mica.music.data.library.LibraryIntentState
@@ -13,6 +15,8 @@ import com.mica.music.data.library.SourceActivation
 import com.mica.music.data.library.SourceIdentityKey
 import com.mica.music.data.local.LibraryRepository
 import com.mica.music.data.local.MicaDatabase
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -37,7 +41,7 @@ class PlaylistStoreFollowupPublicationTest {
     }
 
     @Test
-    fun newerPlaylistMutationWinsBetweenFollowupCommitAndMemoryPublish() = runTest {
+    fun cancellationAfterFollowupCommitCannotSkipMemoryAdoption() = runTest {
         val store = PlaylistStore(context)
         store.awaitReady()
         val songId = "missing-song"
@@ -55,23 +59,56 @@ class PlaylistStoreFollowupPublicationTest {
         val event = confirmedMissing(songId)
         repository.enqueueFollowupOutbox(event)
 
-        val followupCommit = store.commitConfirmedMissingFollowup(event, songId)
-        assertTrue(followupCommit.acknowledged)
-
-        // This mutation commits a newer durable playlist revision and publishes the full current
-        // Room snapshot (which already contains the follow-up deletion) before the old follow-up
-        // gets a chance to publish its pre-mutation memory snapshot.
-        val newer = store.createPlaylist("Newer")
-
-        assertTrue(store.publishConfirmedMissingFollowup(followupCommit))
+        val committedBeforeAdopt = CompletableDeferred<Unit>()
+        val releaseAdopt = CompletableDeferred<Unit>()
+        store.beforeMutationAdoptForTest = {
+            committedBeforeAdopt.complete(Unit)
+            releaseAdopt.await()
+        }
+        val consume = launch {
+            store.consumeConfirmedMissingFollowups(
+                listOf(LibraryConfirmedMissingFollowup(event, songId)),
+            )
+        }
+        committedBeforeAdopt.await()
+        consume.cancel()
+        releaseAdopt.complete(Unit)
+        consume.join()
 
         assertTrue(store.playlistById(original.id)?.songIds?.isEmpty() == true)
-        assertEquals(newer, store.playlistById(newer.id))
+        assertTrue(
+            repository.loadFollowupOutboxPage(
+                cursor = LibraryFollowupOutboxCursor.Start,
+                limit = 64,
+            ).items.isEmpty(),
+        )
 
         val cold = PlaylistStore(context)
         cold.awaitReady()
         assertTrue(cold.playlistById(original.id)?.songIds?.isEmpty() == true)
-        assertEquals(newer, cold.playlistById(newer.id))
+    }
+
+    @Test
+    fun cancellationAfterOrdinaryMutationCommitCannotSkipMemoryAdoption() = runTest {
+        val store = PlaylistStore(context)
+        store.awaitReady()
+        val committedBeforeAdopt = CompletableDeferred<Unit>()
+        val releaseAdopt = CompletableDeferred<Unit>()
+        store.beforeMutationAdoptForTest = {
+            committedBeforeAdopt.complete(Unit)
+            releaseAdopt.await()
+        }
+
+        val create = launch { store.createPlaylist("Committed") }
+        committedBeforeAdopt.await()
+        create.cancel()
+        releaseAdopt.complete(Unit)
+        create.join()
+
+        assertEquals("Committed", store.playlists.single().name)
+        val cold = PlaylistStore(context)
+        cold.awaitReady()
+        assertEquals("Committed", cold.playlists.single().name)
     }
 
     private fun activeState() = PersistedLibraryState(

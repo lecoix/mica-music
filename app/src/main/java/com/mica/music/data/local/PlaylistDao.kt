@@ -93,8 +93,17 @@ interface PlaylistDao {
     @Query("SELECT playlistId, position FROM playlist_songs WHERE songId = :songId")
     suspend fun getSongPositions(songId: String): List<PlaylistSongPosition>
 
+    @Query("SELECT DISTINCT playlistId FROM playlist_songs WHERE songId IN (:songIds)")
+    suspend fun getPlaylistIdsContainingAny(songIds: List<String>): List<String>
+
+    @Query("SELECT * FROM playlist_songs WHERE playlistId = :playlistId ORDER BY position ASC")
+    suspend fun getSongsForPlaylist(playlistId: String): List<PlaylistSongEntity>
+
     @Query("UPDATE playlists SET coverSongId = NULL WHERE coverSongId = :songId")
     suspend fun clearCoverSong(songId: String)
+
+    @Query("UPDATE playlists SET coverSongId = NULL WHERE coverSongId IN (:songIds)")
+    suspend fun clearCoverSongs(songIds: List<String>)
 
     @Query(
         "UPDATE playlist_songs SET position = position - 1 " +
@@ -182,6 +191,27 @@ interface PlaylistDao {
         positions.forEach { deleteSong(it.playlistId, songId) }
         positions.forEach { closePositionGap(it.playlistId, it.position) }
         clearCoverSong(songId)
+    }
+
+    /**
+     * Removes a bounded batch without repeatedly shifting the same playlist for every song.
+     * Each affected playlist is read and compacted once for the whole batch.
+     */
+    @Transaction
+    suspend fun removeSongsEverywhere(songIds: List<String>) {
+        val removals = songIds.asSequence().filter(String::isNotBlank).distinct().toList()
+        if (removals.isEmpty()) return
+        val removalSet = removals.toHashSet()
+        getPlaylistIdsContainingAny(removals).forEach { playlistId ->
+            val remaining = getSongsForPlaylist(playlistId)
+                .asSequence()
+                .filterNot { it.songId in removalSet }
+                .mapIndexed { index, row -> row.copy(position = index) }
+                .toList()
+            deleteSongs(playlistId)
+            if (remaining.isNotEmpty()) insertSongs(remaining)
+        }
+        clearCoverSongs(removals)
     }
 }
 
