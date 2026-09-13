@@ -105,6 +105,7 @@ class MainActivity : ComponentActivity(), LyricoTagEditorHost {
         (application as MicaApp).desktopLyricsOverlayStateStore.setAppInForeground(false)
         viewModel.library.onForegroundChanged(false)
         (application as MicaApp).playerController.persistPlaybackSessionNow()
+        (application as MicaApp).persistLibrarySortKeyCache()
         super.onStop()
     }
 

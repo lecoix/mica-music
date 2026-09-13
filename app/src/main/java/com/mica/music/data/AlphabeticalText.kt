@@ -1,5 +1,6 @@
 package com.mica.music.data
 
+import java.io.File
 import java.text.Collator
 import java.text.Normalizer
 import java.nio.charset.Charset
@@ -11,6 +12,11 @@ object AlphabeticalText {
     // 10k catalog worst-case QA exercises distinct title + artist + album keys (~30k).
     // Keep that working set hot without making the process cache unbounded.
     private const val NORMALIZED_TEXT_CACHE_MAX_ENTRIES = 32_768
+    private const val SORT_KEY_ALGORITHM_VERSION = 1
+    private val persistentSortKeyCache = PersistentSortKeyCache(
+        algorithmVersion = SORT_KEY_ALGORITHM_VERSION,
+        maxEntries = NORMALIZED_TEXT_CACHE_MAX_ENTRIES,
+    )
     private val markRegex = "\\p{Mn}+".toRegex()
     private val gbkCharset = Charset.forName("GBK")
     private val normalizedTextCache = object : LinkedHashMap<String, String>(
@@ -30,6 +36,18 @@ object AlphabeticalText {
         'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J', 'K', 'L', 'M', 'N',
         'O', 'P', 'Q', 'R', 'S', 'T', 'W', 'X', 'Y', 'Z',
     )
+
+    internal fun configurePersistentCache(file: File) {
+        persistentSortKeyCache.configure(file)
+    }
+
+    internal fun preloadPersistentCache() {
+        persistentSortKeyCache.preload()
+    }
+
+    internal fun persistPersistentCache() {
+        persistentSortKeyCache.persist()
+    }
 
     fun sectionFor(value: String): String {
         val key = normalizedText(value)
@@ -68,7 +86,16 @@ object AlphabeticalText {
         synchronized(normalizedTextCache) {
             normalizedTextCache[value]?.let { return it }
         }
-        val transliterated = if (value.isAscii()) {
+        val ascii = value.isAscii()
+        if (!ascii) {
+            persistentSortKeyCache[value]?.let { persisted ->
+                synchronized(normalizedTextCache) {
+                    normalizedTextCache[value] = persisted
+                }
+                return persisted
+            }
+        }
+        val transliterated = if (ascii) {
             value
         } else {
             AndroidIcu.transliterate(value) ?: fallbackSortKey(value)
@@ -77,6 +104,7 @@ object AlphabeticalText {
         synchronized(normalizedTextCache) {
             normalizedTextCache[value] = normalized
         }
+        if (!ascii) persistentSortKeyCache[value] = normalized
         return normalized
     }
 

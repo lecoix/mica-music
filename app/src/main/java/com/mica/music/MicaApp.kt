@@ -9,6 +9,7 @@ import com.mica.music.media.MediaPlaybackCapabilityReportProvider
 import com.mica.music.diagnostics.PlaybackCapabilityReportProvider
 import com.mica.music.audio.loudness.LoudnessScanPort
 import com.mica.music.imaging.MicaImageLoaders
+import com.mica.music.data.AlphabeticalText
 import com.mica.music.data.PlaybackStatisticsRepository
 import com.mica.music.data.ProcessPlaybackSongResolver
 import com.mica.music.data.PlaylistStore
@@ -34,6 +35,8 @@ import com.mica.music.util.SpatialAudioMonitor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import java.io.File
 
 class MicaApp : Application() {
     /** Process-lifetime scope for playback behavior that must outlive Activity/ViewModel owners. */
@@ -121,8 +124,14 @@ class MicaApp : Application() {
         PlaylistStore(this, processScope)
     }
 
+    fun persistLibrarySortKeyCache() {
+        processScope.launch(Dispatchers.IO) { AlphabeticalText.persistPersistentCache() }
+    }
+
     override fun onCreate() {
         super.onCreate()
+        AlphabeticalText.configurePersistentCache(File(filesDir, "library-sort-keys.bin"))
+        processScope.launch(Dispatchers.IO) { AlphabeticalText.preloadPersistentCache() }
         com.mica.music.data.preferences.UsageTutorialPreferences.initialize(this)
         ScanCacheManager.runStartupCacheCleanup(this)
         SpatialAudioMonitor.install(this)
