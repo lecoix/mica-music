@@ -10,6 +10,7 @@ import com.mica.music.testutil.SongFixtures
 import kotlin.random.Random
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -167,6 +168,37 @@ class PlayerControllerQueueModelTest {
             "updated lyric",
             controller.playbackQueueState.queue[0].lyricsDocument.lines.single().parts.single().text,
         )
+        controller.release()
+    }
+
+    @Test
+    fun removeSongByIdRemovesAllMatchingEntriesFromLiveQueue() {
+        val controller = PlayerController(ApplicationProvider.getApplicationContext())
+        val a = SongFixtures.song(id = "a")
+        val b = SongFixtures.song(id = "b")
+        val c = SongFixtures.song(id = "c")
+        controller.setQueue(listOf(a, b, a, c))
+
+        assertTrue(controller.removeSongById("a"))
+        assertEquals(listOf("b", "c"), controller.playbackQueueState.queue.map { it.id })
+        assertFalse(controller.removeSongById("a"))
+        assertEquals(listOf("b", "c"), controller.playbackQueueState.queue.map { it.id })
+
+        controller.release()
+    }
+
+    @Test
+    fun appendSongsAppendsToLiveQueueWithoutReplacingConcurrentTail() {
+        val controller = PlayerController(ApplicationProvider.getApplicationContext())
+        val a = SongFixtures.song(id = "a")
+        val b = SongFixtures.song(id = "b")
+        val c = SongFixtures.song(id = "c")
+        controller.setQueue(listOf(a, b))
+        // Simulate another owner mutation landing before append (same thread, live queue).
+        controller.insertPlayNext(c)
+        controller.appendSongs(listOf(SongFixtures.song(id = "d")))
+
+        assertEquals(listOf("a", "c", "b", "d"), controller.playbackQueueState.queue.map { it.id })
         controller.release()
     }
 

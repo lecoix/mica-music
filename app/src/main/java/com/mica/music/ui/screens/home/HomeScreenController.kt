@@ -139,16 +139,14 @@ class HomeScreenController(
     suspend fun deleteSong(
         context: Context,
         song: Song,
-        currentQueue: List<Song>,
-        setQueue: (List<Song>) -> Unit,
+        removeFromQueue: (songId: String) -> Boolean,
     ): String =
         deleteSongEverywhere(
             context = context,
             song = song,
-            currentQueue = currentQueue,
             removeFromLibrary = library::removeSongFromLibrary,
             removeFromAllPlaylists = playlistStore::removeSongFromAllPlaylists,
-            setQueue = setQueue,
+            removeFromQueue = removeFromQueue,
         ).message
 
     suspend fun deletePlaylist(

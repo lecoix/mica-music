@@ -141,10 +141,14 @@ fun openSongInTagEditor(context: Context, song: Song): Boolean {
 data class DeleteSongResult(
     val fileDeleted: Boolean,
     val libraryRemoved: Boolean,
+    val playlistCleanupSucceeded: Boolean,
     val queueChanged: Boolean,
 ) {
     val message: String
         get() = when {
+            !playlistCleanupSucceeded && fileDeleted && libraryRemoved -> "已从设备删除，但部分歌单引用清理失败"
+            !playlistCleanupSucceeded && fileDeleted -> "已从设备删除，但部分歌单引用清理失败（曲库将在下次扫描更新）"
+            !playlistCleanupSucceeded && libraryRemoved -> "已从曲库移除，但部分歌单引用清理失败（无法删除文件）"
             fileDeleted && libraryRemoved -> "已从设备删除"
             fileDeleted -> "已从设备删除（曲库将在下次扫描更新）"
             libraryRemoved -> "已从曲库移除（无法删除文件）"
@@ -155,25 +159,25 @@ data class DeleteSongResult(
 suspend fun deleteSongEverywhere(
     context: Context,
     song: Song,
-    currentQueue: List<Song>,
     removeFromLibrary: suspend (Song, persistExclusion: Boolean) -> Boolean,
-    removeFromAllPlaylists: suspend (String) -> Unit,
-    setQueue: (List<Song>) -> Unit,
+    removeFromAllPlaylists: suspend (String) -> Boolean,
+    removeFromQueue: (songId: String) -> Boolean,
     deleteFile: (Context, Song) -> Boolean = ::deleteSongFile,
 ): DeleteSongResult {
     val fileDeleted = deleteFile(context, song)
     val libraryRemoved = removeFromLibrary(song, !fileDeleted)
     val shouldRemoveReferences = fileDeleted || libraryRemoved
-    val remaining = if (shouldRemoveReferences) {
+    val playlistCleanupSucceeded = if (shouldRemoveReferences) {
         removeFromAllPlaylists(song.id)
-        currentQueue.filterNot { it.id == song.id }.also(setQueue)
     } else {
-        currentQueue
+        true
     }
+    val queueChanged = if (shouldRemoveReferences) removeFromQueue(song.id) else false
     return DeleteSongResult(
         fileDeleted = fileDeleted,
         libraryRemoved = libraryRemoved,
-        queueChanged = remaining.size != currentQueue.size,
+        playlistCleanupSucceeded = playlistCleanupSucceeded,
+        queueChanged = queueChanged,
     )
 }
 

@@ -26,7 +26,7 @@ internal class LibraryPlaybackQueueCoordinator(
         fun connectIfNeeded()
         fun bootstrapQueue(resolveSong: (String) -> Song?): Boolean
         fun setQueue(queue: List<Song>)
-        fun removeFromQueue(index: Int)
+        fun removeSongById(songId: String): Boolean
         fun refreshQueueMetadata(songs: List<Song>)
     }
 
@@ -63,11 +63,8 @@ internal class LibraryPlaybackQueueCoordinator(
                 player.setQueue(plan.songs)
             }
             is LibraryQueueSyncPlan.ReconcileQueue -> {
-                currentQueueIds.withIndex()
-                    .filter { (_, id) -> id in plan.removeIds }
-                    .map { it.index }
-                    .sortedDescending()
-                    .forEach(player::removeFromQueue)
+                // Owner-side removal: do not snapshot indices then rewrite the live queue.
+                plan.removeIds.forEach(player::removeSongById)
                 if (plan.songs.isNotEmpty()) {
                     player.refreshQueueMetadata(plan.songs)
                 }
@@ -83,14 +80,11 @@ internal class LibraryPlaybackQueueCoordinator(
             currentSongId = player.currentSongId,
             currentQueueIds = player.currentQueueIds,
         ) ?: return
-        val index = player.currentQueueIds.indexOf(orphanId)
-        if (index >= 0) {
-            DiagnosticLog.event(
-                "LibraryQueue",
-                "purge deferred orphan id=$orphanId index=$index",
-            )
-            player.removeFromQueue(index)
-        }
+        DiagnosticLog.event(
+            "LibraryQueue",
+            "purge deferred orphan id=$orphanId",
+        )
+        player.removeSongById(orphanId)
     }
 
 }
@@ -127,8 +121,8 @@ internal fun PlayerController.asLibraryPlaybackQueueTarget(): LibraryPlaybackQue
 
         override fun setQueue(queue: List<Song>) = this@asLibraryPlaybackQueueTarget.setQueue(queue)
 
-        override fun removeFromQueue(index: Int) =
-            this@asLibraryPlaybackQueueTarget.removeFromQueue(index)
+        override fun removeSongById(songId: String): Boolean =
+            this@asLibraryPlaybackQueueTarget.removeSongById(songId)
 
         override fun refreshQueueMetadata(songs: List<Song>) =
             this@asLibraryPlaybackQueueTarget.refreshQueueMetadata(songs)

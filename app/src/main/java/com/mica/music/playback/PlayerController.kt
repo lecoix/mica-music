@@ -45,6 +45,9 @@ data class PlaybackQueueState(
  * PlaybackRuntime owns MediaController lifecycle, Player.Listener semantics and playback
  * application state. This class only projects runtime snapshots into Compose state and preserves
  * the existing user-intent API used by the UI.
+ *
+ * Queue list mutations ([setQueue], [appendSongs], [removeSongById], etc.) must run on the main
+ * thread. Prefer those owner RMW APIs over snapshotting the queue across suspend points.
  */
 class PlayerController internal constructor(
     context: Context,
@@ -168,6 +171,8 @@ class PlayerController internal constructor(
 
     fun setQueue(newQueue: List<Song>) = runtime.setQueue(newQueue)
 
+    fun appendSongs(songs: List<Song>) = runtime.appendSongs(songs)
+
     fun playQueueSong(newQueue: List<Song>, songId: String) = runtime.playQueueSong(newQueue, songId)
 
     fun refreshQueueMetadata(latestSongs: List<Song>) = runtime.refreshQueueMetadata(latestSongs)
@@ -198,6 +203,8 @@ class PlayerController internal constructor(
     fun moveInQueue(fromIndex: Int, toIndex: Int) = runtime.moveInQueue(fromIndex, toIndex)
 
     fun removeFromQueue(index: Int) = runtime.removeFromQueue(index)
+
+    fun removeSongById(songId: String): Boolean = runtime.removeSongById(songId)
 
     fun playSong(index: Int) = runtime.playSong(index)
 

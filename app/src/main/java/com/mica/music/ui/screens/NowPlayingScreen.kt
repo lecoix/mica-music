@@ -151,6 +151,7 @@ data class NowPlayingActions(
     val toggleLyricsPageImmersive: () -> Unit,
     val insertPlayNext: (Song) -> Unit,
     val setQueue: (List<Song>) -> Unit,
+    val removeSongById: (String) -> Boolean,
     val setPlaybackSpeed: (Float) -> Unit,
     val setPlaybackPitchSemitones: (Float) -> Unit,
     val resetPlaybackTuning: () -> Unit,
@@ -465,10 +466,9 @@ fun NowPlayingContent(
             val result = deleteSongEverywhere(
                 context = context,
                 song = target,
-                currentQueue = queueState.queue,
                 removeFromLibrary = library::removeSongFromLibrary,
                 removeFromAllPlaylists = playlistStore::removeSongFromAllPlaylists,
-                setQueue = { actions.setQueue(it) },
+                removeFromQueue = actions.removeSongById,
             )
             snackbarHostState.showSnackbar(result.message)
         }

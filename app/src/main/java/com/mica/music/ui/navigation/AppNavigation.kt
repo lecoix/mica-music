@@ -466,6 +466,7 @@ private fun rememberNowPlayingActions(
             toggleLyricsPageImmersive = uiSettings::toggleLyricsPageImmersive,
             insertPlayNext = playerController::insertPlayNext,
             setQueue = playerController::setQueue,
+            removeSongById = playerController::removeSongById,
             setPlaybackSpeed = playerController::setPlaybackSpeed,
             setPlaybackPitchSemitones = playerController::setPlaybackPitchSemitones,
             resetPlaybackTuning = playerController::resetPlaybackTuning,
@@ -497,11 +498,8 @@ private fun rememberHomePlaybackActions(
             syncPosition = playerController::syncPosition,
             insertPlayNext = playerController::insertPlayNext,
             setQueue = playerController::setQueue,
-            appendToQueue = { songs ->
-                if (songs.isNotEmpty()) {
-                    playerController.setQueue(playerController.playbackQueueState.queue + songs)
-                }
-            },
+            removeSongById = playerController::removeSongById,
+            appendToQueue = playerController::appendSongs,
             togglePlay = playerController::togglePlay,
             previous = playerController::previous,
             next = playerController::next,

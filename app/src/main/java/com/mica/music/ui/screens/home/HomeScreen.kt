@@ -289,8 +289,7 @@ fun HomeScreen(
             val message = homeController.deleteSong(
                 context = context,
                 song = song,
-                currentQueue = playbackState.queue,
-                setQueue = playbackActions.setQueue,
+                removeFromQueue = playbackActions.removeSongById,
             )
             snackbarHostState.showSnackbar(message)
             overlay = homeController.clearPendingDeleteSong(overlay)

@@ -16,7 +16,7 @@ class LibraryPlaybackQueueCoordinatorTest {
         var currentSongIdOverride: String? = null
         var isPlayingOverride: Boolean = false
         val setQueueCalls = mutableListOf<List<Song>>()
-        val removeQueueCalls = mutableListOf<Int>()
+        val removeSongByIdCalls = mutableListOf<String>()
         val refreshCalls = mutableListOf<List<Song>>()
 
         override val currentQueueIds: List<String>
@@ -46,11 +46,11 @@ class LibraryPlaybackQueueCoordinatorTest {
             setQueueCalls += newQueue
         }
 
-        override fun removeFromQueue(index: Int) {
-            removeQueueCalls += index
-            if (index in queuedSongs.indices) {
-                queuedSongs = queuedSongs.toMutableList().also { it.removeAt(index) }
-            }
+        override fun removeSongById(songId: String): Boolean {
+            removeSongByIdCalls += songId
+            val before = queuedSongs.size
+            queuedSongs = queuedSongs.filterNot { it.id == songId }
+            return queuedSongs.size != before
         }
 
         override fun refreshQueueMetadata(songs: List<Song>) {
@@ -170,7 +170,7 @@ class LibraryPlaybackQueueCoordinatorTest {
 
         coordinator.sync("seed", libraryInput(listOf(keep, removed, tail)), target)
         target.setQueueCalls.clear()
-        target.removeQueueCalls.clear()
+        target.removeSongByIdCalls.clear()
         target.refreshCalls.clear()
 
         coordinator.sync(
@@ -183,7 +183,7 @@ class LibraryPlaybackQueueCoordinatorTest {
         )
 
         assertTrue(target.setQueueCalls.isEmpty())
-        assertEquals(listOf(1), target.removeQueueCalls)
+        assertEquals(listOf(removed.id), target.removeSongByIdCalls)
         assertEquals(listOf(keep, tail), target.queuedSongs)
         assertEquals(listOf(keep, tail), target.refreshCalls.single())
     }
@@ -201,7 +201,7 @@ class LibraryPlaybackQueueCoordinatorTest {
 
         coordinator.sync("seed", libraryInput(listOf(keep, removed)), target)
         target.setQueueCalls.clear()
-        target.removeQueueCalls.clear()
+        target.removeSongByIdCalls.clear()
         target.refreshCalls.clear()
 
         coordinator.sync(
@@ -214,7 +214,7 @@ class LibraryPlaybackQueueCoordinatorTest {
         )
 
         assertTrue(target.setQueueCalls.isEmpty())
-        assertEquals(listOf(2), target.removeQueueCalls)
+        assertEquals(listOf(removed.id), target.removeSongByIdCalls)
         assertEquals(listOf(remote, keep), target.queuedSongs)
     }
 
@@ -231,7 +231,7 @@ class LibraryPlaybackQueueCoordinatorTest {
 
         coordinator.sync("seed", libraryInput(listOf(orphan, next)), target)
         target.setQueueCalls.clear()
-        target.removeQueueCalls.clear()
+        target.removeSongByIdCalls.clear()
 
         coordinator.sync(
             reason = "auto",
@@ -243,11 +243,11 @@ class LibraryPlaybackQueueCoordinatorTest {
         )
 
         assertTrue(target.setQueueCalls.isEmpty())
-        assertTrue(target.removeQueueCalls.isEmpty())
+        assertTrue(target.removeSongByIdCalls.isEmpty())
         assertEquals(listOf(orphan, next), target.queuedSongs)
 
         coordinator.onPlaybackCurrentChanged(target)
-        assertTrue(target.removeQueueCalls.isEmpty())
+        assertTrue(target.removeSongByIdCalls.isEmpty())
     }
 
     @Test
@@ -270,12 +270,12 @@ class LibraryPlaybackQueueCoordinatorTest {
             ),
             player = target,
         )
-        target.removeQueueCalls.clear()
+        target.removeSongByIdCalls.clear()
 
         target.currentSongIdOverride = next.id
         coordinator.onPlaybackCurrentChanged(target)
 
-        assertEquals(listOf(0), target.removeQueueCalls)
+        assertEquals(listOf(orphan.id), target.removeSongByIdCalls)
         assertEquals(listOf(next), target.queuedSongs)
     }
 

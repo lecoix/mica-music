@@ -938,6 +938,7 @@ internal class PlaybackRuntime(
     }
 
     fun bootstrapQueue(resolveSong: (String) -> Song?): Boolean {
+        checkQueueWriteThread()
         val c = controller
         if (c != null && c.mediaItemCount > 0) {
             val session = sessionStorage.load()
@@ -1043,7 +1044,15 @@ internal class PlaybackRuntime(
         publishPlaybackStates()
     }
 
+    /** Queue list mutations must run on the main looper (MediaController / UI affinity). */
+    private fun checkQueueWriteThread() {
+        check(Looper.myLooper() == Looper.getMainLooper()) {
+            "Playback queue mutations must run on the main thread"
+        }
+    }
+
     fun setQueue(newQueue: List<Song>) {
+        checkQueueWriteThread()
         if (newQueue.isEmpty() && songQueue.isEmpty()) return
         pendingQueuePlaySongId = null
         pendingSingleSongId?.let { pendingId -> if (newQueue.none { it.id == pendingId }) pendingSingleSongId = null }
@@ -1092,7 +1101,22 @@ internal class PlaybackRuntime(
         applyQueue(c, orderedQueue, true, preserveId)
     }
 
+    /**
+     * Appends [songs] to the live queue. Prefer this over reading a queue snapshot and
+     * calling [setQueue] after a suspend point.
+     */
+    fun appendSongs(songs: List<Song>) {
+        checkQueueWriteThread()
+        if (songs.isEmpty()) return
+        if (songQueue.isEmpty()) {
+            setQueue(songs)
+            return
+        }
+        setQueue(songQueue + songs)
+    }
+
     fun playQueueSong(newQueue: List<Song>, songId: String) {
+        checkQueueWriteThread()
         if (newQueue.isEmpty()) return
         if (newQueue.none { it.id == songId }) return
         pendingSingleSongId = null
@@ -1130,6 +1154,7 @@ internal class PlaybackRuntime(
     }
 
     fun refreshQueueMetadata(latestSongs: List<Song>) {
+        checkQueueWriteThread()
         if (songQueue.isEmpty() || latestSongs.isEmpty()) {
             return
         }
@@ -1296,6 +1321,7 @@ internal class PlaybackRuntime(
     }
 
     fun insertPlayNext(song: Song) {
+        checkQueueWriteThread()
         if (songQueue.isEmpty()) {
             setQueue(listOf(song))
             playSong(0)
@@ -1318,6 +1344,7 @@ internal class PlaybackRuntime(
     }
 
     fun moveInQueue(fromIndex: Int, toIndex: Int) {
+        checkQueueWriteThread()
         if (fromIndex !in songQueue.indices || toIndex !in songQueue.indices || fromIndex == toIndex) return
         val queueBeforeMove = songQueue
         val activeController = controller
@@ -1336,6 +1363,7 @@ internal class PlaybackRuntime(
     }
 
     fun removeFromQueue(index: Int) {
+        checkQueueWriteThread()
         if (index !in songQueue.indices) return
         val removingCurrent = index == currentIndex
         val wasPlaying = isPlaying
@@ -1357,6 +1385,21 @@ internal class PlaybackRuntime(
                 queueCoordinator.replaceCurrentIndex(newIndex)
                 publishPlaybackStates()
             }
+        }
+    }
+
+    /**
+     * Atomically removes every queue entry with [songId] from the live queue.
+     * Callers must not snapshot the queue across suspend points and rewrite it.
+     */
+    fun removeSongById(songId: String): Boolean {
+        checkQueueWriteThread()
+        var removedAny = false
+        while (true) {
+            val index = songQueue.indexOfFirst { it.id == songId }
+            if (index < 0) return removedAny
+            removeFromQueue(index)
+            removedAny = true
         }
     }
 

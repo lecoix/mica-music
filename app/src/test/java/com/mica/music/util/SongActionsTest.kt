@@ -22,24 +22,28 @@ class SongActionsTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val current = SongFixtures.song("current")
         val next = SongFixtures.song("next")
-        var updatedQueue: List<Song>? = null
+        var liveQueue = listOf(current, next)
         var persistExclusion: Boolean? = null
 
         val result = deleteSongEverywhere(
             context = context,
             song = current,
-            currentQueue = listOf(current, next),
             removeFromLibrary = { _, persist -> persistExclusion = persist; true },
-            removeFromAllPlaylists = {},
-            setQueue = { updatedQueue = it },
+            removeFromAllPlaylists = { true },
+            removeFromQueue = { songId ->
+                val before = liveQueue.size
+                liveQueue = liveQueue.filterNot { it.id == songId }
+                liveQueue.size != before
+            },
             deleteFile = { _, _ -> true },
         )
 
         assertTrue(result.fileDeleted)
         assertFalse(persistExclusion!!)
+        assertTrue(result.playlistCleanupSucceeded)
         assertTrue(result.queueChanged)
         assertEquals("已从设备删除", result.message)
-        assertEquals(listOf(next), updatedQueue)
+        assertEquals(listOf(next), liveQueue)
     }
 
     @Test
@@ -48,21 +52,81 @@ class SongActionsTest {
         val current = SongFixtures.song("current")
         val middle = SongFixtures.song("middle")
         val tail = SongFixtures.song("tail")
-        var updatedQueue: List<Song>? = null
+        var liveQueue = listOf(current, middle, tail)
 
         val result = deleteSongEverywhere(
             context = context,
             song = middle,
-            currentQueue = listOf(current, middle, tail),
             removeFromLibrary = { _, persist -> assertFalse(persist); true },
-            removeFromAllPlaylists = {},
-            setQueue = { updatedQueue = it },
+            removeFromAllPlaylists = { true },
+            removeFromQueue = { songId ->
+                val before = liveQueue.size
+                liveQueue = liveQueue.filterNot { it.id == songId }
+                liveQueue.size != before
+            },
             deleteFile = { _, _ -> true },
         )
 
         assertTrue(result.fileDeleted)
         assertTrue(result.queueChanged)
-        assertEquals(listOf(current, tail), updatedQueue)
+        assertEquals(listOf(current, tail), liveQueue)
+    }
+
+    @Test
+    fun deleteSongEverywhereTargetsLatestQueueAfterSuspendingCleanup() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val target = SongFixtures.song("target")
+        val oldOther = SongFixtures.song("old-other")
+        val newlyQueued = SongFixtures.song("newly-queued")
+        var liveQueue = listOf(target, oldOther)
+
+        val result = deleteSongEverywhere(
+            context = context,
+            song = target,
+            removeFromLibrary = { _, _ -> true },
+            removeFromAllPlaylists = {
+                liveQueue = listOf(target, oldOther, newlyQueued)
+                true
+            },
+            removeFromQueue = { songId ->
+                val before = liveQueue.size
+                liveQueue = liveQueue.filterNot { it.id == songId }
+                liveQueue.size != before
+            },
+            deleteFile = { _, _ -> true },
+        )
+
+        assertTrue(result.queueChanged)
+        assertEquals(listOf(oldOther, newlyQueued), liveQueue)
+    }
+
+    @Test
+    fun deleteSongEverywhereRemovesFromLiveQueueAfterConcurrentMutation() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val current = SongFixtures.song("current")
+        val target = SongFixtures.song("target")
+        val other = SongFixtures.song("other")
+        val inserted = SongFixtures.song("inserted")
+        var queue = listOf(current, target, other)
+
+        val result = deleteSongEverywhere(
+            context = context,
+            song = target,
+            removeFromLibrary = { _, _ ->
+                queue = listOf(current, inserted, target, other)
+                true
+            },
+            removeFromAllPlaylists = { true },
+            removeFromQueue = { id ->
+                val changed = queue.any { it.id == id }
+                queue = queue.filterNot { it.id == id }
+                changed
+            },
+            deleteFile = { _, _ -> true },
+        )
+
+        assertTrue(result.queueChanged)
+        assertEquals(listOf(current, inserted, other), queue)
     }
 
     @Test
@@ -72,19 +136,22 @@ class SongActionsTest {
         val other = SongFixtures.song("other")
         var removedFromLibrary: String? = null
         var removedFromPlaylists: String? = null
-        var updatedQueue: List<Song>? = null
+        var liveQueue = listOf(other, target)
 
         val result = deleteSongEverywhere(
             context = context,
             song = target,
-            currentQueue = listOf(other, target),
             removeFromLibrary = { removed, persist ->
                 removedFromLibrary = removed.id
                 assertTrue(persist)
                 true
             },
-            removeFromAllPlaylists = { removedFromPlaylists = it },
-            setQueue = { updatedQueue = it },
+            removeFromAllPlaylists = { songId -> removedFromPlaylists = songId; true },
+            removeFromQueue = { songId ->
+                val before = liveQueue.size
+                liveQueue = liveQueue.filterNot { it.id == songId }
+                liveQueue.size != before
+            },
             deleteFile = { _, _ -> false },
         )
 
@@ -93,33 +160,57 @@ class SongActionsTest {
         assertEquals("已从曲库移除（无法删除文件）", result.message)
         assertEquals("target", removedFromLibrary)
         assertEquals("target", removedFromPlaylists)
-        assertEquals(listOf(other), updatedQueue)
+        assertEquals(listOf(other), liveQueue)
+    }
+
+    @Test
+    fun deleteSongEverywhereReportsPlaylistCleanupFailureButStillRemovesQueueReference() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val target = SongFixtures.song("target")
+        var liveQueue = listOf(target)
+
+        val result = deleteSongEverywhere(
+            context = context,
+            song = target,
+            removeFromLibrary = { _, _ -> true },
+            removeFromAllPlaylists = { false },
+            removeFromQueue = { songId ->
+                val before = liveQueue.size
+                liveQueue = liveQueue.filterNot { it.id == songId }
+                liveQueue.size != before
+            },
+            deleteFile = { _, _ -> true },
+        )
+
+        assertFalse(result.playlistCleanupSucceeded)
+        assertTrue(result.queueChanged)
+        assertTrue(liveQueue.isEmpty())
+        assertEquals("已从设备删除，但部分歌单引用清理失败", result.message)
     }
 
     @Test
     fun deleteSongEverywhereKeepsReferencesWhenBothDeletePathsFail() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val target = SongFixtures.song("target")
-        val other = SongFixtures.song("other")
         var playlistRemovalCalls = 0
-        var queueSetCalls = 0
+        var queueRemovalCalls = 0
 
         val result = deleteSongEverywhere(
             context = context,
             song = target,
-            currentQueue = listOf(other, target),
             removeFromLibrary = { _, persist -> assertTrue(persist); false },
-            removeFromAllPlaylists = { playlistRemovalCalls++ },
-            setQueue = { queueSetCalls++ },
+            removeFromAllPlaylists = { playlistRemovalCalls++; true },
+            removeFromQueue = { queueRemovalCalls++; true },
             deleteFile = { _, _ -> false },
         )
 
         assertFalse(result.fileDeleted)
         assertFalse(result.libraryRemoved)
+        assertTrue(result.playlistCleanupSucceeded)
         assertFalse(result.queueChanged)
         assertEquals("无法删除文件或从曲库移除", result.message)
         assertEquals(0, playlistRemovalCalls)
-        assertEquals(0, queueSetCalls)
+        assertEquals(0, queueRemovalCalls)
     }
 
     @Test

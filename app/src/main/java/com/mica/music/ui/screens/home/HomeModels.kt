@@ -29,6 +29,7 @@ data class HomePlaybackActions(
     val syncPosition: () -> Unit,
     val insertPlayNext: (Song) -> Unit,
     val setQueue: (List<Song>) -> Unit,
+    val removeSongById: (String) -> Boolean,
     val appendToQueue: (List<Song>) -> Unit,
     val togglePlay: () -> Unit,
     val previous: () -> Unit,
