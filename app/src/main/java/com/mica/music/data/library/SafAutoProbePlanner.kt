@@ -93,7 +93,32 @@ internal fun SafAutoProbePlan.shouldRequestBudgetContinuation(
 
 internal object SafAutoProbePlanner {
     private const val CONSERVATIVE_HEAVY_PROBE_PARALLELISM = 1
+    internal const val SYSTEM_EXTERNAL_STORAGE_HEAVY_PROBE_PARALLELISM = 4
+    private const val SYSTEM_EXTERNAL_STORAGE_PROVIDER_AUTHORITY =
+        "com.android.externalstorage.documents"
     internal const val DEFAULT_HEAVY_PROBE_BUDGET = 32
+    internal const val MAX_MUTATION_BURST_HEAVY_PROBE_BUDGET = 64
+
+    /**
+     * A foreground MediaStore burst commonly represents one album/folder copy. Keep the default
+     * 32-object bound for retry/UNKNOWN work, but let concrete NEW/CHANGED objects from the same
+     * complete SAF snapshot finish in one pass up to a conservative 64-object ceiling.
+     *
+     * This deliberately does not scale with catalog size and does not relax UNKNOWN verification.
+     */
+    fun heavyProbeBudgetForMutationBurst(verifyPlan: SafFastVerifyPlan): Int {
+        val concreteMutationCount = verifyPlan.added.size + verifyPlan.changed.size
+        return concreteMutationCount
+            .coerceAtMost(MAX_MUTATION_BURST_HEAVY_PROBE_BUDGET)
+            .coerceAtLeast(DEFAULT_HEAVY_PROBE_BUDGET)
+    }
+
+    fun heavyProbeParallelismForProvider(authority: String?): Int =
+        if (authority == SYSTEM_EXTERNAL_STORAGE_PROVIDER_AUTHORITY) {
+            SYSTEM_EXTERNAL_STORAGE_HEAVY_PROBE_PARALLELISM
+        } else {
+            CONSERVATIVE_HEAVY_PROBE_PARALLELISM
+        }
 
     /**
      * S4-frozen UNKNOWN deep-verify object cap.
@@ -114,12 +139,14 @@ internal object SafAutoProbePlanner {
         nowMs: Long = 0L,
         allowUnknownFingerprintVerify: Boolean = true,
         heavyProbeBudget: Int = DEFAULT_HEAVY_PROBE_BUDGET,
+        heavyProbeParallelism: Int = CONSERVATIVE_HEAVY_PROBE_PARALLELISM,
         unknownVerifyBudget: Int = UNKNOWN_VERIFY_OBJECT_BUDGET,
         alreadyResolvedStableObjectKeys: Set<String> = emptySet(),
         preselectedUnknownFingerprintVerify: List<SafTreeMetadataEntry>? = null,
         unknownFingerprintDueCountOverride: Int? = null,
     ): SafAutoProbePlan {
         require(heavyProbeBudget >= 0)
+        require(heavyProbeParallelism >= 1)
         require(unknownVerifyBudget >= 0)
 
         val reasonsByKey = linkedMapOf<String, MutableSet<SafAutoProbeReason>>()
@@ -210,7 +237,7 @@ internal object SafAutoProbePlanner {
 
         return SafAutoProbePlan(
             objects = objects,
-            heavyProbeParallelism = CONSERVATIVE_HEAVY_PROBE_PARALLELISM,
+            heavyProbeParallelism = heavyProbeParallelism,
             unknownFingerprintCandidateCount = unknownCandidates.size,
             unknownFingerprintDueCount = unknownDueCount,
             unknownFingerprintSelectedCount = selectedUnknown.size,

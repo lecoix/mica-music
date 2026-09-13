@@ -341,6 +341,73 @@ class SafAutoProbePlannerTest {
     }
 
     @Test
+    fun systemExternalStorageUsesFourProbeLanesButThirdPartyStaysSerialized() {
+        assertEquals(
+            4,
+            SafAutoProbePlanner.heavyProbeParallelismForProvider(
+                "com.android.externalstorage.documents",
+            ),
+        )
+        assertEquals(1, SafAutoProbePlanner.heavyProbeParallelismForProvider("provider.documents"))
+        assertEquals(1, SafAutoProbePlanner.heavyProbeParallelismForProvider(null))
+    }
+
+    @Test
+    fun mutationBurstBudgetLetsFiftyConcreteChangesFinishInOnePass() {
+        val changed = List(50) { index -> entry("burst-$index") }
+        val verifyPlan = verifyPlan(changed = changed)
+        val budget = SafAutoProbePlanner.heavyProbeBudgetForMutationBurst(verifyPlan)
+
+        val plan = SafAutoProbePlanner.plan(
+            verifyPlan = verifyPlan,
+            playback = LibraryPlaybackIoSnapshot.Idle,
+            heavyProbeBudget = budget,
+            allowUnknownFingerprintVerify = false,
+        )
+
+        assertEquals(50, budget)
+        assertEquals(50, plan.ready.size)
+        assertTrue(plan.budgetDeferred.isEmpty())
+    }
+
+    @Test
+    fun mutationBurstBudgetCapsLargeConcreteBurstAtSixtyFour() {
+        val changed = List(10_000) { index -> entry("burst-$index") }
+        val verifyPlan = verifyPlan(changed = changed)
+        val budget = SafAutoProbePlanner.heavyProbeBudgetForMutationBurst(verifyPlan)
+
+        val plan = SafAutoProbePlanner.plan(
+            verifyPlan = verifyPlan,
+            playback = LibraryPlaybackIoSnapshot.Idle,
+            heavyProbeBudget = budget,
+            allowUnknownFingerprintVerify = false,
+        )
+
+        assertEquals(SafAutoProbePlanner.MAX_MUTATION_BURST_HEAVY_PROBE_BUDGET, budget)
+        assertEquals(64, plan.ready.size)
+        assertEquals(9_936, plan.budgetDeferred.size)
+    }
+
+    @Test
+    fun mutationBurstBudgetDoesNotExpandPureUnknownWork() {
+        val unknown = List(100) { index ->
+            entry("unknown-burst-$index").copy(sizeBytes = 0L, lastModifiedMs = 0L)
+        }
+        val verifyPlan = verifyPlan(unknown = unknown)
+        val budget = SafAutoProbePlanner.heavyProbeBudgetForMutationBurst(verifyPlan)
+
+        val plan = SafAutoProbePlanner.plan(
+            verifyPlan = verifyPlan,
+            playback = LibraryPlaybackIoSnapshot.Idle,
+            heavyProbeBudget = budget,
+        )
+
+        assertEquals(SafAutoProbePlanner.DEFAULT_HEAVY_PROBE_BUDGET, budget)
+        assertEquals(32, plan.ready.size)
+        assertEquals(32, plan.unknownFingerprintSelectedCount)
+    }
+
+    @Test
     fun tenThousandChangedObjectsAreBoundedToOneHeavyProbeBatch() {
         val changed = List(10_000) { index ->
             entry("doc-" + index.toString().padStart(5, '0'))
