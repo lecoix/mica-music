@@ -64,6 +64,12 @@ internal class PendingMediaSelection {
     }
 }
 
+internal data class PlaybackTrackTransition(
+    val previousSongId: String?,
+    val newSongId: String?,
+    val kind: PlaybackMediaTransition,
+)
+
 internal data class PlaybackRuntimeSnapshot(
     val currentSong: Song? = null,
     val isPlaying: Boolean = false,
@@ -102,6 +108,7 @@ internal class PlaybackRuntime(
     private val stateSink: (PlaybackRuntimeSnapshot) -> Unit,
     private val playStartedSink: (String) -> Unit,
     private val listenSecondsSink: (String, Long) -> Unit,
+    private val trackTransitionSink: (PlaybackTrackTransition) -> Unit,
 ) {
     internal companion object {
         const val QUEUE_MIRROR_DEBOUNCE_MS = 100L
@@ -617,7 +624,15 @@ internal class PlaybackRuntime(
                     if (playbackError != unsupportedMessage) postUserMessage(unsupportedMessage)
                     playbackError = unsupportedMessage
                 } else playbackError = null
-                playbackStatistics.onTransition(transitionSongId, reason.toPlaybackMediaTransition())
+                val transitionKind = reason.toPlaybackMediaTransition()
+                playbackStatistics.onTransition(transitionSongId, transitionKind)
+                trackTransitionSink(
+                    PlaybackTrackTransition(
+                        previousSongId = previousSongId,
+                        newSongId = newSongId,
+                        kind = transitionKind,
+                    ),
+                )
                 timelineCoordinator.updatePlayerDuration(c.duration)
                 syncEffectivePlaybackTuning(reason = "transition")
                 publishPlaybackStates()

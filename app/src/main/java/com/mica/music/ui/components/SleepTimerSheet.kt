@@ -67,9 +67,11 @@ import kotlin.math.abs
 fun SleepTimerSheet(
     isActive: Boolean,
     activeRemainingLabel: String?,
+    waitingForTrackEnd: Boolean = false,
     initialMinutes: Int = SleepTimerPreferences.DEFAULT_DURATION_MINUTES,
+    initialExtendToTrackEnd: Boolean = false,
     onDismiss: () -> Unit,
-    onSelectMinutes: (Int) -> Unit,
+    onSelectMinutes: (Int, Boolean) -> Unit,
     onCancel: () -> Unit,
     landscape: Boolean = false,
 ) {
@@ -83,6 +85,7 @@ fun SleepTimerSheet(
             SleepTimerPreferences.DEFAULT_DURATION_MINUTES,
         )
     var stepIndex by remember { mutableIntStateOf(defaultStep) }
+    var extendToTrackEnd by remember(initialExtendToTrackEnd) { mutableStateOf(initialExtendToTrackEnd) }
     val selectedMinutes = SleepTimerController.minutesAtStep(stepIndex)
 
     val content: @Composable () -> Unit = {
@@ -123,7 +126,7 @@ fun SleepTimerSheet(
             }
             if (isActive && activeRemainingLabel != null) {
                 Text(
-                    text = "当前剩余 $activeRemainingLabel",
+                    text = if (waitingForTrackEnd) "已到设定时间，将在当前曲结束后停止" else "当前剩余 $activeRemainingLabel",
                     style = MicaTheme.typography.bodySm,
                     color = MicaTheme.colors.accent,
                 )
@@ -142,11 +145,34 @@ fun SleepTimerSheet(
                 modifier = Modifier.fillMaxWidth(),
             )
 
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { extendToTrackEnd = !extendToTrackEnd }
+                    .padding(vertical = HifiSpacing.xs),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(HifiSpacing.sm),
+            ) {
+                SongSelectionCheckbox(selected = extendToTrackEnd)
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "自动延长到当前曲结束",
+                        style = MicaTheme.typography.bodyMd,
+                        color = MicaTheme.colors.textPrimary,
+                    )
+                    Text(
+                        text = "到点后不切断当前曲，仅在当前曲最后 30 秒渐弱。",
+                        style = MicaTheme.typography.bodySm,
+                        color = MicaTheme.colors.textSecondary,
+                    )
+                }
+            }
+
             SleepTimerActionBar(
                 label = if (isActive) "更新定时" else "开始定时 ($selectedMinutes 分钟)",
                 backgroundColor = Color.Transparent,
                 labelColor = MicaTheme.colors.accent,
-                onClick = { onSelectMinutes(selectedMinutes) },
+                onClick = { onSelectMinutes(selectedMinutes, extendToTrackEnd) },
             )
 
             if (isActive) {

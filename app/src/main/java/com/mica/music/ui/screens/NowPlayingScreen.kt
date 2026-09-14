@@ -401,6 +401,8 @@ fun NowPlayingContent(
     } else {
         null
     }
+    val sleepTimerWaitingForTrackEnd = sleepTimer.isWaitingForTrackEnd
+    val sleepTimerExtendToTrackEnd = sleepTimer.state?.extendToTrackEnd ?: sleepTimer.lastExtendToTrackEnd
     val playbackTuningAvailable = !DsdSupport.isDsdSong(song)
 
     LaunchedEffect(playbackTuningAvailable) {
@@ -2313,14 +2315,21 @@ fun NowPlayingContent(
             SleepTimerSheet(
                 isActive = sleepTimerActive,
                 activeRemainingLabel = sleepTimerRemainingLabel,
+                waitingForTrackEnd = sleepTimerWaitingForTrackEnd,
                 initialMinutes = sleepTimer.lastDurationMinutes,
+                initialExtendToTrackEnd = sleepTimerExtendToTrackEnd,
                 onDismiss = { sleepTimerSheetOpen = false },
-                onSelectMinutes = { minutes ->
-                    sleepTimer.start(minutes)
+                onSelectMinutes = { minutes, extendToTrackEnd ->
+                    sleepTimer.start(minutes, extendToTrackEnd)
                     sleepTimerSheetOpen = false
                     scope.launch {
                         val label = com.mica.music.playback.SleepTimerController.presetLabel(minutes)
-                        snackbarHostState.showSnackbar("将在 $label 后停止播放")
+                        val message = if (extendToTrackEnd) {
+                            "将在 $label 后等待当前曲结束并停止播放"
+                        } else {
+                            "将在 $label 后停止播放"
+                        }
+                        snackbarHostState.showSnackbar(message)
                     }
                 },
                 onCancel = {

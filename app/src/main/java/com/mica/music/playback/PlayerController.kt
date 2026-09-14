@@ -13,7 +13,10 @@ import com.mica.music.media.PlaybackOutputStatus
 import com.mica.music.media.PlaybackOutputStatusMonitor
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 
 data class PlaybackSurfaceState(
     val currentSong: Song? = null,
@@ -86,6 +89,9 @@ class PlayerController internal constructor(
 
     var onSongListenSecondsAdded: ((songId: String, seconds: Long) -> Unit)? = null
 
+    private val _trackTransitionEvents = MutableSharedFlow<PlaybackTrackTransition>(extraBufferCapacity = 4)
+    internal val trackTransitionEvents: SharedFlow<PlaybackTrackTransition> = _trackTransitionEvents.asSharedFlow()
+
     var userMessage by mutableStateOf<UserMessage?>(null)
         private set
 
@@ -111,6 +117,7 @@ class PlayerController internal constructor(
         stateSink = ::applyRuntimeSnapshot,
         playStartedSink = { songId -> onSongPlayStarted?.invoke(songId) },
         listenSecondsSink = { songId, seconds -> onSongListenSecondsAdded?.invoke(songId, seconds) },
+        trackTransitionSink = { event -> _trackTransitionEvents.tryEmit(event) },
     )
 
     private fun applyRuntimeSnapshot(snapshot: PlaybackRuntimeSnapshot) {
