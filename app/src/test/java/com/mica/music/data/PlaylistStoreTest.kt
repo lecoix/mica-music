@@ -105,6 +105,20 @@ class PlaylistStoreTest {
     }
 
     @Test
+    fun setCoverSongRejectsSongOutsidePlaylist() = runTest {
+        val memberSong = SongFixtures.song("member")
+        val outsideSong = SongFixtures.song("outside")
+        val store = PlaylistStore(context)
+        val playlist = store.createPlaylist("Cover scope")
+        store.addSongToPlaylist(playlist.id, memberSong.id)
+
+        assertFalse(store.setCoverSong(playlist.id, outsideSong.id))
+        assertEquals(null, store.playlistById(playlist.id)?.coverSongId)
+        assertTrue(store.setCoverSong(playlist.id, memberSong.id))
+        assertEquals(memberSong.id, store.playlistById(playlist.id)?.coverSongId)
+    }
+
+    @Test
     fun removingCoverSongClearsTheSongCoverReference() = runTest {
         val song = SongFixtures.song("cover-song")
         val store = PlaylistStore(context)

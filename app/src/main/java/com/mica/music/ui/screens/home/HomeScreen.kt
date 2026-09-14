@@ -1395,7 +1395,7 @@ fun HomeScreen(
             val playlist = playlistStore.playlistById(playlistId)
             if (playlist != null) {
                 PlaylistCoverSongSheet(
-                    songs = availablePlaylistSongs,
+                    songs = playlistStore.songsForPlaylist(playlistId, resolvePlaylistSong),
                     selectedSongId = playlist.coverSongId,
                     onSelect = { song ->
                         scope.launch {

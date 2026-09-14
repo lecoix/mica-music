@@ -173,8 +173,21 @@ class PlaylistStore(
         )
     }
 
-    suspend fun setCoverSong(playlistId: String, songId: String?): Boolean = updatePlaylist(playlistId) {
-        it.copy(coverSongId = songId, customCoverPath = null)
+    suspend fun setCoverSong(playlistId: String, songId: String?): Boolean = mutate { current ->
+        val index = current.indexOfFirst { it.id == playlistId }
+        if (index < 0) return@mutate PlaylistMutationResult(false)
+        val target = current[index]
+        if (songId != null && songId !in target.songIds) {
+            return@mutate PlaylistMutationResult(false)
+        }
+        val updated = target.copy(coverSongId = songId, customCoverPath = null)
+        if (updated == target) return@mutate PlaylistMutationResult(true)
+        val storageRevision = writeStorage("set-cover-song") { updatePlaylistMetadata(updated, index) }
+            ?: return@mutate PlaylistMutationResult(false)
+        PlaylistMutationResult(
+            value = true,
+            publication = PlaylistPublication(current.toMutableList().also { it[index] = updated }, storageRevision),
+        )
     }
 
     suspend fun setCustomCoverPath(playlistId: String, path: String?): Boolean = updatePlaylist(playlistId) {
