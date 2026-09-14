@@ -264,6 +264,85 @@ class LibraryBrowseTest {
     }
 
     @Test
+    fun unknownArtistAndAlbumStayLastForEveryBrowseSort() {
+        val songs = listOf(
+            SongFixtures.song(id = "known-a").copy(artist = "Alpha", album = "Alpha Album", year = 1990),
+            SongFixtures.song(id = "known-z").copy(artist = "Zulu", album = "Zulu Album", year = 2020),
+            SongFixtures.song(id = "unknown-artist-1").copy(artist = "", album = "Known Album 1", year = 2026),
+            SongFixtures.song(id = "unknown-artist-2").copy(artist = "", album = "Known Album 2", year = 2026),
+            SongFixtures.song(id = "unknown-album-1").copy(
+                artist = "Able",
+                albumArtist = "Able",
+                album = "",
+                year = 2026,
+            ),
+            SongFixtures.song(id = "unknown-album-2").copy(
+                artist = "Able",
+                albumArtist = "Able",
+                album = "",
+                year = 2026,
+            ),
+        )
+        val artistGroups = LibraryBrowse.groupByArtist(songs)
+        val albumGroups = LibraryBrowse.groupByAlbum(songs)
+
+        assertEquals("未知艺术家", artistGroups.last().title)
+        assertEquals("未知专辑", albumGroups.last().title)
+        ArtistBrowseSortField.entries.forEach { field ->
+            listOf(SortDirection.ASC, SortDirection.DESC).forEach { direction ->
+                assertEquals(
+                    "artist field=$field direction=$direction",
+                    "未知艺术家",
+                    LibraryBrowse.sortArtistGroups(artistGroups, field, direction).last().title,
+                )
+            }
+        }
+        AlbumBrowseSortField.entries.forEach { field ->
+            listOf(SortDirection.ASC, SortDirection.DESC).forEach { direction ->
+                assertEquals(
+                    "album field=$field direction=$direction",
+                    "未知专辑",
+                    LibraryBrowse.sortAlbumGroups(albumGroups, field, direction).last().title,
+                )
+            }
+        }
+    }
+
+    @Test
+    fun persistedBrowseOrderPinsUnknownGroupsLastAndRefreshesFastScrollIndex() {
+        val staleArtistGroups = listOf(
+            BrowseGroup(title = "未知艺术家", subtitle = "2 首", songCount = 2),
+            BrowseGroup(title = "Alpha", subtitle = "1 首", songCount = 1),
+        )
+        val staleAlbumGroups = listOf(
+            BrowseGroup(title = "未知专辑", subtitle = "Able", songCount = 2),
+            BrowseGroup(title = "Alpha Album", subtitle = "Alpha", songCount = 1),
+        )
+
+        val artists = LibraryBrowse.artistGroupPresentationFromPersistedOrder(
+            staleArtistGroups,
+            ArtistBrowseSortField.TITLE,
+            sectionTargets = mapOf("stale" to 0),
+        )
+        val albums = LibraryBrowse.albumGroupPresentationFromPersistedOrder(
+            staleAlbumGroups,
+            AlbumBrowseSortField.TITLE,
+            sectionTargets = mapOf("stale" to 0),
+        )
+
+        assertEquals(listOf("Alpha", "未知艺术家"), artists.groups.map { it.title })
+        assertEquals(listOf("Alpha Album", "未知专辑"), albums.groups.map { it.title })
+        assertEquals(
+            LibraryFastScrollIndex.sectionTargets(artists.fastScrollIndex!!.labels),
+            artists.fastScrollIndex!!.sectionTargets,
+        )
+        assertEquals(
+            LibraryFastScrollIndex.sectionTargets(albums.fastScrollIndex!!.labels),
+            albums.fastScrollIndex!!.sectionTargets,
+        )
+    }
+
+    @Test
     fun browseGroupPresentationPrecomputesFastScrollIndexWhenAlphabetical() {
         val songs = listOf(
             SongFixtures.song(id = "a").copy(album = "Alpha", artist = "Artist A"),

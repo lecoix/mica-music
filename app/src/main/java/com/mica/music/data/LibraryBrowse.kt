@@ -93,6 +93,7 @@ data class AlbumBrowseKey(
     }
 }
 
+private const val UNKNOWN_ARTIST = "未知艺术家"
 private const val UNKNOWN_ALBUM = "未知专辑"
 
 data class BrowseGroupPresentation(
@@ -234,6 +235,7 @@ object LibraryBrowse {
                 coverColorArgb = artworkSong?.coverColorArgb ?: BrowseFallbackColorArgb,
             )
         }.sortedWith(AlphabeticalText.comparator({ it.title }, collator))
+            .withUnknownArtistLast()
     }
 
     fun groupByAlbum(songs: List<Song>): List<BrowseGroup> =
@@ -255,6 +257,7 @@ object LibraryBrowse {
                 )
             }
             .sortedWith(AlphabeticalText.comparator({ it.title }, collator))
+            .withUnknownAlbumLast()
 
     fun sortArtistGroups(
         groups: List<BrowseGroup>,
@@ -265,7 +268,7 @@ object LibraryBrowse {
             return groups.sortedWith(
                 compareByDescending<BrowseGroup> { it.songCount }
                     .then(AlphabeticalText.comparator({ it.title }, collator)),
-            )
+            ).withUnknownArtistLast()
         }
         val sorted = when (field) {
             ArtistBrowseSortField.TITLE -> groups.sortedWith(AlphabeticalText.comparator({ it.title }, collator))
@@ -274,11 +277,12 @@ object LibraryBrowse {
                     .then(AlphabeticalText.comparator({ it.title }, collator)),
             )
         }
-        return if (direction == SortDirection.DESC && field != ArtistBrowseSortField.SONG_COUNT) {
+        val directed = if (direction == SortDirection.DESC && field != ArtistBrowseSortField.SONG_COUNT) {
             sorted.reversed()
         } else {
             sorted
         }
+        return directed.withUnknownArtistLast()
     }
 
     fun sortAlbumGroups(
@@ -290,7 +294,7 @@ object LibraryBrowse {
             return groups.sortedWith(
                 compareByDescending<BrowseGroup> { it.songCount }
                     .then(AlphabeticalText.comparator({ it.title }, collator)),
-            )
+            ).withUnknownAlbumLast()
         }
         val sorted = when (field) {
             AlbumBrowseSortField.TITLE -> groups.sortedWith(AlphabeticalText.comparator({ it.title }, collator))
@@ -304,11 +308,12 @@ object LibraryBrowse {
                     .then(AlphabeticalText.comparator({ it.title }, collator)),
             )
         }
-        return if (direction == SortDirection.DESC && field != AlbumBrowseSortField.YEAR) {
+        val directed = if (direction == SortDirection.DESC && field != AlbumBrowseSortField.YEAR) {
             sorted.reversed()
         } else {
             sorted
         }
+        return directed.withUnknownAlbumLast()
     }
 
     fun artistGroupPresentation(
@@ -335,10 +340,17 @@ object LibraryBrowse {
         groups: List<BrowseGroup>,
         field: ArtistBrowseSortField,
         sectionTargets: Map<String, Int>?,
-    ): BrowseGroupPresentation = BrowseGroupPresentation(
-        groups = groups,
-        fastScrollIndex = persistedFastScrollIndex(artistFastScrollLabels(groups, field), sectionTargets),
-    )
+    ): BrowseGroupPresentation {
+        val pinnedGroups = groups.withUnknownArtistLast()
+        return BrowseGroupPresentation(
+            groups = pinnedGroups,
+            fastScrollIndex = persistedFastScrollIndex(
+                artistFastScrollLabels(pinnedGroups, field),
+                sectionTargets,
+                orderChanged = pinnedGroups !== groups,
+            ),
+        )
+    }
 
     fun albumGroupPresentation(
         songs: List<Song>,
@@ -364,10 +376,17 @@ object LibraryBrowse {
         groups: List<BrowseGroup>,
         field: AlbumBrowseSortField,
         sectionTargets: Map<String, Int>?,
-    ): BrowseGroupPresentation = BrowseGroupPresentation(
-        groups = groups,
-        fastScrollIndex = persistedFastScrollIndex(albumFastScrollLabels(groups, field), sectionTargets),
-    )
+    ): BrowseGroupPresentation {
+        val pinnedGroups = groups.withUnknownAlbumLast()
+        return BrowseGroupPresentation(
+            groups = pinnedGroups,
+            fastScrollIndex = persistedFastScrollIndex(
+                albumFastScrollLabels(pinnedGroups, field),
+                sectionTargets,
+                orderChanged = pinnedGroups !== groups,
+            ),
+        )
+    }
 
     private fun artistFastScrollLabels(groups: List<BrowseGroup>, field: ArtistBrowseSortField): List<String>? =
         when (field) {
@@ -395,8 +414,34 @@ object LibraryBrowse {
     private fun persistedFastScrollIndex(
         labels: List<String>?,
         sectionTargets: Map<String, Int>?,
+        orderChanged: Boolean = false,
     ): FastScrollIndex? = labels?.let { values ->
-        sectionTargets?.let { FastScrollIndex(values, it) }
+        sectionTargets?.let {
+            FastScrollIndex(
+                labels = values,
+                sectionTargets = if (orderChanged) LibraryFastScrollIndex.sectionTargets(values) else it,
+            )
+        }
+    }
+
+    private fun List<BrowseGroup>.withUnknownArtistLast(): List<BrowseGroup> =
+        stableMoveToEnd { it.title == UNKNOWN_ARTIST }
+
+    private fun List<BrowseGroup>.withUnknownAlbumLast(): List<BrowseGroup> =
+        stableMoveToEnd { it.title == UNKNOWN_ALBUM }
+
+    private inline fun List<BrowseGroup>.stableMoveToEnd(
+        predicate: (BrowseGroup) -> Boolean,
+    ): List<BrowseGroup> {
+        val firstPinned = indexOfFirst(predicate)
+        if (firstPinned < 0 || subList(firstPinned, size).all(predicate)) return this
+        val regular = ArrayList<BrowseGroup>(size)
+        val pinned = ArrayList<BrowseGroup>()
+        forEach { group ->
+            if (predicate(group)) pinned += group else regular += group
+        }
+        regular.addAll(pinned)
+        return regular
     }
 
     private fun summarizeAlbumArtists(songs: List<Song>): String {
