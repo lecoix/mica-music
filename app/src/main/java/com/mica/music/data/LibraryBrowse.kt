@@ -93,7 +93,7 @@ data class AlbumBrowseKey(
     }
 }
 
-private const val UNKNOWN_ARTIST = "未知艺术家"
+private val UNKNOWN_ARTIST_TITLES = setOf("未知艺术家", "未知艺人")
 private const val UNKNOWN_ALBUM = "未知专辑"
 
 data class BrowseGroupPresentation(
@@ -425,7 +425,7 @@ object LibraryBrowse {
     }
 
     private fun List<BrowseGroup>.withUnknownArtistLast(): List<BrowseGroup> =
-        stableMoveToEnd { it.title == UNKNOWN_ARTIST }
+        stableMoveToEnd { it.title in UNKNOWN_ARTIST_TITLES }
 
     private fun List<BrowseGroup>.withUnknownAlbumLast(): List<BrowseGroup> =
         stableMoveToEnd { it.title == UNKNOWN_ALBUM }

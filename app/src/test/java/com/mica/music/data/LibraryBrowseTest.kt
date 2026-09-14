@@ -309,6 +309,26 @@ class LibraryBrowseTest {
     }
 
     @Test
+    fun scannerUnknownArtistAliasAlsoStaysLast() {
+        val groups = LibraryBrowse.groupByArtist(
+            listOf(
+                SongFixtures.song(id = "known").copy(artist = "Alpha"),
+                SongFixtures.song(id = "scanner-unknown").copy(artist = "未知艺人"),
+            ),
+        )
+
+        ArtistBrowseSortField.entries.forEach { field ->
+            listOf(SortDirection.ASC, SortDirection.DESC).forEach { direction ->
+                assertEquals(
+                    "scanner alias field=$field direction=$direction",
+                    "未知艺人",
+                    LibraryBrowse.sortArtistGroups(groups, field, direction).last().title,
+                )
+            }
+        }
+    }
+
+    @Test
     fun persistedBrowseOrderPinsUnknownGroupsLastAndRefreshesFastScrollIndex() {
         val staleArtistGroups = listOf(
             BrowseGroup(title = "未知艺术家", subtitle = "2 首", songCount = 2),
