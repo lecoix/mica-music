@@ -1,18 +1,24 @@
 package com.mica.music.media
 
 import android.content.Context
+import android.os.Looper
+import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.test.core.app.ApplicationProvider
 import com.mica.music.data.Song
 import com.mica.music.data.TrackMetadata
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 
 @UnstableApi
 @RunWith(RobolectricTestRunner::class)
@@ -63,6 +69,59 @@ class MicaSessionPresentationPlayerTest {
             assertEquals(0, source.currentMediaItemIndex)
         } finally {
             source.release()
+        }
+    }
+
+    @Test
+    fun loadingSafePlayerClearsLoadingWhileIdleOrEnded() {
+        val inner = newPlayer()
+        try {
+            val alwaysLoading = object : ForwardingPlayer(inner) {
+                override fun isLoading(): Boolean = true
+            }
+            val safe = LoadingSafePlayer(alwaysLoading)
+
+            // Fresh ExoPlayer is IDLE; loading must be coerced off for State validity.
+            assertEquals(Player.STATE_IDLE, safe.playbackState)
+            assertTrue(alwaysLoading.isLoading)
+            assertFalse(safe.isLoading)
+
+            inner.setMediaItem(item(song("one", "One")))
+            inner.prepare()
+            shadowOf(Looper.getMainLooper()).idle()
+            // While buffering/ready, passthrough remains true.
+            if (safe.playbackState != Player.STATE_IDLE && safe.playbackState != Player.STATE_ENDED) {
+                assertTrue(safe.isLoading)
+            }
+        } finally {
+            inner.release()
+        }
+    }
+
+    @Test
+    fun presentationGetStateSurvivesEndedWhileSourceReportsLoading() {
+        // Repro for crash-20260915-001447: shuffle/mode changes at STATE_ENDED can leave
+        // ExoPlayer.isLoading=true; ForwardingSimpleBasePlayer must not build illegal State.
+        val inner = newPlayer()
+        try {
+            val endedAndLoading = object : ForwardingPlayer(inner) {
+                override fun getPlaybackState(): Int = Player.STATE_ENDED
+                override fun isLoading(): Boolean = true
+            }
+            val presentation = MicaSessionPresentationPlayer(endedAndLoading)
+            shadowOf(Looper.getMainLooper()).idle()
+
+            assertEquals(Player.STATE_ENDED, presentation.playbackState)
+            assertFalse(presentation.isLoading)
+
+            // Touch metadata/state paths that call getState() (same as MediaSession invalidate).
+            presentation.mediaMetadata
+            presentation.publishLyric(song("one", "One"), "line")
+            shadowOf(Looper.getMainLooper()).idle()
+            assertEquals(Player.STATE_ENDED, presentation.playbackState)
+            assertFalse(presentation.isLoading)
+        } finally {
+            inner.release()
         }
     }
 

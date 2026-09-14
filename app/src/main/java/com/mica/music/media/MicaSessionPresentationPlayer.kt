@@ -1,6 +1,7 @@
 package com.mica.music.media
 
 import androidx.annotation.OptIn
+import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.ForwardingSimpleBasePlayer
 import androidx.media3.common.Player
 import androidx.media3.common.SimpleBasePlayer
@@ -19,11 +20,16 @@ internal interface NotificationLyricsPresentationSink {
  * The wrapped playback player remains the only queue/control authority. This layer changes only
  * the metadata snapshot exposed by MediaSession, avoiding the second active MediaSessionCompat
  * previously used for NetEase-style car lyrics.
+ *
+ * Media3's [ForwardingSimpleBasePlayer] copies [Player.isLoading] verbatim. ExoPlayer can briefly
+ * report `isLoading=true` while already in [Player.STATE_ENDED] / [Player.STATE_IDLE] (e.g. after
+ * shuffle/repeat changes at the end of a queue). [SimpleBasePlayer.State] rejects that combo and
+ * crashes the process; [LoadingSafePlayer] coerces loading off in those states.
  */
 @OptIn(UnstableApi::class)
 internal class MicaSessionPresentationPlayer(
     private val sourcePlayer: Player,
-) : ForwardingSimpleBasePlayer(sourcePlayer), NotificationLyricsPresentationSink {
+) : ForwardingSimpleBasePlayer(LoadingSafePlayer(sourcePlayer)), NotificationLyricsPresentationSink {
     private data class LyricPresentation(
         val mediaId: String,
         val title: String,
@@ -65,5 +71,20 @@ internal class MicaSessionPresentationPlayer(
         return state.buildUpon()
             .setPlaylist(state.timeline, state.currentTracks, metadata)
             .build()
+    }
+}
+
+/**
+ * Forwards to [player] but never reports loading while idle/ended, matching SimpleBasePlayer's
+ * State invariant (Media3 #2133 / #2873).
+ */
+@OptIn(UnstableApi::class)
+internal class LoadingSafePlayer(
+    player: Player,
+) : ForwardingPlayer(player) {
+    override fun isLoading(): Boolean {
+        val state = playbackState
+        if (state == Player.STATE_IDLE || state == Player.STATE_ENDED) return false
+        return super.isLoading()
     }
 }
