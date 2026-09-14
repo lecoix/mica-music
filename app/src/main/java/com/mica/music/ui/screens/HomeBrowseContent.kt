@@ -1482,8 +1482,8 @@ private fun BrowseGroupGeometryLayer(
         userScrollEnabled = interactive,
         contentPadding = if (normalizedColumns > 1) {
             PaddingValues(
-                start = HifiSpacing.lg,
-                end = HifiSpacing.lg,
+                start = HifiSpacing.md,
+                end = HifiSpacing.md,
                 bottom = listBottomPadding,
             )
         } else {
@@ -1513,7 +1513,7 @@ private fun BrowseGroupGeometryLayer(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable(enabled = interactive) { onSelect(group) },
-                    verticalArrangement = Arrangement.spacedBy(HifiSpacing.sm),
+                    verticalArrangement = Arrangement.spacedBy(HifiSpacing.xs),
                 ) {
                     Spacer(Modifier.fillMaxWidth().aspectRatio(1f))
                     Text(
@@ -1572,8 +1572,8 @@ private fun BrowseGroupMorphOverlay(
     val upperVSpacing = with(density) { (if (safeUpperColumns > 1) HifiSpacing.lg else 0.dp).toPx() }
     // LazyGridItemInfo offsets are relative to the padded content area. The visible overlay is in
     // viewport coordinates, so restore the grid's start inset just like SongListPanel does.
-    val lowerCrossInset = with(density) { (if (safeLowerColumns > 1) HifiSpacing.lg else 0.dp).toPx() }
-    val upperCrossInset = with(density) { (if (safeUpperColumns > 1) HifiSpacing.lg else 0.dp).toPx() }
+    val lowerCrossInset = with(density) { (if (safeLowerColumns > 1) HifiSpacing.md else 0.dp).toPx() }
+    val upperCrossInset = with(density) { (if (safeUpperColumns > 1) HifiSpacing.md else 0.dp).toPx() }
 
     val records = candidateIndices.mapNotNull { index ->
         val group = groups.getOrNull(index) ?: return@mapNotNull null
@@ -1707,18 +1707,15 @@ private fun BrowseGroupSceneItem(
     gridTitleMaxLines: Int,
 ) {
     val density = LocalDensity.current
-    val configuration = LocalConfiguration.current
     val p = if (transitionActive) progress.coerceIn(0f, 1f) else 0f
     val lowerScene = browseChildScene(
         columns = lowerColumns,
         itemWidthPx = lowerWidthPx,
-        screenWidthDp = configuration.screenWidthDp,
         density = density,
     )
     val upperScene = browseChildScene(
         columns = upperColumns,
         itemWidthPx = upperWidthPx,
-        screenWidthDp = configuration.screenWidthDp,
         density = density,
     )
     val coverSize = browseLerp(lowerScene.coverSize, upperScene.coverSize, p).coerceAtLeast(1f)
@@ -1831,7 +1828,6 @@ private fun BrowseGroupSceneItem(
 private fun browseChildScene(
     columns: Int,
     itemWidthPx: Float,
-    screenWidthDp: Int,
     density: androidx.compose.ui.unit.Density,
 ): BrowseChildScene {
     val normalizedColumns = columns.coerceIn(1, 4)
@@ -1868,19 +1864,13 @@ private fun browseChildScene(
         )
     }
 
-    // Poweramp's public scene resources use ~0.675/0.75 for compact-grid title,
-    // ~0.625/0.70 for line2, and ~0.9 for the largest grid. Keep Mica's own
-    // endpoints but reproduce that independent scene scaling model.
-    val largeGrid = normalizedColumns == 2
-    val compactTitleScale = if (screenWidthDp >= 360) 0.75f else 0.675f
-    val compactLine2Scale = if (screenWidthDp >= 360) 0.70f else 0.625f
-    val titleScale = if (largeGrid) 0.90f else compactTitleScale
-    val line2Scale = if (largeGrid) 0.86f else compactLine2Scale
+    // Match SongListPanel's grid typography and spacing exactly.
+    val titleScale = 14f / 16f
+    val subtitleScale = 1f
     val textInset = 0f
     val textWidth = (itemWidth - textInset * 2f).coerceAtLeast(1f)
-    val gridGap = dp(HifiSpacing.sm)
+    val gridGap = dp(HifiSpacing.xs)
     val titleY = itemWidth + gridGap
-    val visibleTitleLineHeight = dp(24.dp) * titleScale
 
     return BrowseChildScene(
         coverX = 0f,
@@ -1891,8 +1881,8 @@ private fun browseChildScene(
         titleScale = titleScale,
         titleVisibleWidth = textWidth,
         subtitleX = textInset,
-        subtitleY = titleY + visibleTitleLineHeight + dp(HifiSpacing.xs),
-        subtitleScale = line2Scale,
+        subtitleY = titleY + dp(20.dp) + gridGap,
+        subtitleScale = subtitleScale,
         subtitleVisibleWidth = textWidth,
         arrowX = arrowX,
         arrowY = arrowY,
