@@ -16,6 +16,7 @@ import com.mica.music.data.library.SourceIdentityKey
 import com.mica.music.data.local.LibraryRepository
 import com.mica.music.data.local.MicaDatabase
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -58,6 +59,7 @@ class PlaylistStoreFollowupPublicationTest {
         )
         val event = confirmedMissing(songId)
         repository.enqueueFollowupOutbox(event)
+        val library = MusicLibrary(context)
 
         val committedBeforeAdopt = CompletableDeferred<Unit>()
         val releaseAdopt = CompletableDeferred<Unit>()
@@ -66,7 +68,8 @@ class PlaylistStoreFollowupPublicationTest {
             releaseAdopt.await()
         }
         val consume = launch {
-            store.consumeConfirmedMissingFollowups(
+            library.consumeConfirmedMissingFollowups(
+                store,
                 listOf(LibraryConfirmedMissingFollowup(event, songId)),
             )
         }
@@ -86,6 +89,41 @@ class PlaylistStoreFollowupPublicationTest {
         val cold = PlaylistStore(context)
         cold.awaitReady()
         assertTrue(cold.playlistById(original.id)?.songIds?.isEmpty() == true)
+        library.release()
+    }
+
+    @Test
+    fun userEditWaitsForFollowupAdoptionAndSurvivesDuplicateReplay() = runTest {
+        val store = PlaylistStore(context)
+        store.awaitReady()
+        val original = store.createPlaylist("Original")
+        store.addSongToPlaylist(original.id, "missing-song")
+        val repository = LibraryRepository(MicaDatabase.get(context))
+        repository.commitScanAuthority(
+            songs = emptyList(), lastScanAtMs = 100L,
+            lastScanSource = ScanSource.DEVICE, totalSizeMb = 0, state = activeState(),
+        )
+        val event = confirmedMissing("missing-song")
+        repository.enqueueFollowupOutbox(event)
+        val requests = listOf(LibraryConfirmedMissingFollowup(event, "missing-song"))
+        val committed = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        store.beforeMutationAdoptForTest = { committed.complete(Unit); release.await() }
+        val consume = launch { store.consumeConfirmedMissingFollowups(requests) }
+        committed.await()
+        val edit = launch(start = CoroutineStart.UNDISPATCHED) {
+            assertTrue(store.addSongToPlaylist(original.id, "new-song"))
+        }
+        assertTrue("The user edit must wait for the admitted owner operation", !edit.isCompleted)
+        release.complete(Unit)
+        consume.join()
+        edit.join()
+        assertEquals(listOf("new-song"), store.playlistById(original.id)?.songIds)
+        assertEquals(1, store.consumeConfirmedMissingFollowups(requests))
+        val cold = PlaylistStore(context)
+        cold.awaitReady()
+        assertEquals(listOf("new-song"), cold.playlistById(original.id)?.songIds)
+        assertEquals(cold.playlists, store.playlists)
     }
 
     @Test
@@ -109,6 +147,45 @@ class PlaylistStoreFollowupPublicationTest {
         val cold = PlaylistStore(context)
         cold.awaitReady()
         assertEquals("Committed", cold.playlists.single().name)
+    }
+
+    @Test
+    fun cancellationWhileWaitingForPublicationGateLeavesSecondEventAndPlaylistIntact() = runTest {
+        val store = PlaylistStore(context)
+        store.awaitReady()
+        val playlist = store.createPlaylist("Waiting")
+        store.addSongsToPlaylist(playlist.id, listOf("first", "second"))
+        val repository = LibraryRepository(MicaDatabase.get(context))
+        repository.commitScanAuthority(
+            songs = emptyList(), lastScanAtMs = 100L,
+            lastScanSource = ScanSource.DEVICE, totalSizeMb = 0, state = activeState(),
+        )
+        val first = confirmedMissing("first")
+        val second = confirmedMissing("second")
+        repository.enqueueFollowupOutbox(first)
+        repository.enqueueFollowupOutbox(second)
+        val library = MusicLibrary(context)
+        val admitted = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        store.beforeMutationAdoptForTest = { admitted.complete(Unit); release.await() }
+        val firstJob = launch {
+            library.consumeConfirmedMissingFollowups(store, listOf(LibraryConfirmedMissingFollowup(first, "first")))
+        }
+        admitted.await()
+        val waiting = launch(start = CoroutineStart.UNDISPATCHED) {
+            library.consumeConfirmedMissingFollowups(store, listOf(LibraryConfirmedMissingFollowup(second, "second")))
+        }
+        assertTrue(!waiting.isCompleted)
+        waiting.cancel()
+        release.complete(Unit)
+        firstJob.join()
+        waiting.join()
+        assertEquals(listOf("second"), store.playlistById(playlist.id)?.songIds)
+        assertEquals(listOf(second), repository.loadFollowupOutboxPage(LibraryFollowupOutboxCursor.Start, 64).items)
+        val cold = PlaylistStore(context)
+        cold.awaitReady()
+        assertEquals(store.playlists, cold.playlists)
+        library.release()
     }
 
     private fun activeState() = PersistedLibraryState(

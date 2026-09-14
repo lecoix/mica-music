@@ -1,6 +1,7 @@
 package com.mica.music.data.local
 
 import android.content.Context
+import com.mica.music.LibraryFollowupConsumer
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.mica.music.data.ScanSource
@@ -26,6 +27,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.util.concurrent.atomic.AtomicInteger
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -34,12 +36,21 @@ class PlaylistRepositoryFollowupTest {
     private lateinit var libraryRepository: LibraryRepository
     private lateinit var playlistRepository: PlaylistRepository
     private val source = SourceIdentityKey.device()
+    private val playlistSnapshotReads = AtomicInteger()
 
     @Before
     fun setUp() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         database = Room.inMemoryDatabaseBuilder(context, MicaDatabase::class.java)
             .allowMainThreadQueries()
+            .setQueryCallback(object : androidx.room.RoomDatabase.QueryCallback {
+                override fun onQuery(sqlQuery: String, bindArgs: List<Any?>) {
+                    if (sqlQuery.contains("FROM playlist_songs", ignoreCase = true) &&
+                        !sqlQuery.contains("WHERE", ignoreCase = true)) {
+                        playlistSnapshotReads.incrementAndGet()
+                    }
+                }
+            }, java.util.concurrent.Executor { it.run() })
             .build()
         libraryRepository = LibraryRepository(database)
         playlistRepository = PlaylistRepository(database)
@@ -66,6 +77,36 @@ class PlaylistRepositoryFollowupTest {
         assertEquals(PlaylistFollowupDisposition.OBSOLETE, outcome.disposition)
         assertTrue(outcome.acknowledged)
         assertEquals(listOf(song.id), playlistRepository.load().single().songIds)
+        assertTrue(libraryRepository.loadFollowupOutbox().isEmpty())
+    }
+
+    @Test
+    fun tenThousandRealOutboxEventsDrainWithOneSnapshotPerBoundedBatch() = runTest {
+        val ids = (0 until 10_000).map { "song-$it" }
+        playlistRepository.insertPlaylist(UserPlaylist("ten-k", "Ten K", ids), 0)
+        val events = ids.mapIndexed { index, id ->
+            confirmedMissing(id, "proof").copy(createdAtMs = index.toLong())
+        }
+        libraryRepository.commitScanAuthorityWithFollowups(
+            songs = emptyList(), lastScanAtMs = 100L, lastScanSource = ScanSource.DEVICE,
+            totalSizeMb = 0, state = activeState(source), followupOutboxItems = events,
+        )
+        val revisionBefore = playlistRepository.currentRevision()
+        playlistSnapshotReads.set(0)
+        val batchSizes = mutableListOf<Int>()
+        val consumer = LibraryFollowupConsumer(
+            loadOutboxPage = libraryRepository::loadFollowupOutboxPage,
+            consumeConfirmedMissing = { requests ->
+                batchSizes += requests.size
+                playlistRepository.consumeConfirmedMissingFollowups(requests).acknowledgedCount
+            },
+        )
+        assertEquals(10_000, consumer.drainToTail())
+        assertEquals(20, batchSizes.size)
+        assertTrue(batchSizes.all { it in 1..512 })
+        assertEquals(20, playlistSnapshotReads.get())
+        assertEquals(revisionBefore + 20, playlistRepository.currentRevision())
+        assertTrue(playlistRepository.load().single().songIds.isEmpty())
         assertTrue(libraryRepository.loadFollowupOutbox().isEmpty())
     }
 
@@ -124,6 +165,40 @@ class PlaylistRepositoryFollowupTest {
         val newestOutcome = playlistRepository.consumeConfirmedMissingFollowup(newestEvent, songId)
         assertEquals(PlaylistFollowupDisposition.APPLIED, newestOutcome.disposition)
         assertTrue(playlistRepository.load().single().songIds.isEmpty())
+        assertTrue(libraryRepository.loadFollowupOutbox().isEmpty())
+    }
+
+    @Test
+    fun failureOnSecondAcknowledgementRollsBackEntireBatchAndCanRetry() = runTest {
+        seedActiveLibrary(emptyList())
+        val ids = listOf("missing-a", "keep", "missing-b")
+        playlistRepository.insertPlaylist(
+            UserPlaylist("batch", "Batch", ids, coverSongId = "missing-a"), 0,
+        )
+        val events = listOf("missing-a", "missing-b").map {
+            confirmedMissing(it, evidenceRevision = "batch-proof")
+        }
+        events.forEach { libraryRepository.enqueueFollowupOutbox(it) }
+        val before = playlistRepository.loadSnapshot()
+        val sql = database.openHelper.writableDatabase
+        sql.execSQL("CREATE TABLE ack_counter (count INTEGER NOT NULL)")
+        sql.execSQL("INSERT INTO ack_counter VALUES (0)")
+        sql.execSQL("""
+            CREATE TRIGGER fail_second_ack BEFORE DELETE ON library_followup_outbox
+            BEGIN
+                UPDATE ack_counter SET count = count + 1;
+                SELECT CASE WHEN (SELECT count FROM ack_counter) = 2
+                    THEN RAISE(ABORT, 'second ack failed') END;
+            END
+        """.trimIndent())
+        val requests = events.map { LibraryConfirmedMissingFollowup(it, it.stableObjectKey) }
+        assertTrue(runCatching { playlistRepository.consumeConfirmedMissingFollowups(requests) }.isFailure)
+        assertEquals(before, playlistRepository.loadSnapshot())
+        assertEquals(events.toSet(), libraryRepository.loadFollowupOutbox().toSet())
+        sql.execSQL("DROP TRIGGER fail_second_ack")
+        assertEquals(2, playlistRepository.consumeConfirmedMissingFollowups(requests).acknowledgedCount)
+        assertEquals(listOf("keep"), playlistRepository.load().single().songIds)
+        assertEquals(null, playlistRepository.load().single().coverSongId)
         assertTrue(libraryRepository.loadFollowupOutbox().isEmpty())
     }
 
