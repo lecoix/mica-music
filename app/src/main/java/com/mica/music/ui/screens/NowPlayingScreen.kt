@@ -1151,7 +1151,11 @@ fun NowPlayingContent(
             }
             val landscapeLowerSection: @Composable (Modifier, Dp, Modifier, Modifier) -> Unit =
                 { lowerModifier, panelHeight, titleSharedModifier, chromeSharedModifier ->
-                val actualFrame = pageModel.frameFor(panelHeight)
+                val actualFrame = pageModel.frameFor(
+                    panelHeight = panelHeight,
+                    compactLyricsPreferThreeWhenCompressed =
+                        uiSettings.playerCoverFlowMode == PlayerCoverFlowMode.STANDARD,
+                )
                 val landscapeLower = actualFrame.lower.copy(
                     chromeHeight = landscapeChromeHeight(
                         portraitChromeHeight = actualFrame.lower.chromeHeight,

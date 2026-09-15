@@ -96,6 +96,7 @@ object PlayerPageLayoutEngine {
             lyricsFocus = headerFocus,
             showMetadata = !input.particleCoverMode,
             compactLyricsLineMode = input.compactLyricsLineMode,
+            compactLyricsPreferThreeWhenCompressed = input.compactLyricsPreferThreeWhenCompressed,
         )
         val lowerSpacing = if (particleProgressQuarter > 0.dp) {
             val lyricGapBoost = particleProgressQuarter * (1f - headerFocus)
@@ -550,6 +551,7 @@ object PlayerPageLayoutEngine {
         lyricsFocus: Float,
         showMetadata: Boolean,
         compactLyricsLineMode: CompactLyricsLineMode,
+        compactLyricsPreferThreeWhenCompressed: Boolean,
     ): LowerLayoutPlan {
         val infoLine = playerInfoRowHeight(density, typography)
         val titleLine = with(density) { typography.titleLg.lineHeight.toDp() }
@@ -624,6 +626,16 @@ object PlayerPageLayoutEngine {
         val preferredChrome = blendedChromeIdeal
         val chromeGapFloor = lerpDp(minGap * 2, minGap, seekCollapseWeight)
         val chromeMinHeight = seekBarBlock + HifiSize.touchTarget + chromeGapFloor
+        val compressedThreeMinMetaHeight = metaShellFixed + lyricsBlock3 + minGap * metaGapCount
+        val effectiveCompactLyricsLineMode = if (
+            compactLyricsPreferThreeWhenCompressed &&
+            compactLyricsLineMode == CompactLyricsLineMode.AUTO &&
+            (panelHeight - chromeMinHeight).coerceAtLeast(0.dp) >= compressedThreeMinMetaHeight
+        ) {
+            CompactLyricsLineMode.THREE
+        } else {
+            compactLyricsLineMode
+        }
 
         var chromeTarget = preferredChrome
         var metaAvailableHeight = (panelHeight - chromeTarget).coerceAtLeast(0.dp)
@@ -640,7 +652,7 @@ object PlayerPageLayoutEngine {
             idealAfterInfo = idealAfterInfo,
             idealAfterSubtitle = idealAfterSubtitle,
             idealBeforePlaybackChrome = idealBeforePlaybackChrome,
-            compactLyricsLineMode = compactLyricsLineMode,
+            compactLyricsLineMode = effectiveCompactLyricsLineMode,
         ).let { (gaps, slots) ->
             metaGaps = gaps
             lyricSlots = slots
@@ -663,7 +675,7 @@ object PlayerPageLayoutEngine {
                 idealAfterInfo = idealAfterInfo,
                 idealAfterSubtitle = idealAfterSubtitle,
                 idealBeforePlaybackChrome = idealBeforePlaybackChrome,
-                compactLyricsLineMode = compactLyricsLineMode,
+                compactLyricsLineMode = effectiveCompactLyricsLineMode,
             ).let { (gaps, slots) ->
                 metaGaps = gaps
                 lyricSlots = slots

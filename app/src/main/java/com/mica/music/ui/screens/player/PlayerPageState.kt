@@ -40,9 +40,15 @@ internal class PlayerPageUiModel(
     private val density: Density,
     private val typography: HifiTypography,
 ) {
-    fun frameFor(panelHeight: Dp): PlayerPageFrame =
+    fun frameFor(
+        panelHeight: Dp,
+        compactLyricsPreferThreeWhenCompressed: Boolean = false,
+    ): PlayerPageFrame =
         PlayerPageLayoutEngine.computeFrame(
-            input = layoutInput.copy(panelHeight = panelHeight),
+            input = layoutInput.copy(
+                panelHeight = panelHeight,
+                compactLyricsPreferThreeWhenCompressed = compactLyricsPreferThreeWhenCompressed,
+            ),
             density = density,
             typography = typography,
         )

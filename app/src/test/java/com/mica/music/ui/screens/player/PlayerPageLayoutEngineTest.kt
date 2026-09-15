@@ -288,6 +288,7 @@ class PlayerPageLayoutEngineTest {
         coverSwitching: Boolean = false,
         spectrumSettingEnabled: Boolean = true,
         compactLyricsLineMode: CompactLyricsLineMode = CompactLyricsLineMode.AUTO,
+        compactLyricsPreferThreeWhenCompressed: Boolean = false,
     ) = PlayerPageLayoutInput(
         panelHeight = panelHeight,
         screenHeight = 800.dp,
@@ -311,6 +312,7 @@ class PlayerPageLayoutEngineTest {
         spectrumDeferred = false,
         coverSwitching = coverSwitching,
         compactLyricsLineMode = compactLyricsLineMode,
+        compactLyricsPreferThreeWhenCompressed = compactLyricsPreferThreeWhenCompressed,
     )
 
     @Test
@@ -1136,6 +1138,28 @@ class PlayerPageLayoutEngineTest {
         assertEquals(3, forcedThree.lower.spacing.lyricLineSlots)
     }
 
+    @Test
+    fun compactLyricsPreferThreeWhenCompressedUsesSafeThreeLineFallback() {
+        val phoneLandscapePanel = 340.dp
+        val normalAuto = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(panelHeight = phoneLandscapePanel),
+            density = density,
+            typography = typography,
+        )
+        val landscapeAuto = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(
+                panelHeight = phoneLandscapePanel,
+                compactLyricsPreferThreeWhenCompressed = true,
+            ),
+            density = density,
+            typography = typography,
+        )
+
+        assertEquals(1, normalAuto.lower.spacing.lyricLineSlots)
+        assertEquals(3, landscapeAuto.lower.spacing.lyricLineSlots)
+        assertTrue(landscapeAuto.lower.spacing.beforePlaybackChrome >= 4.dp)
+        assertTrue(landscapeAuto.lower.chromeHeight > 0.dp)
+    }
     @Test
     fun compactLyricsLinePreferenceAppliesOnlyToFourThemes() {
         assertTrue(PlayerCoverFlowMode.STANDARD.usesCompactLyricsLinePreference())

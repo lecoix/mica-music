@@ -162,6 +162,7 @@ data class PlayerPageLayoutInput(
     val spectrumDeferred: Boolean,
     val coverSwitching: Boolean,
     val compactLyricsLineMode: CompactLyricsLineMode = CompactLyricsLineMode.AUTO,
+    val compactLyricsPreferThreeWhenCompressed: Boolean = false,
 )
 
 internal const val ImmersiveProgressEpsilon = 0.001f
