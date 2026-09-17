@@ -13,9 +13,11 @@ internal class SpectrumQueueCapacityPolicy {
         largestInputBlockSamples = maxOf(largestInputBlockSamples, inputBlockSamples.coerceAtLeast(0))
         val baseCapacity = (sampleRateHz * BaseAudioSeconds).toInt().coerceAtLeast(1)
         val burstCapacity = largestInputBlockSamples.toLong() * BurstFrameCount
-        val hardCapacity = (sampleRateHz * MaxAudioSeconds).toLong().coerceAtLeast(1L)
-        return maxOf(baseCapacity.toLong(), minOf(burstCapacity, hardCapacity)).toInt()
+        return maxOf(baseCapacity.toLong(), minOf(burstCapacity, maxCapacitySamples(sampleRateHz).toLong())).toInt()
     }
+
+    fun maxCapacitySamples(sampleRateHz: Int): Int =
+        (sampleRateHz * MaxAudioSeconds).toInt().coerceAtLeast(1)
 
     fun reset() {
         sampleRateHz = 0
