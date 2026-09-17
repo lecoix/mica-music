@@ -139,11 +139,9 @@ internal class SpectrumAnalysisEngine(
                 lastAnalyzedPositionUs = work.positionUs
                 transientFreshMisses = 0
             } else {
-                val transientMiss = work.clockFresh && lastAnalyzedPositionUs != null && transientFreshMisses < FreshMissHoldTicks
-                if (transientMiss) {
-                    transientFreshMisses++
-                } else {
-                    transientFreshMisses = 0
+                val canHoldTransient = work.clockFresh && lastAnalyzedPositionUs != null
+                if (canHoldTransient) transientFreshMisses++ else transientFreshMisses = FreshMissHoldTicks + 1
+                if (transientFreshMisses > FreshMissHoldTicks) {
                     val seconds = ((now - (lastPublishNanos ?: now)).coerceAtLeast(0L) / 1e9)
                     val decay = exp(-seconds / 0.12).toFloat()
                     levels = levels.map { (it * decay).let { v -> if (v < 0.001f) 0f else v } }

@@ -32,7 +32,13 @@ internal class SpectrumPcmTimeline {
 
     fun append(samples: FloatArray, rate: Int, startUs: Long) {
         if (samples.isEmpty()) return
-        if (sampleRate != rate) clear()
+        if (sampleRate != rate) {
+            // A fresh AudioSink clock can arrive before the first PCM block (or before a format-change block).
+            // Reset stored PCM/capacity state without discarding that clock authority.
+            val protection = protectedPositionUs
+            clear()
+            protectedPositionUs = protection
+        }
         sampleRate = rate
         val softLimit = capacity.capacitySamples(rate, samples.size)
         val hardLimit = capacity.maxCapacitySamples(rate)
