@@ -14,6 +14,35 @@ class SpectrumPcmTimelineTest {
         assertEquals(999f, history.windowAt(99_950_000)!!.last())
     }
 
+    @Test fun mediaClockHistorySurvivesCoarseBlocksNearSoftRetentionBoundary() {
+        val history = SpectrumPcmTimeline()
+        val rate = 48_000
+        val blockSamples = 4_096
+        val blockUs = blockSamples * 1_000_000L / rate
+        val positionUs = 1_000_000L
+        history.protect(positionUs)
+
+        // Model the affected ALAC shape: 85.3 ms blocks while capture runs ~1.9 s ahead.
+        repeat(36) { block ->
+            val startUs = block * blockUs
+            history.append(FloatArray(blockSamples) { block.toFloat() }, rate, startUs)
+        }
+
+        assertNotNull(history.windowAt(positionUs))
+        assertTrue(history.size > 96_000)
+        assertTrue(history.size <= 192_000)
+    }
+
+    @Test fun clockProtectionRemainsHardBoundedWhenProducerRunsFarAhead() {
+        val history = SpectrumPcmTimeline()
+        history.protect(1_000_000L)
+        repeat(100) { block ->
+            history.append(FloatArray(4_096) { block.toFloat() }, 48_000, block * 4_096L * 1_000_000L / 48_000)
+            assertTrue(history.size <= 192_000)
+        }
+        assertNotNull(history.windowAt(1_000_000L))
+    }
+
     @Test fun windowCrossesChunkBoundaryWithoutGapOrDuplicate() {
         val history = SpectrumPcmTimeline()
         history.append(FloatArray(4_096) { it.toFloat() }, 44_100, 0)
