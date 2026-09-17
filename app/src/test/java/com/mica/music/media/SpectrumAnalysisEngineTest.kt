@@ -71,7 +71,26 @@ class SpectrumAnalysisEngineTest {
         assertEquals(0f, envelope)
     }
 
-    @Test fun missingPcmDecaysAndNewPcmRecoversAtCurrentClock() {
+    @Test fun transientFreshClockMissDoesNotPunchSpectrumDown() {
+        val engine = engine()
+        val token = engine.beginStream(Any())
+        engine.append(token, tone(4_800), 48_000, 0)
+        engine.updatePosition(token, 80_000)
+        engine.tick()
+        val initial = envelope
+
+        now += 16_666_667L
+        engine.updatePosition(token, 120_000)
+        engine.tick()
+        assertEquals(initial, envelope, 0f)
+
+        now += 16_666_667L
+        engine.updatePosition(token, 140_000)
+        engine.tick()
+        assertEquals(initial, envelope, 0f)
+    }
+
+    @Test fun sustainedMissingPcmStillDecaysAndNewPcmRecoversAtCurrentClock() {
         val engine = engine()
         val token = engine.beginStream(Any())
         engine.append(token, tone(4_800), 48_000, 0)
