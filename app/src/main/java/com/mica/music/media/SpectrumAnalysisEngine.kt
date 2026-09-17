@@ -32,6 +32,7 @@ internal class SpectrumAnalysisEngine(
     private var fftGeneration = -1L
     private var fftRevision = -1L
     private var fft = SpectrumFft()
+    private var transientFreshMisses = 0
 
     fun isEnabled() = synchronized(lock) { enabled }
     fun isAnalysisActive() = synchronized(lock) { enabled && visible }
@@ -77,6 +78,7 @@ internal class SpectrumAnalysisEngine(
         envelope = 0f
         lastPublishNanos = null
         lastAnalyzedPositionUs = null
+        transientFreshMisses = 0
         probeStartNanos = nowNanos()
         probeFrames = 0
         probeMissing = 0
@@ -93,9 +95,17 @@ internal class SpectrumAnalysisEngine(
         if (token != generation || mediaPositionUs < 0) return
         if (positionUs != mediaPositionUs) clockNanos = nowNanos()
         positionUs = mediaPositionUs
+        timeline.protect(mediaPositionUs)
     }
 
-    private data class Work(val generation: Long, val revision: Long, val rate: Int, val positionUs: Long?, val samples: FloatArray?)
+    private data class Work(
+        val generation: Long,
+        val revision: Long,
+        val rate: Int,
+        val positionUs: Long?,
+        val clockFresh: Boolean,
+        val samples: FloatArray?,
+    )
 
     fun tick(): Unit = synchronized(workerLock) {
         val now = nowNanos()
@@ -104,8 +114,14 @@ internal class SpectrumAnalysisEngine(
             val position = positionUs
             val clockFresh = position != null && now - clockNanos <= 250_000_000L
             if (clockFresh && position == lastAnalyzedPositionUs) return
-            Work(generation, visibilityRevision, timeline.sampleRate, position,
-                if (clockFresh) timeline.windowAt(checkNotNull(position)) else null)
+            Work(
+                generation,
+                visibilityRevision,
+                timeline.sampleRate,
+                position,
+                clockFresh,
+                if (clockFresh) timeline.windowAt(checkNotNull(position)) else null,
+            )
         }
         if (fftGeneration != work.generation || fftRevision != work.revision) {
             fft = SpectrumFft()
@@ -121,13 +137,20 @@ internal class SpectrumAnalysisEngine(
                 levels = result.first
                 envelope = result.second
                 lastAnalyzedPositionUs = work.positionUs
+                transientFreshMisses = 0
             } else {
-                val seconds = ((now - (lastPublishNanos ?: now)).coerceAtLeast(0L) / 1e9)
-                val decay = exp(-seconds / 0.12).toFloat()
-                levels = levels.map { (it * decay).let { v -> if (v < 0.001f) 0f else v } }
-                envelope = (envelope * decay).let { if (it < 0.001f) 0f else it }
-                // Resume must not inherit the last valid frame's attack/release history.
-                fftGeneration = -1L
+                val transientMiss = work.clockFresh && lastAnalyzedPositionUs != null && transientFreshMisses < FreshMissHoldTicks
+                if (transientMiss) {
+                    transientFreshMisses++
+                } else {
+                    transientFreshMisses = 0
+                    val seconds = ((now - (lastPublishNanos ?: now)).coerceAtLeast(0L) / 1e9)
+                    val decay = exp(-seconds / 0.12).toFloat()
+                    levels = levels.map { (it * decay).let { v -> if (v < 0.001f) 0f else v } }
+                    envelope = (envelope * decay).let { if (it < 0.001f) 0f else it }
+                    // A sustained gap must not make recovery inherit stale attack/release history.
+                    fftGeneration = -1L
+                }
             }
             lastPublishNanos = now
             publish(levels, envelope)
@@ -147,5 +170,9 @@ internal class SpectrumAnalysisEngine(
         // Diagnostic IO is not on the PCM/publication lock.
         health?.let(onHealth)
         Unit
+    }
+
+    private companion object {
+        const val FreshMissHoldTicks = 2
     }
 }
