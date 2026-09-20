@@ -53,6 +53,9 @@ import com.mica.music.data.LyricDisplayRows
 import com.mica.music.data.LyricLine
 import com.mica.music.data.DEFAULT_LYRICS_PAGE_FONT_SIZE_SP
 import com.mica.music.data.DEFAULT_LYRICS_PAGE_LINE_SPACING_DP
+import com.mica.music.data.DEFAULT_LYRICS_CURRENT_LINE_POSITION_PERCENT
+import com.mica.music.data.MIN_LYRICS_CURRENT_LINE_POSITION_PERCENT
+import com.mica.music.data.MAX_LYRICS_CURRENT_LINE_POSITION_PERCENT
 import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.LyricsPageAlignment
 import com.mica.music.data.LyricsWordAnimationPreset
@@ -78,6 +81,7 @@ internal fun ExpandedLyricsPanel(
     lyricsFontSizeSp: Int = DEFAULT_LYRICS_PAGE_FONT_SIZE_SP,
     lyricsTranslationFontSizeSp: Int = lyricsFontSizeSp,
     lyricsLineSpacingDp: Int = DEFAULT_LYRICS_PAGE_LINE_SPACING_DP,
+    lyricsCurrentLinePositionPercent: Int = DEFAULT_LYRICS_CURRENT_LINE_POSITION_PERCENT,
     lyricsWordAnimationPreset: LyricsWordAnimationPreset = LyricsWordAnimationPreset.SYLLABLE_LIFT,
     bilingualDisplayMode: LyricsBilingualDisplayMode = LyricsBilingualDisplayMode.ALL,
     lyricsPageOpen: Boolean = true,
@@ -127,7 +131,6 @@ internal fun ExpandedLyricsPanel(
     val density = LocalDensity.current
     val lineHeightPx = with(density) { textStyle.lineHeight.toPx().toInt() }
     val translationLineHeightPx = with(density) { translationTextStyle.lineHeight.toPx().toInt() }
-    val currentLineAnchorYPx = lineHeightPx * CLASSIC_LYRICS_ANCHOR_LINE_HEIGHTS
     var viewportHeightPx by remember { mutableIntStateOf(0) }
     var frozenLayoutViewportPx by remember { mutableIntStateOf(0) }
     SideEffect {
@@ -144,17 +147,21 @@ internal fun ExpandedLyricsPanel(
     } else {
         viewportHeightPx
     }
+    val currentLineAnchorYPx = expandedLyricsCurrentLineAnchorYPx(
+        viewportHeightPx = layoutViewportHeightPx,
+        currentLinePositionPercent = lyricsCurrentLinePositionPercent,
+    )
+    val anchorRangePadding = expandedLyricsAnchorRangePaddingPx(
+        viewportHeightPx = layoutViewportHeightPx,
+        itemHeightPx = lineHeightPx,
+    )
     val leadingPaddingPx = maxOf(
         with(density) { HifiSpacing.sm.roundToPx() },
-        expandedLyricsLeadingPaddingPx(
-            viewportHeightPx = layoutViewportHeightPx,
-            itemHeightPx = lineHeightPx,
-            currentLineAnchorYPx = currentLineAnchorYPx,
-        ),
+        anchorRangePadding.leadingPx,
     )
     val leadingPadding = with(density) { leadingPaddingPx.toDp() }
     val trailingPadding = HifiSpacing.xl + with(density) {
-        expandedLyricsTrailingPaddingPx(layoutViewportHeightPx, currentLineAnchorYPx).toDp()
+        anchorRangePadding.trailingPx.toDp()
     }
     val staggerOffsets = remember { mutableStateMapOf<Int, Float>() }
     val motionEnabled = rememberMicaMotionEnabled()
@@ -245,10 +252,18 @@ internal fun ExpandedLyricsPanel(
         )
         val indexedScrollOffset = expandedLyricsIndexedScrollOffset(leadingPaddingPx, offset)
         val needsSnap = revealedLyricsKey != lyricsContentKey
-        val visibleTarget = listState.layoutInfo.visibleItemsInfo
+        val currentLayoutInfo = listState.layoutInfo
+        val visibleTarget = currentLayoutInfo.visibleItemsInfo
             .firstOrNull { it.index == currentDisplayItemIndex }
-        val desiredTopPx = -offset.toFloat()
-        val scrollDistance = visibleTarget?.let { it.offset - desiredTopPx }
+        val scrollDistance = visibleTarget?.let { itemInfo ->
+            expandedLyricsGeometryScrollDelta(
+                viewportStartOffsetPx = currentLayoutInfo.viewportStartOffset,
+                viewportEndOffsetPx = currentLayoutInfo.viewportEndOffset,
+                currentLinePositionPercent = lyricsCurrentLinePositionPercent,
+                itemOffsetPx = itemInfo.offset,
+                itemSizePx = itemInfo.size,
+            )
+        }
         val useFollowAnimation = motionEnabled &&
             !needsSnap &&
             !suppressFollowAnimation &&
@@ -292,8 +307,26 @@ internal fun ExpandedLyricsPanel(
             } finally {
                 staggerOffsets.clear()
             }
+        } else if (visibleTarget != null && scrollDistance != null) {
+            listState.scrollBy(scrollDistance)
         } else {
             listState.scrollToItem(currentDisplayItemIndex, scrollOffset = indexedScrollOffset)
+            withFrameNanos { }
+            val measuredLayoutInfo = listState.layoutInfo
+            measuredLayoutInfo.visibleItemsInfo
+                .firstOrNull { it.index == currentDisplayItemIndex }
+                ?.let { measuredItem ->
+                    val correction = expandedLyricsGeometryScrollDelta(
+                        viewportStartOffsetPx = measuredLayoutInfo.viewportStartOffset,
+                        viewportEndOffsetPx = measuredLayoutInfo.viewportEndOffset,
+                        currentLinePositionPercent = lyricsCurrentLinePositionPercent,
+                        itemOffsetPx = measuredItem.offset,
+                        itemSizePx = measuredItem.size,
+                    )
+                    if (kotlin.math.abs(correction) > 0.5f) {
+                        listState.scrollBy(correction)
+                    }
+                }
         }
         revealedLyricsKey = lyricsContentKey
         // Consume one settle pass after snap; real line-to-line follows stay animated.
@@ -507,7 +540,6 @@ internal sealed interface ExpandedLyricDisplayItem {
 }
 
 private const val MIN_NEXT_LYRIC_DELTA_FOR_INTERLUDE_MS = 7_000
-private const val CLASSIC_LYRICS_ANCHOR_LINE_HEIGHTS = 3f
 private const val INTERLUDE_END_LEAD_MS = 500
 private const val INTERLUDE_TAIL_MS = 800
 private const val CLASSIC_LYRICS_FADE_MS = 250
@@ -666,6 +698,65 @@ private fun rememberClassicInterludePositionMs(anchorPositionMs: Int, running: B
         }
     }
     return framePositionMs
+}
+
+internal fun expandedLyricsCurrentLineAnchorYPx(
+    viewportHeightPx: Int,
+    currentLinePositionPercent: Int,
+): Float {
+    if (viewportHeightPx <= 0) return 0f
+    val normalizedPercent = currentLinePositionPercent.coerceIn(
+        MIN_LYRICS_CURRENT_LINE_POSITION_PERCENT,
+        MAX_LYRICS_CURRENT_LINE_POSITION_PERCENT,
+    )
+    return viewportHeightPx * (normalizedPercent / 100f)
+}
+
+internal fun expandedLyricsGeometryScrollDelta(
+    viewportStartOffsetPx: Int,
+    viewportEndOffsetPx: Int,
+    currentLinePositionPercent: Int,
+    itemOffsetPx: Int,
+    itemSizePx: Int,
+): Float {
+    val viewportSpanPx = (viewportEndOffsetPx - viewportStartOffsetPx).coerceAtLeast(0)
+    val anchorInViewportPx = expandedLyricsCurrentLineAnchorYPx(
+        viewportHeightPx = viewportSpanPx,
+        currentLinePositionPercent = currentLinePositionPercent,
+    )
+    val targetAnchorPx = viewportStartOffsetPx + anchorInViewportPx
+    return itemOffsetPx + itemSizePx / 2f - targetAnchorPx
+}
+
+internal data class ExpandedLyricsAnchorRangePadding(
+    val leadingPx: Int,
+    val trailingPx: Int,
+)
+
+internal fun expandedLyricsAnchorRangePaddingPx(
+    viewportHeightPx: Int,
+    itemHeightPx: Int,
+): ExpandedLyricsAnchorRangePadding {
+    if (viewportHeightPx <= 0) return ExpandedLyricsAnchorRangePadding(0, 0)
+    val lowestAnchor = expandedLyricsCurrentLineAnchorYPx(
+        viewportHeightPx = viewportHeightPx,
+        currentLinePositionPercent = MAX_LYRICS_CURRENT_LINE_POSITION_PERCENT,
+    )
+    val highestAnchor = expandedLyricsCurrentLineAnchorYPx(
+        viewportHeightPx = viewportHeightPx,
+        currentLinePositionPercent = MIN_LYRICS_CURRENT_LINE_POSITION_PERCENT,
+    )
+    return ExpandedLyricsAnchorRangePadding(
+        leadingPx = expandedLyricsLeadingPaddingPx(
+            viewportHeightPx = viewportHeightPx,
+            itemHeightPx = itemHeightPx,
+            currentLineAnchorYPx = lowestAnchor,
+        ),
+        trailingPx = expandedLyricsTrailingPaddingPx(
+            viewportHeightPx = viewportHeightPx,
+            currentLineAnchorYPx = highestAnchor,
+        ),
+    )
 }
 
 internal fun expandedLyricsScrollOffset(

@@ -9,6 +9,9 @@ import com.mica.music.data.DEFAULT_LYRICS_SLOT_PRIORITY
 import com.mica.music.data.DEFAULT_LETTER_SEAL_OPACITY_PERCENT
 import com.mica.music.data.DEFAULT_LETTER_SEAL_ROTATION_DEGREES
 import com.mica.music.data.DEFAULT_LETTER_SEAL_SIZE_DP
+import com.mica.music.data.DEFAULT_LYRICS_CURRENT_LINE_POSITION_PERCENT
+import com.mica.music.data.MIN_LYRICS_CURRENT_LINE_POSITION_PERCENT
+import com.mica.music.data.MAX_LYRICS_CURRENT_LINE_POSITION_PERCENT
 import com.mica.music.data.LyricsSlot
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -111,6 +114,29 @@ class LyricsPreferencesRobolectricTest {
                 Triple(true, false, 0f),
             ),
             actual,
+        )
+    }
+
+    @Test
+    fun lyricsCurrentLinePositionDefaultsRoundTripsAndClamps() {
+        assertEquals(
+            DEFAULT_LYRICS_CURRENT_LINE_POSITION_PERCENT,
+            LyricsPreferences.lyricsCurrentLinePositionPercent(context),
+        )
+
+        LyricsPreferences.setLyricsCurrentLinePositionPercent(context, 42)
+        assertEquals(42, LyricsPreferences.lyricsCurrentLinePositionPercent(context))
+
+        LyricsPreferences.setLyricsCurrentLinePositionPercent(context, -1)
+        assertEquals(
+            MIN_LYRICS_CURRENT_LINE_POSITION_PERCENT,
+            LyricsPreferences.lyricsCurrentLinePositionPercent(context),
+        )
+
+        LyricsPreferences.setLyricsCurrentLinePositionPercent(context, 999)
+        assertEquals(
+            MAX_LYRICS_CURRENT_LINE_POSITION_PERCENT,
+            LyricsPreferences.lyricsCurrentLinePositionPercent(context),
         )
     }
 

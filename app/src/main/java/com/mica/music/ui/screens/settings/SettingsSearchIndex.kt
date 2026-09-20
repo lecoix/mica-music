@@ -145,6 +145,7 @@ internal object SettingsSearchIndex {
         setting("lyrics.classic-word-animation", "经典列表：逐字动画", "逐字", "动画", category = SettingsCategory.LYRICS, section = SettingsIndexSections.LYRICS_CLASSIC, availability = "仅经典列表主题；需要真实逐字时间轴"),
         setting("lyrics.classic-line-fill", "强制使用逐字歌词样式", "逐字", "填充", "逐字歌词样式", category = SettingsCategory.LYRICS, section = SettingsIndexSections.LYRICS_CLASSIC, availability = "仅经典列表主题；无逐字时间轴时使用播放进度"),
         setting("lyrics.classic-alignment", "经典列表：歌词页对齐", "对齐", "左对齐", "居中", category = SettingsCategory.LYRICS, section = SettingsIndexSections.LYRICS_CLASSIC, availability = "仅经典列表主题"),
+        setting("lyrics.classic-current-line-position", "经典列表：当前行位置", "位置", "当前行", "靠上", "居中", category = SettingsCategory.LYRICS, section = SettingsIndexSections.LYRICS_CLASSIC, availability = "仅经典列表主题"),
         setting("lyrics.classic-font-size", "经典列表：原歌词字号", "字号", "字体", category = SettingsCategory.LYRICS, section = SettingsIndexSections.LYRICS_CLASSIC, availability = "仅经典列表主题"),
         setting("lyrics.classic-translation-size", "经典列表：翻译歌词字号", "字号", "翻译", category = SettingsCategory.LYRICS, section = SettingsIndexSections.LYRICS_CLASSIC, availability = "仅经典列表主题"),
         setting("lyrics.classic-line-spacing", "经典列表：行间距", "行距", "间距", category = SettingsCategory.LYRICS, section = SettingsIndexSections.LYRICS_CLASSIC, availability = "仅经典列表主题"),

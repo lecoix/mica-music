@@ -139,9 +139,58 @@ class NowPlayingLyricsExpandedTest {
     }
 
     @Test
+    fun expandedLyricsAnchorRangePadding_staysFixedAcrossUserAnchorChanges() {
+        val padding = expandedLyricsAnchorRangePaddingPx(
+            viewportHeightPx = 1_000,
+            itemHeightPx = 100,
+        )
+
+        assertEquals(550, padding.leadingPx)
+        assertEquals(800, padding.trailingPx)
+    }
+
+    @Test
     fun expandedLyricsIndexedScrollOffset_doesNotCountLeadingPaddingTwice() {
         assertEquals(0, expandedLyricsIndexedScrollOffset(leadingPaddingPx = 450, viewportOffsetPx = -450))
         assertEquals(50, expandedLyricsIndexedScrollOffset(leadingPaddingPx = 450, viewportOffsetPx = -400))
+    }
+
+    @Test
+    fun expandedLyricsGeometryScrollDelta_alignsActualItemCenterToConfiguredAnchor() {
+        assertEquals(
+            0f,
+            expandedLyricsGeometryScrollDelta(
+                viewportStartOffsetPx = 0,
+                viewportEndOffsetPx = 1_000,
+                currentLinePositionPercent = 25,
+                itemOffsetPx = 150,
+                itemSizePx = 200,
+            ),
+        )
+        assertEquals(
+            150f,
+            expandedLyricsGeometryScrollDelta(
+                viewportStartOffsetPx = 0,
+                viewportEndOffsetPx = 1_000,
+                currentLinePositionPercent = 25,
+                itemOffsetPx = 300,
+                itemSizePx = 200,
+            ),
+        )
+    }
+
+    @Test
+    fun expandedLyricsGeometryScrollDelta_usesLazyListViewportCoordinateSpace() {
+        assertEquals(
+            0f,
+            expandedLyricsGeometryScrollDelta(
+                viewportStartOffsetPx = -550,
+                viewportEndOffsetPx = 450,
+                currentLinePositionPercent = 25,
+                itemOffsetPx = -350,
+                itemSizePx = 100,
+            ),
+        )
     }
 
     @Test

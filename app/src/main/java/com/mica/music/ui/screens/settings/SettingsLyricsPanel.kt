@@ -25,8 +25,10 @@ import com.mica.music.data.LyricsPageTheme
 import com.mica.music.data.LyricsWordAnimationPreset
 import com.mica.music.data.MAX_LYRICS_PAGE_FONT_SIZE_SP
 import com.mica.music.data.MAX_LYRICS_PAGE_LINE_SPACING_DP
+import com.mica.music.data.MAX_LYRICS_CURRENT_LINE_POSITION_PERCENT
 import com.mica.music.data.MIN_LYRICS_PAGE_FONT_SIZE_SP
 import com.mica.music.data.MIN_LYRICS_PAGE_LINE_SPACING_DP
+import com.mica.music.data.MIN_LYRICS_CURRENT_LINE_POSITION_PERCENT
 import com.mica.music.data.PlaybackContentColorMode
 import com.mica.music.ui.components.SettingsActionRow
 import com.mica.music.ui.components.SettingsChoiceRow
@@ -277,6 +279,15 @@ internal fun LyricsSettingsPanel(
             onSelect = { ordinal ->
                 uiSettings.updateLyricsPageAlignment(LyricsPageAlignment.entries[ordinal])
             },
+        )
+
+        SettingsSliderRow(
+            title = "当前行位置",
+            subtitle = "数值越小越靠上",
+            value = uiSettings.lyricsCurrentLinePositionPercent,
+            valueRange = MIN_LYRICS_CURRENT_LINE_POSITION_PERCENT..MAX_LYRICS_CURRENT_LINE_POSITION_PERCENT,
+            suffix = " %",
+            onValueChange = { uiSettings.updateLyricsCurrentLinePositionPercent(it) },
         )
 
         SettingsSliderRow(

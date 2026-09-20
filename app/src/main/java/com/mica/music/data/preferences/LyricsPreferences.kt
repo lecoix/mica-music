@@ -3,6 +3,9 @@ package com.mica.music.data.preferences
 import android.content.Context
 import com.mica.music.data.DEFAULT_LYRICS_PAGE_FONT_SIZE_SP
 import com.mica.music.data.DEFAULT_LYRICS_PAGE_LINE_SPACING_DP
+import com.mica.music.data.DEFAULT_LYRICS_CURRENT_LINE_POSITION_PERCENT
+import com.mica.music.data.MIN_LYRICS_CURRENT_LINE_POSITION_PERCENT
+import com.mica.music.data.MAX_LYRICS_CURRENT_LINE_POSITION_PERCENT
 import com.mica.music.data.DEFAULT_EXTERNAL_LYRICS_COLORS
 import com.mica.music.data.DEFAULT_EXTERNAL_LYRICS_GRADIENT_ANGLE
 import com.mica.music.data.DEFAULT_EXTERNAL_LYRICS_WIDTH_PERCENT
@@ -71,6 +74,7 @@ object LyricsPreferences {
     private const val KEY_LYRICS_PAGE_FONT_SIZE = "lyrics_page_font_size"
     private const val KEY_LYRICS_PAGE_TRANSLATION_FONT_SIZE = "lyrics_page_translation_font_size"
     private const val KEY_LYRICS_PAGE_LINE_SPACING = "lyrics_page_line_spacing"
+    private const val KEY_LYRICS_CURRENT_LINE_POSITION_PERCENT = "lyrics_current_line_position_percent"
     private const val KEY_LYRICS_PAGE_IMMERSIVE = "lyrics_page_immersive"
     private const val KEY_NOTIFICATION_LYRICS_ENABLED = "notification_lyrics_enabled"
     private const val KEY_LYRICON_LYRICS_ENABLED = "lyricon_lyrics_enabled"
@@ -335,6 +339,27 @@ object LyricsPreferences {
             .putInt(
                 KEY_LYRICS_PAGE_LINE_SPACING,
                 spacingDp.coerceIn(MIN_LYRICS_PAGE_LINE_SPACING_DP, MAX_LYRICS_PAGE_LINE_SPACING_DP),
+            )
+            .apply()
+    }
+
+    fun lyricsCurrentLinePositionPercent(context: Context): Int =
+        MicaSettingsStore.prefs(context).getInt(
+            KEY_LYRICS_CURRENT_LINE_POSITION_PERCENT,
+            DEFAULT_LYRICS_CURRENT_LINE_POSITION_PERCENT,
+        ).coerceIn(
+            MIN_LYRICS_CURRENT_LINE_POSITION_PERCENT,
+            MAX_LYRICS_CURRENT_LINE_POSITION_PERCENT,
+        )
+
+    fun setLyricsCurrentLinePositionPercent(context: Context, percent: Int) {
+        MicaSettingsStore.prefs(context).edit()
+            .putInt(
+                KEY_LYRICS_CURRENT_LINE_POSITION_PERCENT,
+                percent.coerceIn(
+                    MIN_LYRICS_CURRENT_LINE_POSITION_PERCENT,
+                    MAX_LYRICS_CURRENT_LINE_POSITION_PERCENT,
+                ),
             )
             .apply()
     }

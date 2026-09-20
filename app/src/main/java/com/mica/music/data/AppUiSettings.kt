@@ -207,6 +207,11 @@ class AppUiSettings(context: Context) {
     var lyricsPageLineSpacingDp by mutableIntStateOf(LyricsPreferences.lyricsPageLineSpacingDp(appContext))
         private set
 
+    var lyricsCurrentLinePositionPercent by mutableIntStateOf(
+        LyricsPreferences.lyricsCurrentLinePositionPercent(appContext),
+    )
+        private set
+
     var lyricsPageImmersive by mutableStateOf(LyricsPreferences.lyricsPageImmersive(appContext))
         private set
 
@@ -705,6 +710,17 @@ class AppUiSettings(context: Context) {
             MAX_LYRICS_PAGE_LINE_SPACING_DP,
         )
         LyricsPreferences.setLyricsPageLineSpacingDp(appContext, lyricsPageLineSpacingDp)
+    }
+
+    fun updateLyricsCurrentLinePositionPercent(percent: Int) {
+        lyricsCurrentLinePositionPercent = percent.coerceIn(
+            MIN_LYRICS_CURRENT_LINE_POSITION_PERCENT,
+            MAX_LYRICS_CURRENT_LINE_POSITION_PERCENT,
+        )
+        LyricsPreferences.setLyricsCurrentLinePositionPercent(
+            appContext,
+            lyricsCurrentLinePositionPercent,
+        )
     }
 
     fun updateLyricsPageImmersive(enabled: Boolean) {

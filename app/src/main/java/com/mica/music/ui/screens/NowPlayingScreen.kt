@@ -1205,6 +1205,7 @@ fun NowPlayingContent(
                     lyricsFontSizeSp = uiSettings.lyricsPageFontSizeSp,
                     lyricsTranslationFontSizeSp = uiSettings.lyricsPageTranslationFontSizeSp,
                     lyricsLineSpacingDp = uiSettings.lyricsPageLineSpacingDp,
+                    lyricsCurrentLinePositionPercent = uiSettings.lyricsCurrentLinePositionPercent,
                     lyricsWordAnimationPreset = uiSettings.lyricsWordAnimationPreset,
                     lyricsBilingualDisplayMode = uiSettings.lyricsBilingualDisplayMode,
                     stripSongTitleParentheses = uiSettings.stripSongTitleParentheses,
@@ -1532,6 +1533,8 @@ fun NowPlayingContent(
                                                         uiSettings.lyricsPageTranslationFontSizeSp,
                                                     lyricsLineSpacingDp =
                                                         uiSettings.lyricsPageLineSpacingDp,
+                                                    lyricsCurrentLinePositionPercent =
+                                                        uiSettings.lyricsCurrentLinePositionPercent,
                                                     lyricsWordAnimationPreset =
                                                         uiSettings.lyricsWordAnimationPreset,
                                                     bilingualDisplayMode =
@@ -1889,6 +1892,8 @@ fun NowPlayingContent(
                                                 uiSettings.lyricsPageTranslationFontSizeSp,
                                             lyricsLineSpacingDp =
                                                 uiSettings.lyricsPageLineSpacingDp,
+                                            lyricsCurrentLinePositionPercent =
+                                                uiSettings.lyricsCurrentLinePositionPercent,
                                             lyricsWordAnimationPreset =
                                                 uiSettings.lyricsWordAnimationPreset,
                                             bilingualDisplayMode =
@@ -2121,6 +2126,7 @@ fun NowPlayingContent(
                             lyricsFontSizeSp = uiSettings.lyricsPageFontSizeSp,
                             lyricsTranslationFontSizeSp = uiSettings.lyricsPageTranslationFontSizeSp,
                             lyricsLineSpacingDp = uiSettings.lyricsPageLineSpacingDp,
+                            lyricsCurrentLinePositionPercent = uiSettings.lyricsCurrentLinePositionPercent,
                             lyricsWordAnimationPreset = uiSettings.lyricsWordAnimationPreset,
                             lyricsBilingualDisplayMode = uiSettings.lyricsBilingualDisplayMode,
                             stripSongTitleParentheses = uiSettings.stripSongTitleParentheses,
@@ -2207,6 +2213,7 @@ fun NowPlayingContent(
                             lyricsTranslationFontSizeSp =
                                 uiSettings.lyricsPageTranslationFontSizeSp,
                             lyricsLineSpacingDp = uiSettings.lyricsPageLineSpacingDp,
+                            lyricsCurrentLinePositionPercent = uiSettings.lyricsCurrentLinePositionPercent,
                             lyricsWordAnimationPreset = uiSettings.lyricsWordAnimationPreset,
                             lyricsBilingualDisplayMode = uiSettings.lyricsBilingualDisplayMode,
                             onLineClick = seekToLyricMs,

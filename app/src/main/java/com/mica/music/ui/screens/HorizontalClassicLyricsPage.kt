@@ -57,6 +57,7 @@ internal fun HorizontalClassicLyricsPage(
             lyricsFontSizeSp = uiSettings.lyricsPageFontSizeSp,
             lyricsTranslationFontSizeSp = uiSettings.lyricsPageTranslationFontSizeSp,
             lyricsLineSpacingDp = uiSettings.lyricsPageLineSpacingDp,
+            lyricsCurrentLinePositionPercent = uiSettings.lyricsCurrentLinePositionPercent,
             lyricsWordAnimationPreset = uiSettings.lyricsWordAnimationPreset,
             lyricsBilingualDisplayMode = uiSettings.lyricsBilingualDisplayMode,
             stripSongTitleParentheses = uiSettings.stripSongTitleParentheses,
