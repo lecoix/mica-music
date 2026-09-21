@@ -32,6 +32,7 @@ fun rememberPlayerScreenAppearance(
     val accent = when (lowerBackground) {
         PlayerLowerBackgroundMode.THEME -> appAccent
         PlayerLowerBackgroundMode.STAR_MAP -> StarMapForegroundAccent
+        PlayerLowerBackgroundMode.RAIN_GLASS -> RainGlassForegroundAccent
         else -> coverAccent
     }
     val lowerSurface = when (lowerBackground) {
@@ -39,6 +40,7 @@ fun rememberPlayerScreenAppearance(
         PlayerLowerBackgroundMode.ARTWORK_GRADIENT ->
             PlayerBackgroundBlend.artworkHold(coverAccent, coverAccent, isDark)
         PlayerLowerBackgroundMode.STAR_MAP -> StarMapBackgroundSurface
+        PlayerLowerBackgroundMode.RAIN_GLASS -> RainGlassBackgroundSurface
         else -> mica.gradientEnd
     }
     val contentColors = when (lowerBackground) {
@@ -49,11 +51,16 @@ fun rememberPlayerScreenAppearance(
         -> remember(coverColor) { PlayerBackgroundBlend.readableTextColors(coverColor) }
         PlayerLowerBackgroundMode.ARTWORK_GRADIENT ->
             remember(lowerSurface) { PlayerBackgroundBlend.readableTextColors(lowerSurface) }
-        PlayerLowerBackgroundMode.STAR_MAP -> lightPlayerContentColors()
+        PlayerLowerBackgroundMode.STAR_MAP,
+        PlayerLowerBackgroundMode.RAIN_GLASS,
+        -> lightPlayerContentColors()
         else -> themeContentColors
     }.copy(
         dynamicColors = remember(coverColor, lowerSurface, isDark, lowerBackground) {
-            if (lowerBackground == PlayerLowerBackgroundMode.STAR_MAP) {
+            if (
+                lowerBackground == PlayerLowerBackgroundMode.STAR_MAP ||
+                lowerBackground == PlayerLowerBackgroundMode.RAIN_GLASS
+            ) {
                 lightPlayerContentColors()
             } else {
                 PlayerBackgroundBlend.dynamicTextColors(
@@ -65,7 +72,10 @@ fun rememberPlayerScreenAppearance(
         },
     )
     val hifiBadgeColors =
-        if (lowerBackground == PlayerLowerBackgroundMode.STAR_MAP) {
+        if (
+            lowerBackground == PlayerLowerBackgroundMode.STAR_MAP ||
+            lowerBackground == PlayerLowerBackgroundMode.RAIN_GLASS
+        ) {
             lightPlayerContentColors()
         } else {
             themeContentColors
@@ -74,6 +84,7 @@ fun rememberPlayerScreenAppearance(
         PlayerLowerBackgroundMode.ARTWORK_GRADIENT ->
             PlayerBackgroundBlend.artworkJunction(coverAccent, coverAccent, isDark)
         PlayerLowerBackgroundMode.STAR_MAP -> StarMapBackgroundSurface
+        PlayerLowerBackgroundMode.RAIN_GLASS -> RainGlassBackgroundSurface
         else -> mica.gradientEnd
     }
     return PlayerScreenAppearance(

@@ -1,6 +1,6 @@
 # Mica 项目文档索引
 
-> 最后整理：2026-09-02
+> 最后整理：2026-09-21
 > 范围：本仓库 **Mica Android** 主工作树文档；`.scratch/` 内工作树、历史副本与外部参考不作为本索引的现行事实来源。
 
 ---
@@ -65,6 +65,7 @@
 | [`PERFORMANCE_INVESTIGATION.md`](PERFORMANCE_INVESTIGATION.md) | 切歌卡顿/发热主线调查（hybrid4-hybrid8） |
 | [`PERFORMANCE_INVESTIGATION_02.md`](PERFORMANCE_INVESTIGATION_02.md) | 调查 **#02**：大队列复验、mirror-index-sync、按钮 visual-first、cover-load 发热 |
 | [`PARTICLE_COVER_OPENGL_MIGRATION.md`](PARTICLE_COVER_OPENGL_MIGRATION.md) | 粒子封面 **§0 产品** + WebView 退役 / GLES parity 施工单 |
+| [`RAIN_GLASS_BACKGROUND.md`](RAIN_GLASS_BACKGROUND.md) | 雨滴玻璃背景：静态街景 + Mica 自有雨滴/湿痕/折射/模糊链，含 staged parity 与 procedural city 实验结论 |
 | [`APPLE_MUSIC_DYNAMIC_BACKGROUND_RE.md`](APPLE_MUSIC_DYNAMIC_BACKGROUND_RE.md) | Apple Music 动态背景逆向（`DYNAMIC_ARTWORK` 参考） |
 | [`REASONIX.md`](../REASONIX.md) | AI/工具速览（须与 `libs.versions.toml` 对齐） |
 | [`CONTEXT.md`](../CONTEXT.md) | 领域词汇权威来源 |
@@ -151,3 +152,4 @@
 | 2026-08-30 | 音效实验室（宽度/音色/混响/360° 环绕，默认关，仅 Shared PCM）：`CONTEXT` 词汇与音质许可、`DESIGN_SPEC` §十四/§15.4、`SETTINGS_AUDIT_MATRIX`、`TESTING` JVM/真机项、`TODO` |
 | 2026-09-01 | 新增 `VOCAL_SEPARATION_RESEARCH.md`：端上人声分离调研结论为暂不实施；记录可复用基建、开源模型许可证边界（Demucs 权重非 MIT）、实时链路对 USB 独占/offload 的结构性冲突与未验证事项 |
 | 2026-09-02 | 按当前运行时依赖同步开源许可证：`OPEN_SOURCE_NOTICES`、关于页、`README`、`DESIGN_SPEC` §十三；补 Mica Apache-2.0、WorkManager/OkHttp、远程曲库三库及其 smbj 传递依赖 |
+| 2026-09-21 | `RAIN_GLASS_BACKGROUND.md`：雨幕玻璃完成逐层自有实现替换；记录 Shadertoy parity gate、静态街景路径及 procedural city 性能实验结论 |

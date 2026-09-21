@@ -22,12 +22,16 @@ enum class PlayerLowerBackgroundMode(
 
     /** Mica 自研的程序化动态星图 GLES 背景。 */
     STAR_MAP("star_map", "星图"),
+
+    /** 封面仅参与取色；抽象雨夜环境 + 程序化雨滴焦距/折射模拟湿玻璃。 */
+    RAIN_GLASS("rain_glass", "雨幕玻璃"),
     ;
 
     val usesBlurredArtwork: Boolean
         get() = this == COVER_GLOW ||
             this == DYNAMIC_LIGHT ||
-            this == DYNAMIC_ARTWORK
+            this == DYNAMIC_ARTWORK ||
+            this == RAIN_GLASS
 
     companion object {
         fun fromStorage(value: String?): PlayerLowerBackgroundMode =
