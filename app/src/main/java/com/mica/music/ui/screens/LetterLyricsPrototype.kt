@@ -67,6 +67,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.mica.music.R
+import com.mica.music.data.LyricDisplayRows
 import com.mica.music.data.LyricLineNode
 import com.mica.music.data.LyricTextRole
 import com.mica.music.data.LyricsBilingualDisplayMode
@@ -76,6 +77,7 @@ import com.mica.music.ui.components.rememberLyricUniformStyle
 import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import com.mica.music.ui.theme.LocalLyricReadingEnabled
+import com.mica.music.ui.theme.LocalLyricSplitEnabled
 import coil.compose.AsyncImage
 import java.io.File
 
@@ -100,6 +102,7 @@ internal fun LetterLyricsPrototype(
     val density = LocalDensity.current
     val motionEnabled = rememberMicaMotionEnabled()
     val readingEnabled = LocalLyricReadingEnabled.current
+    val splitEnabled = LocalLyricSplitEnabled.current
     val textMeasurer = rememberTextMeasurer(cacheSize = 256)
     val lyricStyle = rememberLyricUniformStyle()
     var overviewVisible by remember(renderState.document) { mutableStateOf(false) }
@@ -168,6 +171,8 @@ internal fun LetterLyricsPrototype(
         val letterPagesBuild = remember(
             renderState.document,
             bilingualDisplayMode,
+            splitEnabled,
+            readingEnabled,
             metrics,
             textMeasurer,
             lyricStyle,
@@ -185,6 +190,7 @@ internal fun LetterLyricsPrototype(
             buildLetterPages(
                 lines = renderState.document.lines,
                 bilingualDisplayMode = bilingualDisplayMode,
+                splitEnabled = splitEnabled,
                 metrics = metrics,
                 measureLatinTextWidthPx = { text, isTranslation ->
                     textMeasurer.measure(
@@ -925,9 +931,78 @@ private data class LetterPagesBuild(
     val primaryRevealSchedules: Map<Int, IntArray>,
 )
 
+internal enum class LetterDisplayKind {
+    READING,
+    MAIN,
+    TRANSLATION,
+}
+
+internal data class LetterDisplayPiece(
+    val text: String,
+    val kind: LetterDisplayKind,
+    val usePrimaryWordSchedule: Boolean,
+)
+
+/**
+ * Display columns for one lyric line. Structured roles stay as the source wrote them.
+ * Same-line separators are split only here, using the same rules as the classic list.
+ */
+internal fun letterDisplayPieces(
+    line: LyricLineNode,
+    bilingualDisplayMode: LyricsBilingualDisplayMode,
+    readingEnabled: Boolean,
+    splitEnabled: Boolean,
+): List<LetterDisplayPiece> {
+    val flatText = line.parts
+        .filter { it.role != LyricTextRole.READING }
+        .joinToString("\n") { it.text }
+    val rows = LyricDisplayRows.rowsFromParts(
+        parts = line.parts,
+        mode = bilingualDisplayMode,
+        readingEnabled = readingEnabled,
+        splitEnabled = splitEnabled,
+    ) ?: LyricDisplayRows.rowsForBilingualDisplayMode(
+        text = flatText,
+        enabled = splitEnabled,
+        mode = bilingualDisplayMode,
+    )
+    val hasMainOriginal = rows.any {
+        it.role == LyricTextRole.ORIGINAL || it.role == LyricTextRole.EXTRA
+    }
+    return rows.mapNotNull { row ->
+        if (row.text.isEmpty()) return@mapNotNull null
+        when (row.role) {
+            LyricTextRole.READING -> LetterDisplayPiece(
+                text = row.text,
+                kind = LetterDisplayKind.READING,
+                usePrimaryWordSchedule = false,
+            )
+            LyricTextRole.ORIGINAL, LyricTextRole.EXTRA -> LetterDisplayPiece(
+                text = row.text,
+                kind = LetterDisplayKind.MAIN,
+                usePrimaryWordSchedule = true,
+            )
+            LyricTextRole.TRANSLATION -> if (hasMainOriginal) {
+                LetterDisplayPiece(
+                    text = row.text,
+                    kind = LetterDisplayKind.TRANSLATION,
+                    usePrimaryWordSchedule = false,
+                )
+            } else {
+                LetterDisplayPiece(
+                    text = row.text,
+                    kind = LetterDisplayKind.MAIN,
+                    usePrimaryWordSchedule = false,
+                )
+            }
+        }
+    }
+}
+
 private fun buildLetterPages(
     lines: List<LyricLineNode>,
     bilingualDisplayMode: LyricsBilingualDisplayMode,
+    splitEnabled: Boolean,
     metrics: LetterPageMetrics,
     measureLatinTextWidthPx: (text: String, isTranslation: Boolean) -> Float,
     measureGraphemeLayout: (text: String, isTranslation: Boolean) -> TextLayoutResult,
@@ -962,110 +1037,61 @@ private fun buildLetterPages(
     }
 
     lines.forEachIndexed { lineIndex, line ->
-        val readings = line.parts
-            .filter { it.role == LyricTextRole.READING }
-            .joinToString(" ") { it.text }
-            .trim()
-        val originals = line.parts
-            .filter { it.role == LyricTextRole.ORIGINAL }
+        val pieces = letterDisplayPieces(
+            line = line,
+            bilingualDisplayMode = bilingualDisplayMode,
+            readingEnabled = readingEnabled,
+            splitEnabled = splitEnabled,
+        )
+        val scheduledText = pieces
+            .filter { it.usePrimaryWordSchedule }
             .joinToString("") { it.text }
-            .trim()
-        val translations = line.parts
-            .filter { it.role == LyricTextRole.TRANSLATION || it.role == LyricTextRole.EXTRA }
-            .joinToString(" ") { it.text }
-            .trim()
-        val primaryText = when (bilingualDisplayMode) {
-            LyricsBilingualDisplayMode.TRANSLATION -> translations.ifEmpty { originals }
-            else -> originals.ifEmpty { translations }
-        }
-        val readingText = when {
-            !readingEnabled -> ""
-            bilingualDisplayMode == LyricsBilingualDisplayMode.TRANSLATION -> ""
-            else -> readings
-        }
-        val secondaryText = when (bilingualDisplayMode) {
-            LyricsBilingualDisplayMode.ALL -> translations.takeIf { originals.isNotEmpty() }.orEmpty()
-            else -> ""
-        }
-        val readingSegments = splitIntoVerticalSegments(
-            text = readingText,
-            maxCharacters = mainCharactersPerColumn,
-            maxLatinWidthPx = latinColumnWidthPx,
-            measureLatinTextWidthPx = { measureLatinTextWidthPx(it, false) },
-        )
-        val primarySegments = splitIntoVerticalSegments(
-            text = primaryText,
-            maxCharacters = mainCharactersPerColumn,
-            maxLatinWidthPx = latinColumnWidthPx,
-            measureLatinTextWidthPx = { measureLatinTextWidthPx(it, false) },
-        )
-        val secondarySegments = splitIntoVerticalSegments(
-            text = secondaryText,
-            maxCharacters = translationCharactersPerColumn,
-            maxLatinWidthPx = latinColumnWidthPx,
-            measureLatinTextWidthPx = { measureLatinTextWidthPx(it, true) },
-        )
-        val primaryTotal = primaryText.letterGraphemes().size.coerceAtLeast(1)
-        val readingTotal = readingText.letterGraphemes().size.coerceAtLeast(1)
-        val secondaryTotal = secondaryText.letterGraphemes().size.coerceAtLeast(1)
         val lineFallbackEndMs = lines.getOrNull(lineIndex + 1)?.startMs
         val lineEndMs = line.endMs ?: lineFallbackEndMs ?: (line.startMs + 4_000)
-        val primaryWordSchedule = if (
-            bilingualDisplayMode != LyricsBilingualDisplayMode.TRANSLATION &&
-            originals.isNotEmpty()
-        ) {
+        val primaryWordSchedule = scheduledText.takeIf { it.isNotEmpty() }?.let { displayText ->
             buildLetterGraphemeRevealMs(
                 line = line,
-                displayText = originals,
+                displayText = displayText,
                 tokens = letterOriginalWordTokens(line),
                 fallbackEndMs = lineFallbackEndMs,
             )
-        } else {
-            null
         }
         primaryWordSchedule?.let { primaryRevealSchedules[lineIndex] = it }
-        var readingStart = 0
-        var primaryStart = 0
-        var secondaryStart = 0
+        val revealCursor = mutableMapOf<LetterDisplayKind, Int>()
         val columnSpecs = buildList {
-            readingSegments.forEach { segment ->
-                add(
-                    LetterColumnSpec(
-                        text = segment,
-                        isTranslation = true,
-                        usePrimaryWordSchedule = false,
-                        widthUnits = TRANSLATION_COLUMN_UNITS,
-                        revealStartIndex = readingStart,
-                        revealTotalCount = readingTotal,
-                    ),
+            pieces.forEach { piece ->
+                val segmentAsTranslation = piece.kind == LetterDisplayKind.TRANSLATION
+                val segments = splitIntoVerticalSegments(
+                    text = piece.text,
+                    maxCharacters = if (segmentAsTranslation) {
+                        translationCharactersPerColumn
+                    } else {
+                        mainCharactersPerColumn
+                    },
+                    maxLatinWidthPx = latinColumnWidthPx,
+                    measureLatinTextWidthPx = { measureLatinTextWidthPx(it, segmentAsTranslation) },
                 )
-                readingStart += segment.letterGraphemes().size
-            }
-            primarySegments.forEach { segment ->
-                add(
-                    LetterColumnSpec(
-                        text = segment,
-                        isTranslation = false,
-                        usePrimaryWordSchedule = primaryWordSchedule != null,
-                        widthUnits = MAIN_COLUMN_UNITS,
-                        revealStartIndex = primaryStart,
-                        revealTotalCount = primaryTotal,
-                    ),
-                )
-                primaryStart += segment.letterGraphemes().size
-            }
-            secondarySegments.forEach { segment ->
-                add(
-                    LetterColumnSpec(
-                        text = segment,
-                        isTranslation = true,
-                        usePrimaryWordSchedule = false,
-                        widthUnits = TRANSLATION_COLUMN_UNITS,
-                        revealStartIndex = secondaryStart,
-                        revealTotalCount = secondaryTotal,
-                    ),
-                )
-                secondaryStart += segment.letterGraphemes().size
+                val revealTotal = piece.text.letterGraphemes().size.coerceAtLeast(1)
+                val drawAsTranslation = piece.kind != LetterDisplayKind.MAIN
+                segments.forEach { segment ->
+                    val revealStart = revealCursor[piece.kind] ?: 0
+                    add(
+                        LetterColumnSpec(
+                            text = segment,
+                            isTranslation = drawAsTranslation,
+                            usePrimaryWordSchedule = piece.usePrimaryWordSchedule &&
+                                primaryWordSchedule != null,
+                            widthUnits = if (drawAsTranslation) {
+                                TRANSLATION_COLUMN_UNITS
+                            } else {
+                                MAIN_COLUMN_UNITS
+                            },
+                            revealStartIndex = revealStart,
+                            revealTotalCount = revealTotal,
+                        ),
+                    )
+                    revealCursor[piece.kind] = revealStart + segment.letterGraphemes().size
+                }
             }
         }
         val groupUnits = columnSpecs.sumOf { it.widthUnits.toDouble() }.toFloat() +
