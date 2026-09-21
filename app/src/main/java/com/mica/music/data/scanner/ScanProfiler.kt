@@ -30,8 +30,10 @@ private fun embeddedLyricsProbeRevision(
     append(dateModifiedMs.coerceAtLeast(0L))
 }
 
-internal class ScanProfiler(private val source: String) {
-    private val enabled = DiagnosticLog.isDetailedEnabled(DiagnosticDetailDomain.LIBRARY_SCAN)
+internal class ScanProfiler(
+    private val source: String,
+    private val enabled: Boolean = DiagnosticLog.isDetailedEnabled(DiagnosticDetailDomain.LIBRARY_SCAN),
+) {
     private val startedAtNs = if (enabled) SystemClock.elapsedRealtimeNanos() else 0L
     private val stages = ConcurrentHashMap<String, Stage>()
     private val byteStages = ConcurrentHashMap<String, ByteStage>()

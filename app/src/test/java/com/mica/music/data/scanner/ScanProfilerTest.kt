@@ -261,7 +261,7 @@ class ScanProfilerTest {
 
     @Test
     fun scanPerfSummaryIncludesCacheReuseMissReasons() {
-        val profiler = ScanProfiler("test")
+        val profiler = ScanProfiler("test", enabled = true)
         profiler.recordReuseMiss("embedded-lyrics-unread")
 
         assertTrue(profiler.finish(total = 1, reused = 0, probed = 1).contains(

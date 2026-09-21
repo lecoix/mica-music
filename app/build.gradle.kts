@@ -319,14 +319,31 @@ tasks.register("micaRecordScreenshotFull") {
 val nightlyRequested = gradle.startParameter.taskNames.any {
     it.substringAfterLast(':') == "micaNightlyCheck"
 }
-val fullScreenshotsRequested = nightlyRequested || gradle.startParameter.taskNames.any {
+val directFullScreenshotsRequested = gradle.startParameter.taskNames.any {
     it.substringAfterLast(':') in setOf("micaScreenshotFull", "micaRecordScreenshotFull")
 }
+val fullScreenshotsRequested = nightlyRequested || directFullScreenshotsRequested
+val screenshotRegressionTestClasses = listOf(
+    "com.mica.music.MainAppSurfaceScreenshotTest",
+    "com.mica.music.ui.components.MiniPlayerScreenshotTest",
+    "com.mica.music.ui.screens.home.SmbBrowserFlowTest",
+    "com.mica.music.ui.screens.tutorial.UsageTutorialTest",
+)
 
 tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
     systemProperty("mica.nightly", nightlyRequested.toString())
     systemProperty("mica.fullScreenshots", fullScreenshotsRequested.toString())
     systemProperty("mica.screenshotGolden", fullScreenshotsRequested.toString())
+
+    // The dedicated screenshot gate has a separate JVM-test job. Keep Windows Roborazzi runs
+    // focused on screenshot-bearing classes so unrelated Room/stress tests cannot fail this gate.
+    if (directFullScreenshotsRequested && !nightlyRequested && name == "testDebugUnitTest") {
+        filter {
+            screenshotRegressionTestClasses.forEach { className ->
+                includeTestsMatching("$className.*")
+            }
+        }
+    }
 }
 
 tasks.register("micaNightlyCheck") {
