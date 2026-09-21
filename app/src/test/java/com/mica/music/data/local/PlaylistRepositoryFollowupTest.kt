@@ -18,6 +18,7 @@ import com.mica.music.data.library.PersistedLibraryState
 import com.mica.music.data.library.SourceActivation
 import com.mica.music.data.library.SourceIdentityKey
 import com.mica.music.testutil.SongFixtures
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -102,6 +103,7 @@ class PlaylistRepositoryFollowupTest {
             },
         )
         assertEquals(10_000, consumer.drainToTail())
+        advanceUntilIdle()
         assertEquals(20, batchSizes.size)
         assertTrue(batchSizes.all { it in 1..512 })
         assertEquals(20, playlistSnapshotReads.get())

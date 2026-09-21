@@ -63,7 +63,7 @@ android {
             ?: if (qaSideBySide) "com.mica.music.qa" else "com.mica.music"
         minSdk = 26
         targetSdk = 34
-        versionCode = 56
+        versionCode = 57
         versionName = "0.4.2" + if (qaSideBySide) "-qa" else ""
         buildConfigField(
             "String",
