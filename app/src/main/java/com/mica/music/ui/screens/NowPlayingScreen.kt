@@ -555,6 +555,12 @@ fun NowPlayingContent(
         customLayoutDraft = uiSettings.customPlayerLowerLayout.normalized()
     }
 
+    val appearance = rememberPlayerScreenAppearance(song, lowerBackground)
+    val playerUiColors = rememberPlaybackContentColors(
+        appearance.contentColors,
+        uiSettings.playerPageTextColorMode,
+    )
+
     Box(Modifier.fillMaxSize()) {
         BoxWithConstraints(
             modifier = Modifier
@@ -627,11 +633,6 @@ fun NowPlayingContent(
             val landscapeEdgePadding = landscapeGeometry?.edgePaddingDp?.dp ?: 0.dp
             val landscapeCoverSize = landscapeGeometry?.playbackCoverSizeDp?.dp
 
-            val appearance = rememberPlayerScreenAppearance(song, lowerBackground)
-            val playerUiColors = rememberPlaybackContentColors(
-                appearance.contentColors,
-                uiSettings.playerPageTextColorMode,
-            )
             val darkTheme = uiSettings.isDarkTheme()
             val hasTimedPageLyrics = remember(song.lyricsDocument) {
                 song.lyricsDocument.lines.any { it.startMs > 0 }
@@ -2249,6 +2250,7 @@ fun NowPlayingContent(
                         queue = queueState.queue,
                         currentIndex = queueState.currentIndex,
                         isPlaying = surfaceState.isPlaying,
+                        contentColors = playerUiColors,
                         onDismiss = { queueSheetOpen = false },
                         onPlayAt = actions.playQueueIndex,
                         onMove = actions.moveQueueItem,
@@ -2280,6 +2282,7 @@ fun NowPlayingContent(
                     queue = queueState.queue,
                     currentIndex = queueState.currentIndex,
                     isPlaying = surfaceState.isPlaying,
+                    contentColors = playerUiColors,
                     onDismiss = { queueSheetOpen = false },
                     onPlayAt = actions.playQueueIndex,
                     onMove = actions.moveQueueItem,

@@ -27,6 +27,7 @@ import com.mica.music.ui.screens.player.view.CoverFlowReflectionBake
 import com.mica.music.ui.screens.player.view.PhotoStackTransitionFramePx
 import com.mica.music.ui.screens.player.view.PhotoStackTransitionView
 import com.mica.music.ui.theme.MicaTheme
+import com.mica.music.ui.theme.rememberPlayerContentColors
 import org.json.JSONObject
 import java.io.File
 
@@ -164,6 +165,7 @@ class LandscapeCapacityActivity : ComponentActivity() {
                         queue = queue,
                         currentIndex = startIndex,
                         isPlaying = false,
+                        contentColors = rememberPlayerContentColors(),
                         onDismiss = {},
                         onPlayAt = {},
                         onMove = { _, _ -> },

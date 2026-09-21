@@ -62,6 +62,7 @@ import com.mica.music.ui.theme.HifiPalette
 import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.MicaTheme
+import com.mica.music.ui.theme.PlayerContentColors
 import com.mica.music.ui.theme.coverColor
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyGridState
@@ -74,6 +75,7 @@ fun PlaybackQueueSheet(
     queue: List<Song>,
     currentIndex: Int,
     isPlaying: Boolean,
+    contentColors: PlayerContentColors,
     onDismiss: () -> Unit,
     onPlayAt: (Int) -> Unit,
     onMove: (Int, Int) -> Unit,
@@ -173,12 +175,12 @@ fun PlaybackQueueSheet(
                     Text(
                         text = "${queue.size} 首",
                         style = MicaTheme.typography.bodySm,
-                        color = MicaTheme.colors.textSecondary,
+                        color = contentColors.primary,
                     )
                     Text(
                         text = "  ·  拖动左侧把手调整顺序",
                         style = MicaTheme.typography.caption,
-                        color = MicaTheme.colors.textTertiary,
+                        color = contentColors.secondary,
                     )
                 }
             } else {
@@ -193,18 +195,18 @@ fun PlaybackQueueSheet(
                     Text(
                         text = "播放列表",
                         style = MicaTheme.typography.titleMd,
-                        color = MicaTheme.colors.textPrimary,
+                        color = contentColors.primary,
                     )
                     Text(
                         text = "拖动左侧把手调整顺序",
                         style = MicaTheme.typography.caption,
-                        color = MicaTheme.colors.textTertiary,
+                        color = contentColors.secondary,
                     )
                 }
                 Text(
                     text = "${queue.size} 首",
                     style = MicaTheme.typography.bodySm,
-                    color = MicaTheme.colors.textSecondary,
+                    color = contentColors.primary,
                 )
                 if (landscape) {
                     IconButton(
@@ -216,7 +218,7 @@ fun PlaybackQueueSheet(
                         Icon(
                             imageVector = Icons.Outlined.Close,
                             contentDescription = "关闭播放队列",
-                            tint = MicaTheme.colors.textSecondary,
+                            tint = contentColors.secondary,
                         )
                     }
                 }
@@ -226,7 +228,7 @@ fun PlaybackQueueSheet(
             if (landscape && !embedded) {
                 HorizontalDivider(
                     thickness = HifiSize.dividerHairline,
-                    color = MicaTheme.colors.divider,
+                    color = contentColors.tertiary.copy(alpha = contentColors.tertiary.alpha * 0.5f),
                 )
             }
 
@@ -234,7 +236,7 @@ fun PlaybackQueueSheet(
                 Text(
                     text = "队列为空",
                     style = MicaTheme.typography.bodyMd,
-                    color = MicaTheme.colors.textTertiary,
+                    color = contentColors.secondary,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = HifiSpacing.xl),
@@ -265,13 +267,13 @@ fun PlaybackQueueSheet(
                             ) { index: Int ->
                                 val sourceIndex = previewProjection?.sourceIndexAt(index) ?: index
                                 val song = queue[sourceIndex]
-                                ReorderableItem(reorderGridState, key = song.id) { isDragging ->
+                                ReorderableItem(reorderGridState, key = song.id) { _ ->
                                     QueueSongRow(
                                         index = index,
                                         song = song,
                                         isCurrent = sourceIndex == currentIndex,
                                         isPlaying = sourceIndex == currentIndex && isPlaying,
-                                        isDragging = isDragging,
+                                        colors = contentColors,
                                         onClick = {
                                             onPlayAt(sourceIndex)
                                             if (!embedded) onDismiss()
@@ -327,13 +329,13 @@ fun PlaybackQueueSheet(
                             ) { index ->
                                 val sourceIndex = previewProjection?.sourceIndexAt(index) ?: index
                                 val song = queue[sourceIndex]
-                                ReorderableItem(reorderListState, key = song.id) { isDragging ->
+                                ReorderableItem(reorderListState, key = song.id) { _ ->
                                     QueueSongRow(
                                         index = index,
                                         song = song,
                                         isCurrent = sourceIndex == currentIndex,
                                         isPlaying = sourceIndex == currentIndex && isPlaying,
-                                        isDragging = isDragging,
+                                        colors = contentColors,
                                         onClick = {
                                             onPlayAt(sourceIndex)
                                             if (!embedded) onDismiss()
@@ -399,7 +401,7 @@ private fun QueueSongRow(
     song: Song,
     isCurrent: Boolean,
     isPlaying: Boolean,
-    isDragging: Boolean,
+    colors: PlayerContentColors,
     onClick: () -> Unit,
     onRemove: () -> Unit,
     dragModifier: Modifier,
@@ -416,11 +418,7 @@ private fun QueueSongRow(
             Icon(
                 imageVector = Icons.Outlined.DragHandle,
                 contentDescription = "拖动排序",
-                tint = if (isDragging) {
-                    MicaTheme.colors.accent
-                } else {
-                    MicaTheme.colors.textTertiary
-                },
+                tint = colors.secondary,
                 modifier = dragModifier
                     .padding(end = if (landscape) HifiSpacing.xs else HifiSpacing.sm)
                     .size(if (landscape) HifiSize.iconMd else HifiSize.iconLg),
@@ -436,11 +434,7 @@ private fun QueueSongRow(
                     Text(
                         text = "${index + 1}",
                         style = MicaTheme.typography.monoSm,
-                        color = if (isCurrent) {
-                            MicaTheme.colors.accent
-                        } else {
-                            MicaTheme.colors.textTertiary
-                        },
+                        color = if (isCurrent) MicaTheme.colors.accent else colors.secondary,
                     )
                 }
             }
@@ -460,14 +454,14 @@ private fun QueueSongRow(
                 Text(
                     text = song.title,
                     style = MicaTheme.typography.bodyLg,
-                    color = if (isCurrent) MicaTheme.colors.accent else MicaTheme.colors.textPrimary,
+                    color = if (isCurrent) MicaTheme.colors.accent else colors.primary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     text = "${ArtistNames.normalizeDisplay(song.artist)} · ${song.durationLabel}",
                     style = MicaTheme.typography.bodySm,
-                    color = MicaTheme.colors.textSecondary,
+                    color = colors.secondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -480,7 +474,7 @@ private fun QueueSongRow(
                 Icon(
                     imageVector = Icons.Outlined.Close,
                     contentDescription = "从队列移除",
-                    tint = MicaTheme.colors.textTertiary,
+                    tint = colors.secondary,
                     modifier = Modifier.size(HifiSize.iconMd),
                 )
             }
