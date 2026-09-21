@@ -48,6 +48,16 @@ class RemoteSourceManagerTest {
     }
 
     @Test
+    fun smbAnonymousConnectionNeverSchedulesFullScan() = runTest {
+        var requests = 0
+        val manager = manager(NavidromeHttpExecutor { error("No network expected") }) { requests++ }
+        val source = manager.createSmb("Router", "smb://router/music", "", "")
+        assertEquals(RemoteCredentialMaterial.Anonymous, credentials.resolve(source.credentialRef)!!.material)
+        assertEquals(0, requests)
+        assertFalse(repository.sourceStatus(source.id)!!.needsAutomaticSync(Long.MAX_VALUE, 0))
+    }
+
+    @Test
     fun createNavidromePersistsOnlyOpaqueCredentialReference() = runTest {
         val manager = manager(executor = NavidromeHttpExecutor { okResponse() })
 
@@ -202,10 +212,10 @@ class RemoteSourceManagerTest {
         assertNotEquals(oldRef, rotated.credentialRef)
         assertEquals("new-secret", (credentials.resolve(rotated.credentialRef)!!.material as RemoteCredentialMaterial.UsernamePassword).password)
         assertEquals(null, credentials.resolve(oldRef))
-        assertEquals(
-            "smb://nas.local/Music/Other",
-            manager.updateSourceConfig(source.id, "NAS", "smb://NAS.local/Music/Other/", true).endpoint,
-        )
+        assertTrue(runCatching {
+            manager.updateSourceConfig(source.id, "NAS", "smb://NAS.local/Music/Other/", true)
+        }.exceptionOrNull() is IllegalArgumentException)
+        assertEquals(source.endpoint, repository.source(source.id)!!.endpoint)
     }
     @Test
     fun deletingSourceRemovesCatalogInvalidatesOperationAndDestroysCredential() = runTest {

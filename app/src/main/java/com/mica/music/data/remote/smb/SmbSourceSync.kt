@@ -51,7 +51,7 @@ internal class SmbSourceSync(
     suspend fun testConnection(sourceInstanceId: String) {
         val session = beginSession(sourceInstanceId)
         try {
-            listDirectory(session, relativeDirectory = "")
+            withContext(Dispatchers.IO) { session.handle.checkDirectory(session.endpoint.serverPath("")) }
             ensureCurrent(session)
         } finally {
             closeSession(session.handle)
@@ -109,7 +109,7 @@ internal class SmbSourceSync(
         }
         val credential = credentialStore.resolve(source.credentialRef)
             ?: throw SmbException(SmbFailureKind.AUTH, "SMB credential is unavailable")
-        val material = credential.material as? RemoteCredentialMaterial.UsernamePassword
+        val login = SmbLogin.from(credential.material)
             ?: throw SmbException(SmbFailureKind.AUTH, "SMB requires username/password credentials")
         ensureCurrent(owner, operation)
 
@@ -118,7 +118,7 @@ internal class SmbSourceSync(
         } catch (failure: IllegalArgumentException) {
             throw SmbException(SmbFailureKind.PROTOCOL, failure.message ?: "Invalid SMB address", failure)
         }
-        val login = SmbLogin.parse(material.username, material.password)
+
         val handle = withContext(Dispatchers.IO) {
             sessionFactory.open(endpoint, login)
         }

@@ -1,4 +1,4 @@
-﻿package com.mica.music.data.remote
+package com.mica.music.data.remote
 
 import com.mica.music.data.SharedLyricsMemoryCache
 import com.mica.music.data.remote.navidrome.NavidromeException
@@ -140,13 +140,13 @@ internal class RemoteSourceManager internal constructor(
         )
         credentialStore.put(
             credentialRef,
-            RemoteCredentialMaterial.UsernamePassword(
+            if (username.isBlank()) RemoteCredentialMaterial.Anonymous else RemoteCredentialMaterial.UsernamePassword(
                 username = normalizeUsername(username),
-                password = normalizePassword(password),
+                password = password,
             ),
         )
         catalogRepository.upsertSource(instance)
-        if (instance.enabled) automaticSyncRequest()
+
         return instance
     }
     suspend fun updateSourceConfig(
@@ -156,6 +156,7 @@ internal class RemoteSourceManager internal constructor(
         enabled: Boolean,
     ): RemoteSourceInstance {
         val current = requireSource(sourceInstanceId)
+        require(current.type != RemoteSourceType.SMB || normalizeEndpoint(current.type, endpoint) == current.endpoint) { "更换 SMB 地址请添加新连接，以保留旧歌单的来源身份" }
         val updated = current.copy(
             displayName = normalizeDisplayName(displayName),
             endpoint = normalizeEndpoint(current.type, endpoint),
@@ -163,7 +164,7 @@ internal class RemoteSourceManager internal constructor(
         )
         catalogRepository.upsertSource(updated)
         invalidateSourceLyrics(sourceInstanceId)
-        if (updated.enabled) automaticSyncRequest()
+        if (updated.enabled && updated.type != RemoteSourceType.SMB) automaticSyncRequest()
         return updated
     }
 
@@ -173,7 +174,7 @@ internal class RemoteSourceManager internal constructor(
         val updated = current.copy(enabled = enabled)
         catalogRepository.upsertSource(updated)
         invalidateSourceLyrics(sourceInstanceId)
-        if (updated.enabled) automaticSyncRequest()
+        if (updated.enabled && updated.type != RemoteSourceType.SMB) automaticSyncRequest()
         return updated
     }
 
@@ -217,7 +218,7 @@ internal class RemoteSourceManager internal constructor(
         when (requireSource(sourceInstanceId).type) {
             RemoteSourceType.NAVIDROME -> syncNavidrome(sourceInstanceId)
             RemoteSourceType.WEBDAV -> syncWebDav(sourceInstanceId)
-            RemoteSourceType.SMB -> syncSmb(sourceInstanceId)
+            RemoteSourceType.SMB -> error("SMB uses directory browsing; full-source sync is disabled")
         }
     }
 
@@ -339,16 +340,16 @@ internal class RemoteSourceManager internal constructor(
         }
         credentialStore.put(
             nextCredentialRef,
-            RemoteCredentialMaterial.UsernamePassword(
+            if (current.type == RemoteSourceType.SMB && username.isBlank()) RemoteCredentialMaterial.Anonymous else RemoteCredentialMaterial.UsernamePassword(
                 username = normalizeUsername(username),
-                password = normalizePassword(password),
+                password = if (current.type == RemoteSourceType.SMB) password else normalizePassword(password),
             ),
         )
         val updated = current.copy(credentialRef = nextCredentialRef)
         catalogRepository.upsertSource(updated)
         credentialStore.delete(current.credentialRef)
         invalidateSourceLyrics(current.id)
-        if (updated.enabled) automaticSyncRequest()
+        if (updated.enabled && updated.type != RemoteSourceType.SMB) automaticSyncRequest()
         return updated
     }
     private suspend fun invalidateSourceLyrics(

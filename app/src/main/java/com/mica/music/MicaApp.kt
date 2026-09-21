@@ -37,6 +37,15 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import java.io.File
+import androidx.compose.runtime.snapshotFlow
+import com.mica.music.data.remote.RemoteMediaIdCodec
+import com.mica.music.data.remote.mergePlaybackMetadata
+import com.mica.music.data.remote.smb.SmbNowPlayingMetadata
+import com.mica.music.data.remote.smb.SmbOptionalIo
+import com.mica.music.playback.PlaybackExecutionState
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.collectLatest
 
 class MicaApp : Application() {
     /** Process-lifetime scope for playback behavior that must outlive Activity/ViewModel owners. */
@@ -128,6 +137,34 @@ class MicaApp : Application() {
         processScope.launch(Dispatchers.IO) { AlphabeticalText.persistPersistentCache() }
     }
 
+    /** Optional SMB work follows the process playback owner, including background track changes. */
+    private fun observeSmbPlayback() {
+        processScope.launch {
+            val metadata by lazy { SmbNowPlayingMetadata(remoteCatalogRepository, remoteCredentialStore, AndroidTagLibRemoteTrackMetadataProbe(this@MicaApp)) }
+            snapshotFlow {
+                val surface = playerController.playbackSurfaceState
+                surface.currentSong?.id to surface.playbackStatus.execution
+            }.onEach { (id, execution) ->
+                SmbOptionalIo.currentMediaId = id
+                val sourceId = id?.let(RemoteMediaIdCodec::decode)?.sourceInstanceId
+                SmbOptionalIo.bufferingSourceId = sourceId.takeIf {
+                    execution == PlaybackExecutionState.BUFFERING || execution == PlaybackExecutionState.PREPARING
+                }
+            }.collectLatest { (id, execution) ->
+                if (id != null && execution == PlaybackExecutionState.PLAYING) {
+                    try {
+                        val enriched = metadata.load(id)
+                        val current = playerController.playbackSurfaceState.currentSong
+                        if (enriched != null && current?.id == id) {
+                            playerController.refreshQueueMetadata(listOf(enriched.mergePlaybackMetadata(current)))
+                        }
+                    } catch (cancelled: CancellationException) { throw cancelled }
+                    catch (_: Exception) { /* Optional information must never stop playback. */ }
+                }
+            }
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         AlphabeticalText.configurePersistentCache(File(filesDir, "library-sort-keys.bin"))
@@ -149,5 +186,6 @@ class MicaApp : Application() {
             ?.let { transientPlaybackCatalog.replaceAll(it, restorable = true) }
         // Bind stats persistence before any MediaSession playback can publish sessions.
         playbackStatistics
+        observeSmbPlayback()
     }
 }

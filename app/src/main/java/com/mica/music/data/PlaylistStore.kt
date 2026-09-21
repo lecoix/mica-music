@@ -21,6 +21,9 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.atomic.AtomicLong
+import com.mica.music.data.remote.RemoteCatalogRepository
+import com.mica.music.data.remote.RemoteOperationToken
+import com.mica.music.data.remote.RemoteTrackSummary
 
 data class UserPlaylist(
     val id: String,
@@ -127,6 +130,29 @@ class PlaylistStore(
             value = true,
             publication = PlaylistPublication(current.toMutableList().also { it[index] = updated }, storageRevision),
         )
+    }
+
+    /** Selection carries the playlist revision observed before any asynchronous preparation. */
+    internal suspend fun addRemoteSongsToPlaylist(
+        playlistId: String,
+        tracks: List<RemoteTrackSummary>,
+        token: RemoteOperationToken,
+        remote: RemoteCatalogRepository,
+        expectedRevision: Int,
+    ): Boolean = mutate { current ->
+        if (revision != expectedRevision) return@mutate PlaylistMutationResult(false)
+        val index = current.indexOfFirst { it.id == playlistId }
+        if (index < 0) return@mutate PlaylistMutationResult(false)
+        val target = current[index]
+        val existing = target.songIds.toHashSet()
+        val additions = tracks.map { it.mediaId }.filter { existing.add(it) }
+        val updated = target.copy(songIds = target.songIds + additions)
+        val storedRevision = remote.commitSelectedTracks(token, tracks) {
+            // Nested Room transaction on the same database; a failed playlist write rolls back descriptions.
+            repository.replacePlaylist(updated, index)
+        } ?: return@mutate PlaylistMutationResult(false)
+        PlaylistMutationResult(true,
+            PlaylistPublication(current.toMutableList().also { it[index] = updated }, storedRevision))
     }
 
     suspend fun appendSongsAsCustomOrder(
@@ -246,6 +272,11 @@ class PlaylistStore(
         for (index in 0 until songs.length()) {
             val ref = songs.optJSONObject(index) ?: continue
             val sourceId = ref.optString("id").takeIf(String::isNotBlank)
+            // A remote ID belongs to one connection. Never guess a replacement by title or path.
+            if (sourceId != null && com.mica.music.data.remote.RemoteMediaIdCodec.decode(sourceId) != null && sourceId !in byId) {
+                skipped++
+                continue
+            }
             val resolved = sourceId?.let(byId::get)
                 ?: ref.optString("mediaUri").takeIf(String::isNotBlank)?.let(uniqueByMediaUri::get)
                 ?: ref.optString("filePath").takeIf(String::isNotBlank)?.let(uniqueByFilePath::get)

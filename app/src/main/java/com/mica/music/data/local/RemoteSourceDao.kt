@@ -9,6 +9,9 @@ import androidx.room.Update
 @Dao
 interface RemoteSourceDao {
     @Query("SELECT * FROM remote_sources ORDER BY displayName COLLATE NOCASE ASC, id ASC")
+    fun observe(): kotlinx.coroutines.flow.Flow<List<RemoteSourceEntity>>
+
+    @Query("SELECT * FROM remote_sources ORDER BY displayName COLLATE NOCASE ASC, id ASC")
     suspend fun getAll(): List<RemoteSourceEntity>
 
     @Query("SELECT * FROM remote_sources WHERE enabled = 1 ORDER BY displayName COLLATE NOCASE ASC, id ASC")

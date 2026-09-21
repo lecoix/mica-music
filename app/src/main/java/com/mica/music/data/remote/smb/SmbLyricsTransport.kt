@@ -9,6 +9,9 @@ import com.mica.music.data.scanner.LyricsSanitizer
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.CancellationException
 
 /** On-demand file lyrics over SMB. Catalog sync never opens lyric payloads. */
 internal class SmbLyricsLoader(
@@ -25,7 +28,18 @@ internal class SmbLyricsLoader(
                 val parentPath = request.relativePath.substringBeforeLast('/', "")
                 val audioName = request.relativePath.substringAfterLast('/')
                 val baseName = audioName.substringBeforeLast('.').trim()
-                val entries = session.list(request.endpoint.serverPath(parentPath))
+                val coroutine = currentCoroutineContext()
+                val entries = ArrayList<SmbDirectoryEntry>()
+                var visited = 0
+                session.visit(request.endpoint.serverPath(parentPath)) { entry ->
+                    coroutine.ensureActive()
+                    if (++visited > SmbDirectoryBrowser.MAX_VISITED_ENTRIES) throw IOException("SMB lyric directory exceeds budget")
+                    if (!entry.isDirectory && (entry.name.equals("$baseName.lrc", true) || entry.name.equals("$baseName.ttml", true))) {
+                        if (entries.size >= 16) throw IOException("Too many ambiguous lyric sidecars")
+                        entries += entry
+                    }
+                    true
+                }
                 val sidecars = entries
                     .asSequence()
                     .filterNot(SmbDirectoryEntry::isDirectory)
@@ -62,6 +76,7 @@ internal class SmbLyricsLoader(
                 }
                 LyricsSlots(embedded = embedded).selected()
             } catch (failure: Throwable) {
+                if (failure is CancellationException) throw failure
                 throw if (failure is IOException) failure else IOException("SMB lyrics read failed", failure)
             } finally {
                 runCatching { session?.close() }

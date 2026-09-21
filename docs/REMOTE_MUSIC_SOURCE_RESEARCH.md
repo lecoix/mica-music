@@ -1,11 +1,20 @@
 # 远程音乐源调研记录
 
 > 状态：**MVP 已实现并合并；本文后半保留原调研/provenance 与兼容性记录**
-> 最近更新：2026-09-11
+> 最近更新：2026-09-21
 > 当前范围：Navidrome / WebDAV / SMB  
 > 本文同时承担当前远程曲库实现状态、历史调研/provenance 与兼容边界记录。2026-08-29 之前的“候选/预期”文字按历史语境阅读；当前实现以本页实施状态、代码与 `CURRENT_FEATURE_STATUS.md` 为准。USB 输出与 DSD 的交叉约束同步参考 [`USB_EXCLUSIVE_AUDIO_STATUS.md`](USB_EXCLUSIVE_AUDIO_STATUS.md)。
 
-## 2026-09-11 当前实现摘要
+## 2026-09-21 SMB 浏览与普通歌单
+
+SMB 第一阶段改为按目录浏览：正常手动/自动同步入口不再递归扫描 SMB。
+新增匿名登录、当前层播放、多选加入普通歌单，以及独立于 catalog 的持久曲目描述。
+目录枚举不读取音频、封面或歌词文件内容，标签只按当前播放歌曲补充。
+旧 catalog 和歌单保留；选目录建库留待第二阶段。
+所有权、事务、容量上限和待验收边界见 [ADR-0007](adr/0007-smb-browse-and-selected-tracks.md)。
+下方 2026-08/09 的真机证据属于旧链路，不能作为新浏览流程的真机验收结论。
+
+## 2026-09-11 实现摘要（历史基线）
 
 - Navidrome/OpenSubsonic、WebDAV 与 SMB2/SMB3 均已进入统一 Remote catalog；SMB1 明确禁用。来源实例、配置 revision、凭据与失败隔离独立，稳定 media id/歌单不保存认证 URL 或明文凭据。
 - 上层已闭合独立排序、全局搜索、Artist/Album/Recent 联合浏览、远端多选/长按菜单、歌单封面、当前曲定位与播放统计。

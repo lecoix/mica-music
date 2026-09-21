@@ -1,4 +1,4 @@
-﻿package com.mica.music.ui.screens.settings
+package com.mica.music.ui.screens.settings
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -43,7 +43,7 @@ import java.util.Date
 import kotlinx.coroutines.launch
 
 @Composable
-internal fun RemoteMusicSettingsPanel() {
+internal fun RemoteMusicSettingsPanel(onBrowseSmb: (String) -> Unit = {}) {
     val context = LocalContext.current
     val manager = remember(context) { (context.applicationContext as MicaApp).remoteSourceManager }
     val scope = rememberCoroutineScope()
@@ -95,7 +95,7 @@ internal fun RemoteMusicSettingsPanel() {
     SettingsToggleRow(
         title = "自动同步",
         subtitle = if (automaticSyncEnabled) {
-            "网络可用时约每 6 小时检查一次"
+            "Navidrome / WebDAV 约每 6 小时检查一次；SMB 按目录浏览"
         } else {
             "不影响远端播放和手动同步"
         },
@@ -120,7 +120,7 @@ internal fun RemoteMusicSettingsPanel() {
     )
     SettingsActionRow(
         title = "添加 SMB",
-        subtitle = "SMB2 / SMB3，不支持 SMB1",
+        subtitle = "按目录浏览，不扫描整库；SMB2 / SMB3",
         onClick = { addSourceType = RemoteSourceType.SMB },
         enabled = busySourceId == null,
     )
@@ -163,7 +163,11 @@ internal fun RemoteMusicSettingsPanel() {
                 },
                 enabled = source.enabled && !busy,
             )
-            SettingsActionRow(
+            if (source.type == RemoteSourceType.SMB) SettingsActionRow(
+                title = "浏览文件夹", subtitle = "只读取当前层，不扫描整库",
+                onClick = { onBrowseSmb(source.id) }, enabled = source.enabled && !busy,
+            )
+            if (source.type != RemoteSourceType.SMB) SettingsActionRow(
                 title = "同步曲库",
                 subtitle = if (busy) "正在同步…" else null,
                 onClick = {
@@ -221,8 +225,9 @@ internal fun RemoteMusicSettingsPanel() {
                         }
                     }.onSuccess {
                         addSourceType = null
-                        transientMessage = "已添加 ${it.displayName}"
+                        transientMessage = if (it.type == RemoteSourceType.SMB) "已添加 ${it.displayName}，请到远程音乐 → 浏览 SMB 文件夹" else "已添加 ${it.displayName}"
                         refreshRevision++
+                        if (it.type == RemoteSourceType.SMB) onBrowseSmb(it.id)
                     }.onFailure {
                         transientMessage = it.remoteSettingsMessage("添加失败")
                     }
@@ -283,6 +288,7 @@ internal fun RemoteMusicSettingsPanel() {
     credentialSource?.let { source ->
         RemoteCredentialDialog(
             sourceName = source.displayName,
+            smb = source.type == RemoteSourceType.SMB,
             onDismiss = { credentialSource = null },
             onConfirm = { username, password ->
                 runSourceAction(source.id, "${source.displayName} 登录信息已更新") {
@@ -313,9 +319,10 @@ private fun RemoteSourceDialog(
     var endpoint by remember(initialEndpoint) { mutableStateOf(initialEndpoint) }
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var anonymous by remember { mutableStateOf(sourceType == RemoteSourceType.SMB) }
     val maxHeight = (LocalConfiguration.current.screenHeightDp.dp * 0.7f).coerceIn(300.dp, 600.dp)
     val canSubmit = name.isNotBlank() && endpoint.isNotBlank() &&
-        (!includeCredentials || (username.isNotBlank() && password.isNotBlank()))
+        (!includeCredentials || (sourceType == RemoteSourceType.SMB && anonymous) || (username.isNotBlank() && (sourceType == RemoteSourceType.SMB || password.isNotBlank())))
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -334,6 +341,7 @@ private fun RemoteSourceDialog(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
+                    enabled = includeCredentials || sourceType != RemoteSourceType.SMB,
                     value = endpoint,
                     onValueChange = { endpoint = it },
                     label = { Text("服务器地址") },
@@ -349,7 +357,10 @@ private fun RemoteSourceDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                if (includeCredentials) {
+                if (includeCredentials && sourceType == RemoteSourceType.SMB) {
+                    SettingsToggleRow(title = "匿名访问", checked = anonymous, onCheckedChange = { anonymous = it })
+                }
+                if (includeCredentials && !anonymous) {
                     OutlinedTextField(
                         value = username,
                         onValueChange = { username = it },
@@ -368,7 +379,7 @@ private fun RemoteSourceDialog(
                 }
                 Text(
                     text = if (sourceType == RemoteSourceType.SMB) {
-                        "SMB 地址必须为 smb://主机/共享[/目录]；仅支持 SMB2/SMB3。用户名可写为 DOMAIN\\user。"
+                        "SMB 地址为 smb://主机/共享[/目录]；支持匿名或 DOMAIN\\user 登录。更换地址请添加新连接，旧歌单会保留原来源。"
                     } else {
                         "地址必须包含 http:// 或 https://，且不能在 URL 中嵌入用户名、密码或 token。"
                     },
@@ -387,7 +398,7 @@ private fun RemoteSourceDialog(
         confirmButton = {
             TextButton(
                 enabled = canSubmit,
-                onClick = { onConfirm(name, endpoint, username, password) },
+                onClick = { onConfirm(name, endpoint, if (anonymous) "" else username, if (anonymous) "" else password) },
             ) { Text(confirmLabel) }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
@@ -397,23 +408,27 @@ private fun RemoteSourceDialog(
 @Composable
 private fun RemoteCredentialDialog(
     sourceName: String,
+    smb: Boolean = false,
     onDismiss: () -> Unit,
     onConfirm: (username: String, password: String) -> Unit,
 ) {
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var anonymous by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
         shape = RectangleShape,
         title = { Text("更新登录信息", style = MicaTheme.typography.titleMd, color = MicaTheme.colors.textPrimary) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(HifiSpacing.md)) {
+                if (smb) SettingsToggleRow(title = "匿名访问", checked = anonymous, onCheckedChange = { anonymous = it })
                 Text(
                     text = sourceName,
                     style = MicaTheme.typography.caption,
                     color = MicaTheme.colors.textTertiary,
                 )
                 OutlinedTextField(
+                    enabled = !anonymous,
                     value = username,
                     onValueChange = { username = it },
                     label = { Text("用户名") },
@@ -421,6 +436,7 @@ private fun RemoteCredentialDialog(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
+                    enabled = !anonymous,
                     value = password,
                     onValueChange = { password = it },
                     label = { Text("新密码") },
@@ -432,8 +448,8 @@ private fun RemoteCredentialDialog(
         },
         confirmButton = {
             TextButton(
-                enabled = username.isNotBlank() && password.isNotBlank(),
-                onClick = { onConfirm(username, password) },
+                enabled = (smb && anonymous) || (username.isNotBlank() && (smb || password.isNotBlank())),
+                onClick = { onConfirm(if (anonymous) "" else username, if (anonymous) "" else password) },
             ) { Text("保存") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
@@ -443,7 +459,7 @@ private fun RemoteCredentialDialog(
 private fun connectionTestSubtitle(type: RemoteSourceType): String = when (type) {
     RemoteSourceType.NAVIDROME -> "发送一次 Subsonic ping，不修改曲库"
     RemoteSourceType.WEBDAV -> "发送一次 PROPFIND Depth 0，不修改曲库"
-    RemoteSourceType.SMB -> "连接 SMB2/SMB3 共享并枚举配置目录，不修改曲库"
+    RemoteSourceType.SMB -> "检查共享与目录访问权限，不枚举文件"
 }
 
 private fun buildSourceSubtitle(status: RemoteSourceStatus): String {

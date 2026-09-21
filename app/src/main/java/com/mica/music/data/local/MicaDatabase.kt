@@ -24,8 +24,11 @@ import androidx.room.RoomDatabase
         SongLyricsOffsetEntity::class,
         RemoteSourceEntity::class,
         RemoteTrackEntity::class,
+        RemoteSelectedTrackEntity::class,
+        RemoteSmbScopeEntity::class,
+        RemoteSmbScopeTrackEntity::class,
     ],
-    version = 32,
+    version = 34,
     exportSchema = true,
 )
 abstract class MicaDatabase : RoomDatabase() {
@@ -57,6 +60,8 @@ abstract class MicaDatabase : RoomDatabase() {
     abstract fun remoteSourceDao(): RemoteSourceDao
 
     abstract fun remoteTrackDao(): RemoteTrackDao
+    abstract fun remoteSelectedTrackDao(): RemoteSelectedTrackDao
+    abstract fun remoteSmbScopeDao(): RemoteSmbScopeDao
 
     companion object {
         internal const val DATABASE_NAME = "mica_library.db"
@@ -104,6 +109,8 @@ abstract class MicaDatabase : RoomDatabase() {
                             MIGRATION_29_30,
                             MIGRATION_30_31,
                             MIGRATION_31_32,
+                            MIGRATION_32_33,
+                            MIGRATION_33_34,
                         )
                         .build()
                         .also {

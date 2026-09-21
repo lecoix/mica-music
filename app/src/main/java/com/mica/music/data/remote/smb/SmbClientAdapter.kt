@@ -17,6 +17,7 @@ import java.io.Closeable
 import java.io.IOException
 import java.util.EnumSet
 import java.util.concurrent.TimeUnit
+import com.mica.music.data.remote.RemoteCredentialMaterial
 
 internal enum class SmbFailureKind {
     AUTH,
@@ -36,10 +37,17 @@ internal data class SmbLogin(
     val username: String,
     val password: String,
     val domain: String?,
+    val anonymous: Boolean = false,
 ) {
     override fun toString(): String = "SmbLogin(username=<redacted>, password=<redacted>, domain=<redacted>)"
 
     companion object {
+        fun from(material: RemoteCredentialMaterial): SmbLogin? = when (material) {
+            RemoteCredentialMaterial.Anonymous -> SmbLogin("", "", null, anonymous = true)
+            is RemoteCredentialMaterial.UsernamePassword -> parse(material.username, material.password)
+            else -> null
+        }
+
         fun parse(username: String, password: String): SmbLogin {
             val trimmed = username.trim()
             val slash = trimmed.indexOf('\\')
@@ -56,6 +64,15 @@ internal data class SmbLogin(
     }
 }
 
+internal fun SmbLogin.toAuthenticationContext(): AuthenticationContext =
+    if (anonymous) {
+        // SMBJ 0.15.0 can derive an SMB3 signing key from a null anonymous session key.
+        // Guest keeps passwordless guest-share semantics while avoiding that library crash.
+        AuthenticationContext.guest()
+    } else {
+        AuthenticationContext(username, password.toCharArray(), domain)
+    }
+
 internal data class SmbDirectoryEntry(
     val name: String,
     val isDirectory: Boolean,
@@ -70,6 +87,11 @@ internal interface SmbRandomAccessFile : Closeable {
 
 internal interface SmbSessionHandle : Closeable {
     fun list(serverPath: String): List<SmbDirectoryEntry>
+    /** Return false from consume to stop enumeration and close its directory handle. */
+    fun visit(serverPath: String, consume: (SmbDirectoryEntry) -> Boolean) {
+        for (entry in list(serverPath)) if (!consume(entry)) break
+    }
+    fun checkDirectory(serverPath: String) { list(serverPath) }
     fun openFile(serverPath: String): SmbRandomAccessFile
 }
 
@@ -97,13 +119,7 @@ internal class SmbjSessionFactory : SmbSessionFactory {
         var share: DiskShare? = null
         try {
             connection = client.connect(endpoint.host, endpoint.port)
-            session = connection.authenticate(
-                AuthenticationContext(
-                    login.username,
-                    login.password.toCharArray(),
-                    login.domain,
-                ),
-            )
+            session = connection.authenticate(login.toAuthenticationContext())
             val connectedShare = session.connectShare(endpoint.share)
             share = connectedShare as? DiskShare
                 ?: throw SmbException(SmbFailureKind.PROTOCOL, "SMB source is not a disk share")
@@ -149,6 +165,28 @@ private class SmbjSessionHandle(
     private val session: Session,
     private val share: DiskShare,
 ) : SmbSessionHandle {
+    override fun checkDirectory(serverPath: String) {
+        openDirectory(serverPath).use { }
+    }
+
+    private fun openDirectory(serverPath: String) = share.openDirectory(
+        serverPath, EnumSet.of(AccessMask.FILE_LIST_DIRECTORY, AccessMask.FILE_READ_ATTRIBUTES),
+        null, EnumSet.allOf(SMB2ShareAccess::class.java), SMB2CreateDisposition.FILE_OPEN, null,
+    )
+
+    override fun visit(serverPath: String, consume: (SmbDirectoryEntry) -> Boolean) {
+        openDirectory(serverPath).use { directory ->
+            for (entry in directory) {
+                if (!consume(SmbDirectoryEntry(
+                    entry.fileName,
+                    (entry.fileAttributes and FileAttributes.FILE_ATTRIBUTE_DIRECTORY.value) != 0L,
+                    entry.endOfFile.coerceAtLeast(0L),
+                    "${entry.fileId}:${entry.lastWriteTime.toEpochMillis()}",
+                ))) break
+            }
+        }
+    }
+
     override fun list(serverPath: String): List<SmbDirectoryEntry> = try {
         share.list(serverPath).map { entry ->
             SmbDirectoryEntry(

@@ -166,6 +166,9 @@ object SongMediaItemCodec {
     private const val HEX = "0123456789abcdef"
 
     fun decode(item: MediaItem): Song? {
+        if (com.mica.music.data.remote.RemoteMediaMetadataExtras.isTrustedProjection(item.mediaMetadata.extras)) {
+            return RemoteMediaItemCodec.decode(item)
+        }
         if (ExternalMediaItemCodec.isExternal(item)) {
             return ExternalMediaItemCodec.decode(item)
         }

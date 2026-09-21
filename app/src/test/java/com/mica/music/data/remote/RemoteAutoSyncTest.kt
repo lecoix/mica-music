@@ -29,6 +29,14 @@ class RemoteAutoSyncTest {
         )
     }
 
+    @Test
+    fun smbNeverStartsBackgroundCatalogScanEvenWhenNeverSyncedOrStale() {
+        val smb = enabled.copy(type = RemoteSourceType.SMB, endpoint = "smb://router/share")
+        for (lastSync in listOf(0L, 1L, 9_999L)) {
+            assertFalse(status(smb, lastSync).needsAutomaticSync(nowMs = 10_000L, staleAfterMs = 5_000L))
+        }
+    }
+
     private fun status(instance: RemoteSourceInstance, lastSyncAtMs: Long) = RemoteSourceStatus(
         instance = instance,
         configRevision = 1L,

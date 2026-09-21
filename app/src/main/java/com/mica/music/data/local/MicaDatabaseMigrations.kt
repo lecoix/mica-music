@@ -577,3 +577,101 @@ val MIGRATION_31_32 = object : Migration(31, 32) {
         )
     }
 }
+
+val MIGRATION_33_34 = object : Migration(33, 34) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS remote_smb_scopes (
+                id TEXT NOT NULL,
+                sourceInstanceId TEXT NOT NULL,
+                relativeDirectory TEXT NOT NULL,
+                includeSubdirectories INTEGER NOT NULL,
+                kind TEXT NOT NULL,
+                observedConfigRevision INTEGER NOT NULL,
+                lastCompletedAtMs INTEGER NOT NULL,
+                PRIMARY KEY(id),
+                FOREIGN KEY(sourceInstanceId) REFERENCES remote_sources(id) ON UPDATE NO ACTION ON DELETE CASCADE
+            )
+            """.trimIndent(),
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS index_remote_smb_scopes_sourceInstanceId " +
+                "ON remote_smb_scopes(sourceInstanceId)",
+        )
+        db.execSQL(
+            "CREATE UNIQUE INDEX IF NOT EXISTS " +
+                "index_remote_smb_scopes_sourceInstanceId_relativeDirectory_includeSubdirectories_kind " +
+                "ON remote_smb_scopes(sourceInstanceId, relativeDirectory, includeSubdirectories, kind)",
+        )
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS remote_smb_scope_tracks (
+                scopeId TEXT NOT NULL,
+                opaqueTrackId TEXT NOT NULL,
+                PRIMARY KEY(scopeId, opaqueTrackId),
+                FOREIGN KEY(scopeId) REFERENCES remote_smb_scopes(id) ON UPDATE NO ACTION ON DELETE CASCADE
+            )
+            """.trimIndent(),
+        )
+        db.execSQL(
+            """
+            INSERT OR IGNORE INTO remote_smb_scopes(
+                id, sourceInstanceId, relativeDirectory, includeSubdirectories, kind,
+                observedConfigRevision, lastCompletedAtMs
+            )
+            SELECT 'legacy:' || s.id, s.id, '', 1, 'LEGACY',
+                s.configRevision, s.lastSyncAtMs
+            FROM remote_sources s
+            WHERE s.type = 'SMB'
+              AND EXISTS(
+                  SELECT 1 FROM remote_tracks t WHERE t.sourceInstanceId = s.id
+              )
+            """.trimIndent(),
+        )
+        db.execSQL(
+            """
+            INSERT OR IGNORE INTO remote_smb_scope_tracks(scopeId, opaqueTrackId)
+            SELECT 'legacy:' || t.sourceInstanceId, t.opaqueTrackId
+            FROM remote_tracks t
+            INNER JOIN remote_sources s ON s.id = t.sourceInstanceId
+            WHERE s.type = 'SMB'
+            """.trimIndent(),
+        )
+    }
+}
+
+val MIGRATION_32_33 = object : Migration(32, 33) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `remote_selected_tracks` (`sourceInstanceId` TEXT NOT NULL,
+                `opaqueTrackId` TEXT NOT NULL,
+                `title` TEXT NOT NULL,
+                `artist` TEXT NOT NULL,
+                `album` TEXT NOT NULL,
+                `albumArtist` TEXT NOT NULL,
+                `durationSec` INTEGER NOT NULL,
+                `mimeTypeHint` TEXT NOT NULL,
+                `fileName` TEXT NOT NULL,
+                `suffix` TEXT NOT NULL,
+                `sizeBytes` INTEGER NOT NULL,
+                `sampleRateHz` INTEGER NOT NULL DEFAULT 0,
+                `bitsPerSample` INTEGER,
+                `bitrateKbps` INTEGER NOT NULL DEFAULT 0,
+                `channelCount` INTEGER NOT NULL DEFAULT 0,
+                `contentRevision` TEXT NOT NULL DEFAULT '',
+                `metadataProbeRevision` INTEGER NOT NULL DEFAULT 0,
+                `year` INTEGER NOT NULL,
+                `trackNumber` INTEGER NOT NULL,
+                `discNumber` INTEGER NOT NULL,
+                `albumOpaqueId` TEXT NOT NULL,
+                `artistOpaqueId` TEXT NOT NULL,
+                `artworkOpaqueId` TEXT NOT NULL,
+                `catalogPosition` INTEGER NOT NULL,
+                `observedConfigRevision` INTEGER NOT NULL,
+                PRIMARY KEY(`sourceInstanceId`, `opaqueTrackId`))
+            """.trimIndent(),
+        )
+    }
+}

@@ -25,6 +25,34 @@ import java.io.IOException
 class ServicePlaybackEngineCoordinatorTest {
 
     @Test
+    fun selectingSecondRemoteItemStartsItsActualExoPlayback() {
+        val items = listOf("first.wav", "second.flac").map { name ->
+            RemoteMediaItemCodec.encode(
+                com.mica.music.data.remote.RemoteTrackSummary(
+                    ref = com.mica.music.data.remote.RemoteTrackRef("smb-gate", name),
+                    title = name,
+                    artist = "",
+                    album = "",
+                    durationSec = 90,
+                    fileName = name,
+                    suffix = name.substringAfterLast('.'),
+                    mimeTypeHint = if (name.endsWith("flac")) "audio/flac" else "audio/wav",
+                ),
+            )
+        }
+        val exo = mockExoWithQueue(items, currentIndex = 0)
+        val coordinator = ServicePlaybackEngineCoordinator(
+            player = MicaCompositePlayer(exo),
+            context = RuntimeEnvironment.getApplication(),
+        )
+        coordinator.onSelectMediaItem(1, 0L)
+
+        verify(exactly = 1) { exo.seekTo(1, 0L) }
+        verify { exo.playWhenReady = true }
+        coordinator.release()
+    }
+
+    @Test
     fun musicVideoErrorRebuildsCurrentItemAsAudioOnlyOnceAtSamePosition() {
         val song = SongFixtures.song("mv").copy(
             musicVideoUri = "content://library/mv.mp4",

@@ -13,6 +13,24 @@ import org.robolectric.RobolectricTestRunner
 @RunWith(RobolectricTestRunner::class)
 class SongMediaItemCodecTest {
     @Test
+    fun remoteProjectionDecodesThroughSharedServiceCodecAndRejectsTransportUri() {
+        val summary = com.mica.music.data.remote.RemoteTrackSummary(
+            ref = com.mica.music.data.remote.RemoteTrackRef("smb", "Album/song.flac"),
+            title = "song",
+            artist = "",
+            album = "Album",
+            durationSec = 90,
+            mimeTypeHint = "audio/flac",
+        )
+        val item = RemoteMediaItemCodec.encode(summary)
+        val decoded = SongMediaItemCodec.decode(item)
+        assertEquals(summary.mediaId, decoded?.id)
+        assertEquals(SongSource.REMOTE, decoded?.source)
+        assertEquals("audio/flac", decoded?.metadata?.playbackMimeType)
+        assertNull(SongMediaItemCodec.decode(item.buildUpon().setUri("https://untrusted/song").build()))
+    }
+
+    @Test
     fun roundTripPreservesSoftwareDecodeFields() {
         val song = SongFixtures.song(
             id = "dsd",

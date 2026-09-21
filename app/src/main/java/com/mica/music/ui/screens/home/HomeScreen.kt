@@ -106,6 +106,7 @@ fun HomeScreen(
     library: MusicLibrary,
     playlistStore: PlaylistStore,
     remoteSongs: List<Song>,
+    selectedRemoteSongs: List<Song> = emptyList(),
     playbackState: HomePlaybackState,
     playbackActions: HomePlaybackActions,
     uiSettings: AppUiSettings,
@@ -153,9 +154,9 @@ fun HomeScreen(
         library = library,
         remoteSongs = remoteSongs,
     )
-    val remoteSongsById = remember(remoteSongs) { remoteSongs.associateBy { it.id } }
-    val availablePlaylistSongs = remember(library.songs, remoteSongs) {
-        mergedBrowseSongs(library.songs, remoteSongs)
+    val remoteSongsById = remember(remoteSongs, selectedRemoteSongs) { (remoteSongs + selectedRemoteSongs).associateBy { it.id } }
+    val availablePlaylistSongs = remember(library.songs, remoteSongs, selectedRemoteSongs) {
+        mergedBrowseSongs(library.songs, remoteSongs + selectedRemoteSongs)
     }
     val recentSongs = remember(library.songs, remoteSongs) {
         recentSongsForPresentation(
@@ -164,7 +165,7 @@ fun HomeScreen(
         )
     }
     val resolvePlaylistSong: (String) -> Song? = { songId ->
-        library.songById(songId) ?: remoteSongsById[songId]
+        library.songById(songId) ?: remoteSongsById[songId] ?: com.mica.music.data.remote.unavailableRemoteSong(songId)
     }
     val activity = context as ComponentActivity
     val scope = rememberCoroutineScope()
@@ -1104,6 +1105,7 @@ fun HomeScreen(
                         },
                     )
                     HomePaneKey.Remote -> RemoteLibraryPane(
+                        playerOverlayOpen = playerOverlayOpen,
                         songs = sortedRemoteSongs,
                         currentSongId = currentSong?.id,
                         isPlaying = playbackState.isPlaying,

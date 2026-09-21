@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -46,6 +47,7 @@ import com.mica.music.ui.screens.home.HomeNavigationIntent
 import com.mica.music.ui.screens.home.HomePlaybackActions
 import com.mica.music.ui.screens.home.HomePlaybackState
 import com.mica.music.ui.screens.home.HomeScreen
+import com.mica.music.ui.screens.home.SmbBrowserPane
 import com.mica.music.ui.screens.home.HomeSection
 import com.mica.music.ui.screens.MetadataDebugScreen
 import com.mica.music.ui.screens.NowPlayingActions
@@ -60,6 +62,7 @@ import kotlinx.coroutines.CancellationException
 object Routes {
     const val Home = "home"
     const val Settings = "settings"
+    const val SmbBrowser = "smb_browser/{sourceId}"
     const val Equalizer = "equalizer"
     const val SoundFx = "sound_fx"
     const val About = "about"
@@ -110,6 +113,8 @@ fun AppNavigationMain(
     val remoteTracks by remember(remoteCatalogRepository) {
         remoteCatalogRepository.observeTracksForEnabledSources()
     }.collectAsState(initial = emptyList())
+    val selectedTracks by remember(remoteCatalogRepository) { remoteCatalogRepository.observeSelectedTracks() }.collectAsState(initial = emptyList())
+    val selectedSongs = remember(selectedTracks) { selectedTracks.map { it.toPlaybackSong() } }
     val remoteSongs = remember(remoteTracks, remotePlayStats) {
         remoteTracks.map { track ->
             val song = track.toPlaybackSong()
@@ -146,6 +151,7 @@ fun AppNavigationMain(
                 library = library,
                 playlistStore = playlistStore,
                 remoteSongs = remoteSongs,
+                selectedRemoteSongs = selectedSongs,
                 playbackState = homePlaybackState,
                 playbackActions = homePlaybackActions,
                 uiSettings = uiSettings,
@@ -213,6 +219,19 @@ fun AppNavigationMain(
                 )
             }
         }
+        composable(Routes.SmbBrowser, arguments = listOf(navArgument("sourceId") { type = NavType.StringType })) { entry ->
+            SmbBrowserPane(
+                playerOverlayOpen = playerOverlayOwnsBack,
+                initialSourceId = entry.arguments?.getString("sourceId"),
+                onPlay = { songs, id ->
+                    playerController.playQueueSong(songs, id)
+                    coordinator.playerExpanded = true
+                },
+                bottomPadding = navBarPadding.calculateBottomPadding() + bottomOverlayClearance,
+                onBack = { navController.popBackStack() },
+                modifier = Modifier.padding(top = homeStatusBarTopPadding(uiSettings.statusBarVisibilityMode.hidesOutsidePlayer)),
+            )
+        }
         composable(Routes.Settings) {
             val statusTop = homeStatusBarTopPadding(
                 hideStatusBar = uiSettings.statusBarVisibilityMode.hidesOutsidePlayer,
@@ -223,6 +242,7 @@ fun AppNavigationMain(
                 loudnessScanPort = loudnessScanPort,
                 usbHybridDiagnosticsPort = usbHybridDiagnosticsPort,
                 canOpenCustomPlayerLayoutEditor = playerController.playbackSurfaceState.currentSong != null,
+                onBrowseSmb = { sourceId -> coordinator.navigate("smb_browser/${Uri.encode(sourceId)}") },
                 onOpenCustomPlayerLayoutEditor = {
                     coordinator.customLayoutEditRequested = true
                     coordinator.playerExpanded = true

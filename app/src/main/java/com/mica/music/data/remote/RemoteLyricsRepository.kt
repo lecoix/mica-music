@@ -53,6 +53,10 @@ class RemoteLyricsRepository internal constructor(
         if (!status.instance.enabled) {
             return song.copy(lyricsDocument = LyricsDocument(), lyricsLoaded = true)
         }
+        if (isPrefetch && status.instance.type == RemoteSourceType.SMB) return song
+        val selectedRevision = if (status.instance.type == RemoteSourceType.SMB) {
+            catalogRepository.find(listOf(ref))[ref]?.contentRevision.orEmpty()
+        } else ""
         val revision = buildString {
             append("remote-lyrics-v2:")
             append(status.instance.type.name)
@@ -62,6 +66,8 @@ class RemoteLyricsRepository internal constructor(
             append(status.catalogRevision)
             append(':')
             append(song.lyricsCacheRevision)
+            append(':')
+            append(selectedRevision)
         }
         val document = try {
             SharedLyricsMemoryCache.load(
@@ -73,7 +79,10 @@ class RemoteLyricsRepository internal constructor(
                 when (status.instance.type) {
                     RemoteSourceType.NAVIDROME -> navidromeLoader.load(song)
                     RemoteSourceType.WEBDAV -> webDavLoader?.load(song) ?: LyricsDocument()
-                    RemoteSourceType.SMB -> smbLoader?.load(song) ?: LyricsDocument()
+                    RemoteSourceType.SMB -> com.mica.music.data.remote.smb.SmbOptionalIo.run(ref.sourceInstanceId) {
+                        com.mica.music.data.remote.smb.SmbOptionalIo.requireCurrent(song.id)
+                        smbLoader?.load(song) ?: LyricsDocument()
+                    }
                 }
             }
         } catch (error: CancellationException) {

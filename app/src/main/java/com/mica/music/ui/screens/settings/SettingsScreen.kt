@@ -72,6 +72,7 @@ fun SettingsScreen(
     onOpenSpatialAudio: () -> Unit,
     onOpenSoundFx: () -> Unit,
     onOpenEqualizer: () -> Unit = {},
+    onBrowseSmb: (String) -> Unit = {},
     canOpenCustomPlayerLayoutEditor: Boolean = true,
     onOpenCustomPlayerLayoutEditor: () -> Unit = {},
     contentPadding: PaddingValues = PaddingValues(),
@@ -364,7 +365,7 @@ fun SettingsScreen(
 
                     SettingsCategory.LIBRARY -> {
                         if (remoteMusicSubpageOpen) {
-                            RemoteMusicSettingsPanel()
+                            RemoteMusicSettingsPanel(onBrowseSmb)
                         } else {
                             LibraryScanSettingsPanel(
                                 library = library,

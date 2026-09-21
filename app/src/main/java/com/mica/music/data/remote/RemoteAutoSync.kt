@@ -10,7 +10,7 @@ internal fun RemoteSourceStatus.needsAutomaticSync(
     nowMs: Long,
     staleAfterMs: Long,
 ): Boolean {
-    if (!instance.enabled) return false
+    if (!instance.enabled || instance.type == RemoteSourceType.SMB) return false
     if (lastSyncAtMs <= 0L) return true
     return nowMs - lastSyncAtMs >= staleAfterMs.coerceAtLeast(0L)
 }

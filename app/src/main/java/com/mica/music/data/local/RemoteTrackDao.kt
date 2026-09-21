@@ -52,8 +52,24 @@ interface RemoteTrackDao {
         artworkOpaqueId: String,
     ): Boolean
 
+    @Query(
+        "SELECT COALESCE(MAX(catalogPosition), -1) FROM remote_tracks " +
+            "WHERE sourceInstanceId = :sourceInstanceId",
+    )
+    suspend fun maxCatalogPosition(sourceInstanceId: String): Int
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(tracks: List<RemoteTrackEntity>)
+
+    @Query(
+        "DELETE FROM remote_tracks WHERE sourceInstanceId = :sourceInstanceId " +
+            "AND NOT EXISTS (" +
+            "SELECT 1 FROM remote_smb_scope_tracks m " +
+            "INNER JOIN remote_smb_scopes s ON s.id = m.scopeId " +
+            "WHERE s.sourceInstanceId = :sourceInstanceId " +
+            "AND m.opaqueTrackId = remote_tracks.opaqueTrackId)",
+    )
+    suspend fun deleteUnscopedSmbTracks(sourceInstanceId: String): Int
 
     @Query("DELETE FROM remote_tracks WHERE sourceInstanceId = :sourceInstanceId")
     suspend fun clearSource(sourceInstanceId: String)

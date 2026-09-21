@@ -91,8 +91,12 @@ class RemoteArtworkContentProvider : ContentProvider() {
             ParcelFileDescriptor.AutoCloseOutputStream(writeSide).use { output ->
                 runCatching {
                     val bytes = artworkCache.getOrLoad(cacheKey) {
-                        request.load()
+                        check(app.remoteCatalogRepository.artworkCatalogRevisionIfPublishedForConfig(ref, request.sourceConfigRevision) == catalogRevision)
+                        val loaded = request.load()
+                        check(app.remoteCatalogRepository.artworkCatalogRevisionIfPublishedForConfig(ref, request.sourceConfigRevision) == catalogRevision)
+                        loaded
                     }
+                    check(app.remoteCatalogRepository.artworkCatalogRevisionIfPublishedForConfig(ref, request.sourceConfigRevision) == catalogRevision)
                     output.write(bytes)
                     output.flush()
                 }.onFailure { failure ->
@@ -106,6 +110,14 @@ class RemoteArtworkContentProvider : ContentProvider() {
         return readSide
     }
 
+    private suspend fun requireCurrentSmbArtwork(app: MicaApp, ref: RemoteArtworkRef) {
+        val mediaId = com.mica.music.data.remote.smb.SmbOptionalIo.currentMediaId ?: return
+        val current = RemoteMediaIdCodec.decode(mediaId) ?: throw java.io.IOException("No current SMB song")
+        val track = app.remoteCatalogRepository.find(listOf(current))[current]
+        if (current.sourceInstanceId != ref.sourceInstanceId || track?.artworkOpaqueId != ref.opaqueArtworkId) {
+            throw java.io.IOException("SMB artwork is not for the current song")
+        }
+    }
     private suspend fun resolveRequest(
         app: MicaApp,
         ref: RemoteArtworkRef,
@@ -151,7 +163,7 @@ class RemoteArtworkContentProvider : ContentProvider() {
                 sourceInstanceId = smb.sourceInstanceId,
                 sourceConfigRevision = smb.sourceConfigRevision,
                 credentialRevision = smb.credentialRevision,
-                load = { smbLoader.load(smb) },
+                load = { com.mica.music.data.remote.smb.SmbOptionalIo.run(smb.sourceInstanceId) { requireCurrentSmbArtwork(app, ref); smbLoader.load(smb) } },
             )
         }
         val smbEmbedded = SmbEmbeddedArtworkRequestResolver(ownerById, app.remoteCredentialStore).resolve(ref)
@@ -160,7 +172,7 @@ class RemoteArtworkContentProvider : ContentProvider() {
             sourceInstanceId = smbEmbedded.sourceInstanceId,
             sourceConfigRevision = smbEmbedded.sourceConfigRevision,
             credentialRevision = smbEmbedded.credentialRevision,
-            load = { smbEmbeddedLoader.load(smbEmbedded) },
+            load = { com.mica.music.data.remote.smb.SmbOptionalIo.run(smbEmbedded.sourceInstanceId) { requireCurrentSmbArtwork(app, ref); smbEmbeddedLoader.load(smbEmbedded) } },
         )
     }
 }
@@ -169,5 +181,5 @@ private data class RemoteArtworkLoadPlan(
     val sourceInstanceId: String,
     val sourceConfigRevision: Long,
     val credentialRevision: Long,
-    val load: () -> ByteArray,
+    val load: suspend () -> ByteArray,
 )

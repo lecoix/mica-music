@@ -51,6 +51,7 @@
 | [`LIBRARY_SCAN.md`](LIBRARY_SCAN.md) | 曲库 Full Scan + AUTO 共用 authority、TagLib fork、增量复用、provider safety、性能与 10k 边界 |
 | [`LIBRARY_AUTO_SYNC_P_AND_P_EXECUTION_PLAN.md`](LIBRARY_AUTO_SYNC_P_AND_P_EXECUTION_PLAN.md) | 曲库自动同步完整执行计划：P&P 增量发现 + Mica snapshot authority；ADR 契约、S0–S5 Gate、删除/队列/歌单/SAF/DEVICE/10k 性能门槛 |
 | [`REMOTE_MUSIC_SOURCE_RESEARCH.md`](REMOTE_MUSIC_SOURCE_RESEARCH.md) | 远程曲库现行实现状态 + 原始调研/provenance：Navidrome/OpenSubsonic、WebDAV、SMB、JIT metadata/artwork/lyrics 与后台同步 |
+| [`adr/0007-smb-browse-and-selected-tracks.md`](adr/0007-smb-browse-and-selected-tracks.md) | SMB 按目录浏览、普通歌单描述持久化、异步所有权与 10k 容量边界 |
 | [`DSD_EXO_PLAYBACK.md`](DSD_EXO_PLAYBACK.md) | DSD `.dsf` 的 Exo 扩展实现、降采样链路与系统音效说明 |
 | [`USB_EXCLUSIVE_HYBRID_STATUS.md`](USB_EXCLUSIVE_HYBRID_STATUS.md) | Hybrid 已实现软件范围、验证证据、实机/长测门禁与已知风险 |
 | [`USB_REFERENCE_FUNCTION_AUDIT.md`](USB_REFERENCE_FUNCTION_AUDIT.md) | USB 独占对 SylvaKru 参考实现的逐函数映射、EXACT/EQUIVALENT/Mica 改写分类，以及 Apache-2.0 provenance/归属边界 |

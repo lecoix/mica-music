@@ -45,7 +45,7 @@ internal class SmbStreamRequestResolver(
         val source = operation.source.instance
         if (source.type != RemoteSourceType.SMB || !source.enabled) return null
         val credential = credentialStore.resolve(source.credentialRef) ?: return null
-        val material = credential.material as? RemoteCredentialMaterial.UsernamePassword ?: return null
+        val login = SmbLogin.from(credential.material) ?: return null
         if (!owner.isCurrent(operation.token)) return null
         val endpoint = runCatching { SmbPathCodec.parse(source.endpoint) }.getOrNull() ?: return null
         val relativePath = runCatching { SmbPathCodec.normalizeRelativePath(ref.opaqueTrackId) }.getOrNull()
@@ -57,7 +57,7 @@ internal class SmbStreamRequestResolver(
             credentialRevision = credential.revision,
             endpoint = endpoint,
             relativePath = relativePath,
-            login = SmbLogin.parse(material.username, material.password),
+            login = login,
         )
     }
 }
