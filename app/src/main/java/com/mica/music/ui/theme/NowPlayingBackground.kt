@@ -76,6 +76,12 @@ fun NowPlayingBackground(
                 modifier = modifier,
             )
         }
+        PlayerLowerBackgroundMode.RAIN_GLASS -> {
+            RainGlassBackground(
+                fallbackColor = coverAccent,
+                modifier = modifier,
+            )
+        }
     }
 }
 

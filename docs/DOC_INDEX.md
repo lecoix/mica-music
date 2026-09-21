@@ -1,6 +1,6 @@
 # Mica 项目文档索引
 
-> 最后整理：2026-09-11
+> 最后整理：2026-09-21
 > 范围：本仓库 **Mica Android** 主工作树文档；`.scratch/` 内工作树、历史副本与外部参考不作为本索引的现行事实来源。
 
 ---
@@ -69,6 +69,7 @@
 | [`PERFORMANCE_INVESTIGATION.md`](PERFORMANCE_INVESTIGATION.md) | 切歌卡顿/发热主线调查（hybrid4-hybrid8） |
 | [`PERFORMANCE_INVESTIGATION_02.md`](PERFORMANCE_INVESTIGATION_02.md) | 调查 **#02**：大队列复验、mirror-index-sync、按钮 visual-first、cover-load 发热 |
 | [`PARTICLE_COVER_OPENGL_MIGRATION.md`](PARTICLE_COVER_OPENGL_MIGRATION.md) | 粒子封面 **§0 产品** + WebView 退役 / GLES parity 施工单 |
+| [`RAIN_GLASS_BACKGROUND.md`](RAIN_GLASS_BACKGROUND.md) | 雨滴玻璃背景：静态街景 + Mica 自有雨滴/湿痕/折射/模糊链，含 staged parity 与 procedural city 实验结论 |
 | [`APPLE_MUSIC_DYNAMIC_BACKGROUND_RE.md`](APPLE_MUSIC_DYNAMIC_BACKGROUND_RE.md) | Apple Music 动态背景逆向（`DYNAMIC_ARTWORK` 参考） |
 | [`REASONIX.md`](../REASONIX.md) | AI/工具速览（须与 `libs.versions.toml` 对齐） |
 | [`CONTEXT.md`](../CONTEXT.md) | 领域词汇权威来源 |
@@ -171,3 +172,4 @@
 | 2026-09-02 | 按当前运行时依赖同步开源许可证：`OPEN_SOURCE_NOTICES`、关于页、`README`、`DESIGN_SPEC` §十三；补 Mica Apache-2.0、WorkManager/OkHttp、远程曲库三库及其 smbj 传递依赖 |
 | 2026-09-06 | 新增并收敛 `LIBRARY_AUTO_SYNC_P_AND_P_EXECUTION_PLAN.md`：PixelPlayer + Poweramp 自动曲库同步的冻结前完整实施计划、ADR 契约、S0–S5 Gate 与 10k/播放共存门槛 |
 | 2026-09-11 | 全量现状同步：0.4.0/code54、compileSdk 36、双 ABI、Room v29、DEVICE+SAF/FOLDER real-auto、远端曲库 MVP、Lyricon/Glance/星图、近期播放/歌词/UI 修复与发布前真机验收边界；历史 USB/P1/性能/研究文档补 current-applicability，ADR 统一复核 |
+| 2026-09-21 | `RAIN_GLASS_BACKGROUND.md`：雨幕玻璃完成逐层自有实现替换；记录 Shadertoy parity gate、静态街景路径及 procedural city 性能实验结论 |

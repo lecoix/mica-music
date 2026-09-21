@@ -160,7 +160,8 @@ internal fun OutgoingCoverBackgroundWipe(
         outgoing.backgroundMode == PlayerLowerBackgroundMode.THEME ||
         outgoing.backgroundMode == PlayerLowerBackgroundMode.DYNAMIC_LIGHT ||
         outgoing.backgroundMode == PlayerLowerBackgroundMode.DYNAMIC_ARTWORK ||
-        outgoing.backgroundMode == PlayerLowerBackgroundMode.STAR_MAP
+        outgoing.backgroundMode == PlayerLowerBackgroundMode.STAR_MAP ||
+        outgoing.backgroundMode == PlayerLowerBackgroundMode.RAIN_GLASS
     ) {
         return
     }
