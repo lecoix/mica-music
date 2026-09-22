@@ -130,15 +130,17 @@ internal class PlaylistRepository(
     ): PlaylistFollowupBatchOutcome = database.withTransaction {
         if (requests.isEmpty()) return@withTransaction PlaylistFollowupBatchOutcome(emptyMap())
 
-        val dispositions = linkedMapOf<String, PlaylistFollowupDisposition>()
-        val appliedEventIds = mutableListOf<String>()
-        val appliedSongIds = mutableListOf<String>()
+        val distinctRequests = requests.distinctBy { it.item.eventId }
+        val persistedByEventId = followupDao.getByIds(
+            distinctRequests.map { it.item.eventId },
+        ).associateBy(LibraryFollowupOutboxEntity::eventId)
         val persistedState = libraryStateDao.get()?.toModel()
+        val dispositions = linkedMapOf<String, PlaylistFollowupDisposition>()
+        val validated = linkedMapOf<String, Pair<LibraryConfirmedMissingFollowup, LibraryFollowupOutboxItem>>()
 
-        requests.distinctBy { it.item.eventId }.forEach { request ->
+        distinctRequests.forEach { request ->
             val expected = request.item
-            val songId = request.songId
-            val persistedEntity = followupDao.getById(expected.eventId)
+            val persistedEntity = persistedByEventId[expected.eventId]
             if (persistedEntity == null) {
                 dispositions[expected.eventId] = PlaylistFollowupDisposition.ALREADY_CONSUMED
                 return@forEach
@@ -154,39 +156,79 @@ internal class PlaylistRepository(
                 dispositions[expected.eventId] = PlaylistFollowupDisposition.REJECTED
                 return@forEach
             }
+            validated[expected.eventId] = request to persisted
+        }
 
-            val eventSourceIsActive =
-                persistedState.sourceState.active?.sourceIdentity == persisted.sourceIdentity
+        val activeSourceIdentity = persistedState?.sourceState?.active?.sourceIdentity
+        val activeObjectKeys = validated.values.mapNotNull { (_, persisted) ->
+            persisted.stableObjectKey.takeIf { persisted.sourceIdentity == activeSourceIdentity }
+        }.distinct()
+        val presentActiveObjectKeys = if (activeObjectKeys.isEmpty()) {
+            emptySet()
+        } else {
+            songDao.getIdsByIds(activeObjectKeys).toHashSet()
+        }
+
+        val evidenceByIdentity = buildMap {
+            validated.values
+                .groupBy { (_, persisted) -> persisted.sourceIdentity }
+                .forEach { (sourceIdentity, group) ->
+                    membershipEvidenceDao.getBySourceObjectKeys(
+                        source = sourceIdentity.source.storageValue,
+                        stableIdentity = sourceIdentity.stableIdentity,
+                        stableObjectKeys = group.map { (_, persisted) -> persisted.stableObjectKey }.distinct(),
+                    ).forEach { evidence ->
+                        put(
+                            Triple(evidence.source, evidence.stableIdentity, evidence.stableObjectKey),
+                            evidence,
+                        )
+                    }
+                }
+        }
+
+        val obsoleteEventIds = mutableListOf<String>()
+        val appliedEventIds = mutableListOf<String>()
+        val appliedSongIds = mutableListOf<String>()
+        validated.forEach { (eventId, pair) ->
+            val (request, persisted) = pair
             val objectIsPresentAgain =
-                eventSourceIsActive && songDao.getById(persisted.stableObjectKey) != null
-            val currentEvidence = membershipEvidenceDao.get(
-                source = persisted.sourceIdentity.source.storageValue,
-                stableIdentity = persisted.sourceIdentity.stableIdentity,
-                stableObjectKey = persisted.stableObjectKey,
-            )
+                persisted.sourceIdentity == activeSourceIdentity &&
+                    persisted.stableObjectKey in presentActiveObjectKeys
+            val currentEvidence = evidenceByIdentity[
+                Triple(
+                    persisted.sourceIdentity.source.storageValue,
+                    persisted.sourceIdentity.stableIdentity,
+                    persisted.stableObjectKey,
+                )
+            ]
             val removalEvidenceStillCurrent =
                 currentEvidence?.removalReason == MembershipRemovalReason.CONFIRMED_MISSING.name &&
                     currentEvidence.evidenceRevision == persisted.evidenceRevision &&
-                    currentEvidence.songId == songId
+                    currentEvidence.songId == request.songId
 
             if (objectIsPresentAgain || !removalEvidenceStillCurrent) {
-                followupDao.deleteById(persisted.eventId)
-                dispositions[expected.eventId] = PlaylistFollowupDisposition.OBSOLETE
-                return@forEach
+                dispositions[eventId] = PlaylistFollowupDisposition.OBSOLETE
+                obsoleteEventIds += eventId
+            } else {
+                dispositions[eventId] = PlaylistFollowupDisposition.APPLIED
+                appliedEventIds += eventId
+                appliedSongIds += request.songId
             }
-
-            dispositions[expected.eventId] = PlaylistFollowupDisposition.APPLIED
-            appliedEventIds += persisted.eventId
-            appliedSongIds += songId
         }
 
+        val acknowledgedEventIds = obsoleteEventIds + appliedEventIds
         if (appliedEventIds.isEmpty()) {
+            if (acknowledgedEventIds.isNotEmpty()) {
+                check(followupDao.deleteByIds(acknowledgedEventIds) == acknowledgedEventIds.size) {
+                    "followup batch acknowledgement mismatch"
+                }
+            }
             return@withTransaction PlaylistFollowupBatchOutcome(dispositions = dispositions)
         }
 
         dao.removeSongsEverywhere(appliedSongIds)
         val playlistRevision = bumpRevisionInTransaction()
-        check(followupDao.deleteByIds(appliedEventIds) == appliedEventIds.size) {
+        check(followupDao.deleteByIds(acknowledgedEventIds) == acknowledgedEventIds.size) {
             "followup batch acknowledgement mismatch"
         }
         PlaylistFollowupBatchOutcome(

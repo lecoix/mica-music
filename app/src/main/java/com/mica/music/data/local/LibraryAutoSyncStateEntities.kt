@@ -217,6 +217,9 @@ interface LibraryFollowupOutboxDao {
     @Query("SELECT * FROM library_followup_outbox WHERE eventId = :eventId LIMIT 1")
     suspend fun getById(eventId: String): LibraryFollowupOutboxEntity?
 
+    @Query("SELECT * FROM library_followup_outbox WHERE eventId IN (:eventIds)")
+    suspend fun getByIds(eventIds: List<String>): List<LibraryFollowupOutboxEntity>
+
     @Query(
         "DELETE FROM library_followup_outbox " +
             "WHERE source = :source AND stableIdentity = :stableIdentity " +
@@ -251,6 +254,17 @@ interface LibraryMembershipEvidenceDao {
         stableIdentity: String,
         stableObjectKey: String,
     ): LibraryMembershipEvidenceEntity?
+
+    @Query(
+        "SELECT * FROM library_membership_evidence " +
+            "WHERE source = :source AND stableIdentity = :stableIdentity " +
+            "AND stableObjectKey IN (:stableObjectKeys)",
+    )
+    suspend fun getBySourceObjectKeys(
+        source: String,
+        stableIdentity: String,
+        stableObjectKeys: List<String>,
+    ): List<LibraryMembershipEvidenceEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: LibraryMembershipEvidenceEntity)

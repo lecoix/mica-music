@@ -41,6 +41,9 @@ interface SongDao {
     @Query("SELECT * FROM songs WHERE id = :id LIMIT 1")
     suspend fun getById(id: String): SongEntity?
 
+    @Query("SELECT id FROM songs WHERE id IN (:ids)")
+    suspend fun getIdsByIds(ids: List<String>): List<String>
+
     @Query("SELECT lyricsJson FROM songs WHERE id = :id LIMIT 1")
     suspend fun getLyricsById(id: String): LyricsJsonRow?
 

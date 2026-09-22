@@ -38,6 +38,9 @@ class PlaylistRepositoryFollowupTest {
     private lateinit var playlistRepository: PlaylistRepository
     private val source = SourceIdentityKey.device()
     private val playlistSnapshotReads = AtomicInteger()
+    private val followupBatchReads = AtomicInteger()
+    private val songPresenceBatchReads = AtomicInteger()
+    private val membershipEvidenceBatchReads = AtomicInteger()
 
     @Before
     fun setUp() {
@@ -49,6 +52,18 @@ class PlaylistRepositoryFollowupTest {
                     if (sqlQuery.contains("FROM playlist_songs", ignoreCase = true) &&
                         !sqlQuery.contains("WHERE", ignoreCase = true)) {
                         playlistSnapshotReads.incrementAndGet()
+                    }
+                    if (sqlQuery.trimStart().startsWith("SELECT", ignoreCase = true) &&
+                        sqlQuery.contains("FROM library_followup_outbox", ignoreCase = true) &&
+                        sqlQuery.contains("WHERE eventId IN", ignoreCase = true)) {
+                        followupBatchReads.incrementAndGet()
+                    }
+                    if (sqlQuery.contains("SELECT id FROM songs WHERE id IN", ignoreCase = true)) {
+                        songPresenceBatchReads.incrementAndGet()
+                    }
+                    if (sqlQuery.contains("FROM library_membership_evidence", ignoreCase = true) &&
+                        sqlQuery.contains("stableObjectKey IN", ignoreCase = true)) {
+                        membershipEvidenceBatchReads.incrementAndGet()
                     }
                 }
             }, java.util.concurrent.Executor { it.run() })
@@ -94,6 +109,9 @@ class PlaylistRepositoryFollowupTest {
         )
         val revisionBefore = playlistRepository.currentRevision()
         playlistSnapshotReads.set(0)
+        followupBatchReads.set(0)
+        songPresenceBatchReads.set(0)
+        membershipEvidenceBatchReads.set(0)
         val batchSizes = mutableListOf<Int>()
         val consumer = LibraryFollowupConsumer(
             loadOutboxPage = libraryRepository::loadFollowupOutboxPage,
@@ -107,6 +125,9 @@ class PlaylistRepositoryFollowupTest {
         assertEquals(20, batchSizes.size)
         assertTrue(batchSizes.all { it in 1..512 })
         assertEquals(20, playlistSnapshotReads.get())
+        assertEquals(20, followupBatchReads.get())
+        assertEquals(20, songPresenceBatchReads.get())
+        assertEquals(20, membershipEvidenceBatchReads.get())
         assertEquals(revisionBefore + 20, playlistRepository.currentRevision())
         assertTrue(playlistRepository.load().single().songIds.isEmpty())
         assertTrue(libraryRepository.loadFollowupOutbox().isEmpty())
