@@ -61,6 +61,7 @@ import com.mica.music.ui.theme.MicaAppRoot
 import com.mica.music.ui.theme.WallpaperViewportState
 import com.mica.music.util.LyricoTagEditorHost
 import com.mica.music.ui.screens.tutorial.UsageTutorialScanInvitation
+import com.mica.music.widget.isWidgetPlayerLaunch
 import eightbitlab.com.blurview.BlurTarget
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -218,7 +219,8 @@ override fun onConfigurationChanged(newConfig: Configuration) {
 
         navigationCoordinator = AppNavigationCoordinator(
             playerExpandedState = mutableStateOf(
-                savedInstanceState?.getBoolean(KEY_PLAYER_EXPANDED) ?: false,
+                savedInstanceState?.getBoolean(KEY_PLAYER_EXPANDED)
+                    ?: isWidgetPlayerLaunch(intent),
             ),
             locateState = mutableIntStateOf(
                 savedInstanceState?.getInt(KEY_LOCATE_REQUEST) ?: 0,
@@ -406,6 +408,9 @@ override fun onConfigurationChanged(newConfig: Configuration) {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        if (::navigationCoordinator.isInitialized && isWidgetPlayerLaunch(intent)) {
+            navigationCoordinator.playerExpanded = true
+        }
         externalAudioOpenActive = parseExternalAudioOpenRequest(intent) != null
         handleExternalAudioIntent(intent)
     }

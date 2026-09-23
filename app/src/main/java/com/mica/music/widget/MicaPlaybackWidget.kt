@@ -20,6 +20,7 @@ import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
 import androidx.glance.appwidget.SizeMode
+import androidx.glance.appwidget.action.actionStartActivity
 import androidx.glance.appwidget.action.actionStartService
 import androidx.glance.appwidget.provideContent
 import androidx.glance.background
@@ -95,7 +96,7 @@ open class MicaPlaybackWidget protected constructor(
                     )
                     PlaybackWidgetStyle.ADAPTIVE,
                     PlaybackWidgetStyle.HIFI,
-                    -> WidgetSurface {
+                    -> WidgetSurface(context) {
                         when (heightClass) {
                     WidgetHeightClass.COMPACT -> when (widthClass) {
                         WidgetWidthClass.NARROW -> CompactMinimalLayout(
@@ -187,7 +188,9 @@ open class MicaPlaybackWidget protected constructor(
         val playIconSize = (tileSize.value * 0.38f).dp.coerceIn(28.dp, 52.dp)
 
         Box(
-            modifier = GlanceModifier.fillMaxSize(),
+            modifier = GlanceModifier
+                .fillMaxSize()
+                .clickable(actionStartActivity(widgetPlayerIntent(context))),
             contentAlignment = Alignment.Center,
         ) {
             Column(modifier = GlanceModifier.size(squareSize)) {
@@ -340,7 +343,7 @@ open class MicaPlaybackWidget protected constructor(
         val playIconSize = minOf((buttonSize.value * 0.70f).dp, iconLimit)
 
 
-        ArtworkStyleSurface {
+        ArtworkStyleSurface(context) {
             Column(modifier = GlanceModifier.fillMaxSize()) {
                 ArtworkFill(
                     artwork = artwork,
@@ -520,11 +523,12 @@ open class MicaPlaybackWidget protected constructor(
     }
 
     @Composable
-    private fun ArtworkStyleSurface(content: @Composable () -> Unit) {
+    private fun ArtworkStyleSurface(context: Context, content: @Composable () -> Unit) {
         Box(
             modifier = GlanceModifier
                 .fillMaxSize()
-                .padding(SURFACE_INSET),
+                .padding(SURFACE_INSET)
+                .clickable(actionStartActivity(widgetPlayerIntent(context))),
         ) {
             content()
         }
@@ -1056,12 +1060,13 @@ open class MicaPlaybackWidget protected constructor(
     }
 
     @Composable
-    private fun WidgetSurface(content: @Composable () -> Unit) {
+    private fun WidgetSurface(context: Context, content: @Composable () -> Unit) {
         val colors = micaWidgetColors()
         Box(
             modifier = GlanceModifier
                 .fillMaxSize()
-                .padding(SURFACE_INSET),
+                .padding(SURFACE_INSET)
+                .clickable(actionStartActivity(widgetPlayerIntent(context))),
         ) {
             Box(
                 modifier = GlanceModifier
