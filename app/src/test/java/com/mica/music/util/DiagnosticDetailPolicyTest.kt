@@ -36,6 +36,7 @@ class DiagnosticDetailPolicyTest {
         assertEquals(DiagnosticDetailDomain.USB_DEVICE, diagnosticDetailDomainFor("UsbOutputState"))
         assertEquals(DiagnosticDetailDomain.USB_DEVICE, diagnosticDetailDomainFor("AudioRoute"))
         assertEquals(DiagnosticDetailDomain.UI_RENDERING, diagnosticDetailDomainFor("ParticleCover"))
+        assertEquals(DiagnosticDetailDomain.UI_RENDERING, diagnosticDetailDomainFor("RainGlassGl"))
         assertEquals(DiagnosticDetailDomain.UI_RENDERING, diagnosticDetailDomainFor("WindowTouchTrace"))
     }
 

@@ -147,6 +147,10 @@ private class RainGlassBackgroundView @JvmOverloads constructor(
         release()
         val bufferWidth = rainGlassBufferSize(width)
         val bufferHeight = rainGlassBufferSize(height)
+        DiagnosticLog.event(
+            "RainGlassGl",
+            "surface-available diag=surface view=${width}x$height buffer=${bufferWidth}x$bufferHeight opaque=$isOpaque",
+        )
         surfaceTexture.setDefaultBufferSize(bufferWidth, bufferHeight)
         renderThread = RainGlassRenderThread(
             surfaceTexture = surfaceTexture,
@@ -159,11 +163,16 @@ private class RainGlassBackgroundView @JvmOverloads constructor(
     override fun onSurfaceTextureSizeChanged(surfaceTexture: SurfaceTexture, width: Int, height: Int) {
         val bufferWidth = rainGlassBufferSize(width)
         val bufferHeight = rainGlassBufferSize(height)
+        DiagnosticLog.event(
+            "RainGlassGl",
+            "surface-size diag=surface view=${width}x$height buffer=${bufferWidth}x$bufferHeight",
+        )
         surfaceTexture.setDefaultBufferSize(bufferWidth, bufferHeight)
         renderThread?.resize(bufferWidth, bufferHeight)
     }
 
     override fun onSurfaceTextureDestroyed(surfaceTexture: SurfaceTexture): Boolean {
+        DiagnosticLog.event("RainGlassGl", "surface-destroyed diag=surface")
         release()
         return true
     }
@@ -205,6 +214,7 @@ private class RainGlassRenderThread(
     private var eglDisplay: EGLDisplay = EGL14.EGL_NO_DISPLAY
     private var eglContext: EGLContext = EGL14.EGL_NO_CONTEXT
     private var eglSurface: EGLSurface = EGL14.EGL_NO_SURFACE
+    private var firstSwapLogged = false
 
     fun resize(newWidth: Int, newHeight: Int) {
         synchronized(lock) {
@@ -235,8 +245,12 @@ private class RainGlassRenderThread(
 
     override fun run() {
         try {
+            DiagnosticLog.event(
+                "RainGlassGl",
+                "render-thread-start diag=thread initialSize=${width}x$height",
+            )
             if (!initEgl()) {
-                DiagnosticLog.event("RainGlassGl", "egl-init-failed")
+                DiagnosticLog.important("RainGlassGl", "render-thread-stop diag=egl-init-failed")
                 return
             }
             renderer.onSurfaceCreated()
@@ -275,11 +289,14 @@ private class RainGlassRenderThread(
 
                 continuous = renderer.render()
                 if (!EGL14.eglSwapBuffers(eglDisplay, eglSurface)) {
-                    DiagnosticLog.event(
+                    DiagnosticLog.important(
                         "RainGlassGl",
-                        "egl-swap-failed error=" + EGL14.eglGetError(),
+                        "egl-swap-failed diag=egl error=${eglErrorHex()}",
                     )
                     break
+                } else if (!firstSwapLogged) {
+                    firstSwapLogged = true
+                    DiagnosticLog.event("RainGlassGl", "first-swap diag=egl ok=true")
                 }
 
                 if (continuous) {
@@ -295,7 +312,7 @@ private class RainGlassRenderThread(
                 }
             }
         } catch (throwable: Throwable) {
-            DiagnosticLog.event("RainGlassGl", "renderer-stopped", throwable)
+            DiagnosticLog.important("RainGlassGl", "renderer-stopped", throwable)
         } finally {
             renderer.release()
             releaseEgl()
@@ -305,10 +322,22 @@ private class RainGlassRenderThread(
 
     private fun initEgl(): Boolean {
         eglDisplay = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
-        if (eglDisplay == EGL14.EGL_NO_DISPLAY) return false
+        if (eglDisplay == EGL14.EGL_NO_DISPLAY) {
+            DiagnosticLog.important(
+                "RainGlassGl",
+                "egl-get-display-failed diag=egl error=${eglErrorHex()}",
+            )
+            return false
+        }
 
         val version = IntArray(2)
-        if (!EGL14.eglInitialize(eglDisplay, version, 0, version, 1)) return false
+        if (!EGL14.eglInitialize(eglDisplay, version, 0, version, 1)) {
+            DiagnosticLog.important(
+                "RainGlassGl",
+                "egl-initialize-failed diag=egl error=${eglErrorHex()}",
+            )
+            return false
+        }
 
         val configs = arrayOfNulls<EGLConfig>(1)
         val numConfigs = IntArray(1)
@@ -324,9 +353,20 @@ private class RainGlassRenderThread(
             EGL14.EGL_NONE,
         )
         if (!EGL14.eglChooseConfig(eglDisplay, attribs, 0, configs, 0, 1, numConfigs, 0)) {
+            DiagnosticLog.important(
+                "RainGlassGl",
+                "egl-choose-config-failed diag=egl error=${eglErrorHex()}",
+            )
             return false
         }
-        val config = configs[0] ?: return false
+        val config = configs[0]
+        if (config == null) {
+            DiagnosticLog.important(
+                "RainGlassGl",
+                "egl-choose-config-empty diag=egl count=${numConfigs[0]} error=${eglErrorHex()}",
+            )
+            return false
+        }
 
         eglContext = EGL14.eglCreateContext(
             eglDisplay,
@@ -335,7 +375,13 @@ private class RainGlassRenderThread(
             intArrayOf(RainGlassEglContextClientVersion, 3, EGL14.EGL_NONE),
             0,
         )
-        if (eglContext == EGL14.EGL_NO_CONTEXT) return false
+        if (eglContext == EGL14.EGL_NO_CONTEXT) {
+            DiagnosticLog.important(
+                "RainGlassGl",
+                "egl-create-context-failed diag=egl client=3 error=${eglErrorHex()}",
+            )
+            return false
+        }
 
         eglSurface = EGL14.eglCreateWindowSurface(
             eglDisplay,
@@ -344,10 +390,31 @@ private class RainGlassRenderThread(
             intArrayOf(EGL14.EGL_NONE),
             0,
         )
-        if (eglSurface == EGL14.EGL_NO_SURFACE) return false
+        if (eglSurface == EGL14.EGL_NO_SURFACE) {
+            DiagnosticLog.important(
+                "RainGlassGl",
+                "egl-create-window-surface-failed diag=egl error=${eglErrorHex()}",
+            )
+            return false
+        }
 
-        return EGL14.eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext)
+        if (!EGL14.eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext)) {
+            DiagnosticLog.important(
+                "RainGlassGl",
+                "egl-make-current-failed diag=egl error=${eglErrorHex()}",
+            )
+            return false
+        }
+
+        DiagnosticLog.event(
+            "RainGlassGl",
+            "egl-ready diag=egl version=${version[0]}.${version[1]} configs=${numConfigs[0]} client=3 rgb=8/8/8 alpha=0",
+        )
+        return true
     }
+
+    private fun eglErrorHex(): String =
+        "0x${Integer.toHexString(EGL14.eglGetError())}"
 
     private fun releaseEgl() {
         if (eglDisplay != EGL14.EGL_NO_DISPLAY) {
@@ -398,6 +465,9 @@ private class RainGlassRenderer {
     private var motionEnabled = true
     private var simulationTimeSeconds = 0f
     private var lastRenderMs = SystemClock.uptimeMillis()
+    private var firstRenderLogged = false
+    private var noTextureLogged = false
+    private var firstDrawLogged = false
 
     private val quadBuffer = floatArrayOf(
         -1f, -1f,
@@ -417,7 +487,7 @@ private class RainGlassRenderer {
             1f,
         )
 
-        program = createProgram(RainGlassVertexShader, RainGlassFragmentShader)
+        program = createProgram("rain-glass", RainGlassVertexShader, RainGlassFragmentShader)
         positionLocation = GLES20.glGetAttribLocation(program, "aPosition")
         resolutionLocation = GLES20.glGetUniformLocation(program, "uResolution")
         timeLocation = GLES20.glGetUniformLocation(program, "uTime")
@@ -431,10 +501,13 @@ private class RainGlassRenderer {
 
         DiagnosticLog.event(
             "RainGlassGl",
-            "surface-created vendor=" + GLES20.glGetString(GLES20.GL_VENDOR) +
+            "gl-ready diag=gl vendor=" + GLES20.glGetString(GLES20.GL_VENDOR) +
                 " renderer=" + GLES20.glGetString(GLES20.GL_RENDERER) +
-                " scale=$RainGlassRenderScale",
+                " version=" + GLES20.glGetString(GLES20.GL_VERSION) +
+                " glsl=" + GLES20.glGetString(GLES20.GL_SHADING_LANGUAGE_VERSION) +
+                " program=$program scale=$RainGlassRenderScale",
         )
+        logGlError("surface-created")
     }
 
     fun onSurfaceChanged(newWidth: Int, newHeight: Int) {
@@ -480,6 +553,21 @@ private class RainGlassRenderer {
             simulationTimeSeconds += elapsedSeconds
         }
 
+        if (!firstRenderLogged) {
+            firstRenderLogged = true
+            DiagnosticLog.event(
+                "RainGlassGl",
+                "first-render diag=draw program=$program texture=$currentTexture size=${width}x$height motion=$motionEnabled",
+            )
+        }
+        if (currentTexture == 0 && !noTextureLogged) {
+            noTextureLogged = true
+            DiagnosticLog.important(
+                "RainGlassGl",
+                "render-without-texture diag=texture size=${width}x$height artworkKey=$currentArtworkKey",
+            )
+        }
+
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
         GLES20.glViewport(0, 0, width, height)
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
@@ -500,6 +588,14 @@ private class RainGlassRenderer {
         GLES20.glUniform1i(previousArtworkLocation, 1)
 
         drawQuad(positionLocation)
+        if (!firstDrawLogged) {
+            firstDrawLogged = true
+            DiagnosticLog.event(
+                "RainGlassGl",
+                "first-draw diag=draw position=$positionLocation texture=$currentTexture",
+            )
+            logGlError("first-draw")
+        }
 
         return motionEnabled
     }
@@ -528,11 +624,23 @@ private class RainGlassRenderer {
     }
 
     private fun uploadTexture(bitmap: Bitmap): Int {
-        if (bitmap.isRecycled || bitmap.width <= 0 || bitmap.height <= 0) return 0
+        if (bitmap.isRecycled || bitmap.width <= 0 || bitmap.height <= 0) {
+            DiagnosticLog.important(
+                "RainGlassGl",
+                "texture-rejected diag=texture bitmap=${bitmap.describeForLog()}",
+            )
+            return 0
+        }
         val ids = IntArray(1)
         GLES20.glGenTextures(1, ids, 0)
         val texture = ids[0]
-        if (texture == 0) return 0
+        if (texture == 0) {
+            DiagnosticLog.important(
+                "RainGlassGl",
+                "texture-create-failed diag=texture bitmap=${bitmap.describeForLog()} error=${glErrorHex()}",
+            )
+            return 0
+        }
 
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texture)
         GLES20.glTexParameteri(
@@ -562,9 +670,16 @@ private class RainGlassRenderer {
         val error = GLES20.glGetError()
         if (error != GLES20.GL_NO_ERROR) {
             deleteTexture(texture)
-            DiagnosticLog.event("RainGlassGl", "texture-upload-failed error=$error")
+            DiagnosticLog.important(
+                "RainGlassGl",
+                "texture-upload-failed diag=texture id=$texture bitmap=${bitmap.describeForLog()} error=${glErrorHex(error)}",
+            )
             return 0
         }
+        DiagnosticLog.event(
+            "RainGlassGl",
+            "texture-ready diag=texture id=$texture bitmap=${bitmap.describeForLog()} mipmap=true min=linear-mipmap-linear",
+        )
         return texture
     }
 
@@ -580,9 +695,9 @@ private class RainGlassRenderer {
         GLES20.glDeleteTextures(1, intArrayOf(texture), 0)
     }
 
-    private fun createProgram(vertexSource: String, fragmentSource: String): Int {
-        val vertex = compileShader(GLES20.GL_VERTEX_SHADER, vertexSource)
-        val fragment = compileShader(GLES20.GL_FRAGMENT_SHADER, fragmentSource)
+    private fun createProgram(label: String, vertexSource: String, fragmentSource: String): Int {
+        val vertex = compileShader("$label-vertex", GLES20.GL_VERTEX_SHADER, vertexSource)
+        val fragment = compileShader("$label-fragment", GLES20.GL_FRAGMENT_SHADER, fragmentSource)
         val nextProgram = GLES20.glCreateProgram()
         GLES20.glAttachShader(nextProgram, vertex)
         GLES20.glAttachShader(nextProgram, fragment)
@@ -590,23 +705,66 @@ private class RainGlassRenderer {
 
         val status = IntArray(1)
         GLES20.glGetProgramiv(nextProgram, GLES20.GL_LINK_STATUS, status, 0)
-        val log = GLES20.glGetProgramInfoLog(nextProgram)
+        val log = GLES20.glGetProgramInfoLog(nextProgram).orEmpty()
         GLES20.glDeleteShader(vertex)
         GLES20.glDeleteShader(fragment)
-        check(status[0] == GLES20.GL_TRUE) { "Rain-glass GL program link failed: " + log }
+        if (status[0] != GLES20.GL_TRUE) {
+            DiagnosticLog.important(
+                "RainGlassGl",
+                "program-link-failed diag=shader label=$label program=$nextProgram log=${log.takeForLog()}",
+            )
+        }
+        check(status[0] == GLES20.GL_TRUE) { "Rain-glass GL program link failed: $log" }
+        DiagnosticLog.event(
+            "RainGlassGl",
+            "program-linked diag=shader label=$label program=$nextProgram log=${log.takeForLog()}",
+        )
         return nextProgram
     }
 
-    private fun compileShader(type: Int, source: String): Int {
+    private fun compileShader(label: String, type: Int, source: String): Int {
         val shader = GLES20.glCreateShader(type)
         GLES20.glShaderSource(shader, source)
         GLES20.glCompileShader(shader)
         val status = IntArray(1)
         GLES20.glGetShaderiv(shader, GLES20.GL_COMPILE_STATUS, status, 0)
-        val log = GLES20.glGetShaderInfoLog(shader)
-        check(status[0] == GLES20.GL_TRUE) { "Rain-glass GL shader compile failed: " + log }
+        val log = GLES20.glGetShaderInfoLog(shader).orEmpty()
+        if (status[0] != GLES20.GL_TRUE) {
+            DiagnosticLog.important(
+                "RainGlassGl",
+                "shader-compile-failed diag=shader label=$label shader=$shader log=${log.takeForLog()}",
+            )
+        }
+        check(status[0] == GLES20.GL_TRUE) { "Rain-glass GL shader compile failed: $log" }
+        DiagnosticLog.event(
+            "RainGlassGl",
+            "shader-compiled diag=shader label=$label shader=$shader log=${log.takeForLog()}",
+        )
         return shader
     }
+
+    private fun logGlError(stage: String) {
+        var error = GLES20.glGetError()
+        if (error == GLES20.GL_NO_ERROR) return
+        val errors = mutableListOf<String>()
+        while (error != GLES20.GL_NO_ERROR) {
+            errors += glErrorHex(error)
+            error = GLES20.glGetError()
+        }
+        DiagnosticLog.important(
+            "RainGlassGl",
+            "gl-error diag=gl stage=$stage errors=${errors.joinToString(",")}",
+        )
+    }
+
+    private fun glErrorHex(error: Int = GLES20.glGetError()): String =
+        "0x${Integer.toHexString(error)}"
+
+    private fun Bitmap.describeForLog(): String =
+        "${width}x$height config=$config recycled=$isRecycled generation=$generationId"
+
+    private fun String.takeForLog(): String =
+        if (isBlank()) "empty" else replace('\n', ' ').take(240)
 }
 
 private fun FloatArray.toRainGlassFloatBuffer(): FloatBuffer =
@@ -622,8 +780,7 @@ private const val RainGlassFloatBytes = 4
 private const val RainGlassEglOpenGlEs3Bit = 0x40
 private const val RainGlassEglContextClientVersion = 0x3098
 
-internal const val RainGlassVertexShader = """
-#version 300 es
+internal const val RainGlassVertexShader = """#version 300 es
 precision highp float;
 
 in vec2 aPosition;
@@ -637,8 +794,7 @@ void main() {
 }
 """
 
-internal const val RainGlassFragmentShader = """
-#version 300 es
+internal const val RainGlassFragmentShader = """#version 300 es
 precision highp float;
 
 in vec2 fragCoord;
@@ -720,7 +876,7 @@ float MicaMovingDropMaskV2(vec2 uv, float t) {
     float bodyDistance = length(bodyDelta * vec2(1.0, 6.0));
     float mainDrop = 1.0 - smoothstep(0.0, 0.385, bodyDistance);
 
-    float below = sqrt(smoothstep(1.0, y, st.y));
+    float below = sqrt(1.0 - smoothstep(y, 1.0, st.y));
     float trailFront = smoothstep(-0.02, 0.02, st.y - y);
     float beadY = fract(baseUv.y * 10.0) + (st.y - 0.5);
     float beadDistance = length(st - vec2(x, beadY));

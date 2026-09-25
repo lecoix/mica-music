@@ -58,6 +58,7 @@ internal fun diagnosticDetailDomainFor(category: String): DiagnosticDetailDomain
         DiagnosticDetailDomain.PLAYBACK_MEDIA
 
     category.startsWith("ParticleCover", ignoreCase = true) ||
+        category.startsWith("RainGlass", ignoreCase = true) ||
         category.startsWith("StarMap", ignoreCase = true) ||
         category.startsWith("DynamicLight", ignoreCase = true) ||
         category == "CoverFlow" || category == "WindowTouchTrace" || category == "TagEditor" ||
