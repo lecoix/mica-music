@@ -35,6 +35,9 @@ internal fun SmbBrowserPane(
     modifier: Modifier = Modifier,
     initialSourceId: String? = null,
     playerOverlayOpen: Boolean = false,
+    backRequestKey: Int = 0,
+    refreshRequestKey: Int = 0,
+    onInfoActionsChange: (SmbBrowserInfoActions) -> Unit = {},
 ) {
     val app = LocalContext.current.applicationContext as MicaApp
     val browser = remember(app) { SmbDirectoryBrowser(app.remoteCatalogRepository, app.remoteCredentialStore) }
@@ -50,8 +53,17 @@ internal fun SmbBrowserPane(
         initialSourceId = initialSourceId,
         playerOverlayOpen = playerOverlayOpen,
         folderIndexer = indexer,
+        backRequestKey = backRequestKey,
+        refreshRequestKey = refreshRequestKey,
+        onInfoActionsChange = onInfoActionsChange,
     )
 }
+
+internal data class SmbBrowserInfoActions(
+    val backLabel: String = "返回远程歌曲",
+    val showRefresh: Boolean = false,
+    val refreshEnabled: Boolean = false,
+)
 
 @Composable
 internal fun SmbBrowserContent(
@@ -65,6 +77,9 @@ internal fun SmbBrowserContent(
     initialSourceId: String? = null,
     playerOverlayOpen: Boolean = false,
     folderIndexer: SmbFolderLibraryIndexer? = null,
+    backRequestKey: Int = 0,
+    refreshRequestKey: Int = 0,
+    onInfoActionsChange: (SmbBrowserInfoActions) -> Unit = {},
 ) {
     val sources by remember(repo) { repo.observeSources() }.collectAsState(emptyList())
     var sourceId by rememberSaveable { mutableStateOf(initialSourceId) }
@@ -114,6 +129,21 @@ internal fun SmbBrowserContent(
             sourceId != null -> sourceId = null
             else -> onBack()
         }
+    }
+    LaunchedEffect(sourceId, path, state.loading, busy) {
+        onInfoActionsChange(
+            SmbBrowserInfoActions(
+                backLabel = if (sourceId == null) "返回远程歌曲" else "返回上级",
+                showRefresh = source != null,
+                refreshEnabled = source != null && !state.loading && !busy,
+            ),
+        )
+    }
+    LaunchedEffect(backRequestKey) {
+        if (backRequestKey > 0 && !busy) back()
+    }
+    LaunchedEffect(refreshRequestKey) {
+        if (refreshRequestKey > 0 && source != null && !state.loading && !busy) refresh++
     }
     BackHandler(enabled = !playerOverlayOpen && !busy) { back() }
 
@@ -209,10 +239,6 @@ internal fun SmbBrowserContent(
     }
 
     Column(modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            TextButton(onClick = ::back, enabled = !busy) { Text(if (sourceId == null) "返回远程歌曲" else "返回上级") }
-            if (source != null) TextButton(onClick = { refresh++ }, enabled = !state.loading && !busy) { Text("刷新本目录") }
-        }
         if (sourceId == null) {
             Text("SMB 连接", style = MicaTheme.typography.titleMd, modifier = Modifier.padding(16.dp))
             Text("打开哪一层，就读取哪一层。已有歌曲信息保留；SMB 不再后台扫描整库。",

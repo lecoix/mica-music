@@ -8,14 +8,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,10 +39,23 @@ internal fun RemoteLibraryPane(
     onLocateConsumed: (Int) -> Unit = {},
     modifier: Modifier = Modifier,
     playerOverlayOpen: Boolean = false,
+    browsing: Boolean,
+    onBrowsingChange: (Boolean) -> Unit,
+    browserBackRequestKey: Int,
+    browserRefreshRequestKey: Int,
+    onBrowserInfoActionsChange: (SmbBrowserInfoActions) -> Unit,
 ) {
-    var browsing by rememberSaveable { mutableStateOf(false) }
     if (browsing) {
-        SmbBrowserPane(onQueueSongClick, listBottomPadding, onBack = { browsing = false }, modifier = modifier, playerOverlayOpen = playerOverlayOpen)
+        SmbBrowserPane(
+            onPlay = onQueueSongClick,
+            bottomPadding = listBottomPadding,
+            onBack = { onBrowsingChange(false) },
+            modifier = modifier,
+            playerOverlayOpen = playerOverlayOpen,
+            backRequestKey = browserBackRequestKey,
+            refreshRequestKey = browserRefreshRequestKey,
+            onInfoActionsChange = onBrowserInfoActionsChange,
+        )
         return
     }
     LaunchedEffect(locateRequestKey, locateSongId) {
@@ -61,7 +69,6 @@ internal fun RemoteLibraryPane(
     }
 
     Column(modifier.fillMaxSize()) {
-        TextButton(onClick = { browsing = true }) { Text("浏览 SMB 文件夹") }
         Box(Modifier.weight(1f)) {
             when {
                 songs.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -87,14 +94,13 @@ internal fun RemoteLibraryPane(
                     contentPadding = PaddingValues(bottom = listBottomPadding),
                     modifier = Modifier.fillMaxSize(),
                 ) {
-                    itemsIndexed(
+                    items(
                         items = songs,
-                        key = { _, song -> song.id },
-                    ) { index, song ->
+                        key = { song -> song.id },
+                    ) { song ->
                         val isCurrent = currentSongId == song.id
                         SongRow(
                             song = song,
-                            trackNumber = (index + 1).toString().padStart(2, '0'),
                             isCurrent = isCurrent,
                             isPlaying = isCurrent && isPlaying,
                             selectionMode = selectionMode,

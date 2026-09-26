@@ -150,7 +150,6 @@ internal fun resolveLibraryStatsBarModel(
                 formatSortLabel(remoteSortField, remoteSortDirection).takeIf { remoteSongs.isNotEmpty() },
             ),
             showSortAction = remoteSongs.isNotEmpty(),
-            showMultiSelectAction = remoteSongs.isNotEmpty(),
         )
         HomeSection.Recent -> {
             val count = recentSongCount ?: library.recentSongs().size

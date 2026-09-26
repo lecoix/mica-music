@@ -2,6 +2,7 @@ package com.mica.music.ui.screens.home
 
 import android.content.Context
 import androidx.compose.ui.test.*
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ApplicationProvider
@@ -49,6 +50,8 @@ class SmbBrowserFlowTest {
         val listed = Collections.synchronizedList(mutableListOf<String>())
         var offline = false
         var queue = emptyList<Song>()
+        val refreshRequest = mutableIntStateOf(0)
+        var infoActions = SmbBrowserInfoActions()
         val browser = SmbDirectoryBrowser(repo, SecureRemoteCredentialStore {
             RemoteCredentialSnapshot(it, 1, RemoteCredentialMaterial.Anonymous)
         }, SmbSessionFactory { _, _ -> object : SmbSessionHandle {
@@ -67,11 +70,31 @@ class SmbBrowserFlowTest {
             }
         } })
         compose.setContent { MicaTheme {
-            SmbBrowserContent(repo, store, browser, onPlay = { songs, _ -> queue = songs }, bottomPadding = 0.dp, onBack = {})
+            SmbBrowserContent(
+                repo,
+                store,
+                browser,
+                onPlay = { songs, _ -> queue = songs },
+                bottomPadding = 0.dp,
+                onBack = {},
+                refreshRequestKey = refreshRequest.intValue,
+                onInfoActionsChange = { infoActions = it },
+            )
         } }
         waitText("Router")
+        compose.runOnIdle {
+            assertEquals("返回远程歌曲", infoActions.backLabel)
+            assertFalse(infoActions.showRefresh)
+        }
+        compose.onNodeWithText("返回远程歌曲").assertDoesNotExist()
         compose.onNodeWithText("Router").performClick()
         waitText("Album")
+        compose.runOnIdle {
+            assertEquals("返回上级", infoActions.backLabel)
+            assertTrue(infoActions.showRefresh)
+            assertTrue(infoActions.refreshEnabled)
+        }
+        compose.onNodeWithText("刷新本目录").assertDoesNotExist()
         compose.onNodeWithText("Album").performClick()
         waitText("Track1.flac")
         compose.onRoot().captureRoboImage("build/reports/smb-browser.png", RoborazziOptions(taskType = RoborazziTaskType.Record))
@@ -96,7 +119,7 @@ class SmbBrowserFlowTest {
         compose.onNodeWithText("创建并添加").performClick()
         compose.waitUntil(10_000) { store.playlists.any { it.name == "New SMB playlist" && it.songIds.size == 2 } }
         offline = true
-        compose.onNodeWithText("刷新本目录").performClick()
+        compose.runOnIdle { refreshRequest.intValue++ }
         waitText("读取失败，请检查网络后重试")
         compose.onNodeWithText("Track1.flac").assertExists()
         compose.onNodeWithText("Track2.flac").assertExists()

@@ -127,7 +127,7 @@ class HomeLibraryStatsRobolectricTest {
         )
 
         assertEquals(listOf("2 首", "标题 · 升序"), remote?.segments)
-        assertTrue(remote?.showMultiSelectAction == true)
+        assertFalse(remote?.showMultiSelectAction == true)
         assertTrue(remote?.showSortAction == true)
         assertFalse(remote?.showFolderModeAction == true)
         assertFalse(remote?.showRescanAction == true)

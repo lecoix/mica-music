@@ -131,6 +131,11 @@ internal fun LibraryStatsRow(
     onRescan: () -> Unit,
     onDeletePlaylist: () -> Unit,
     onMultiSelectClick: () -> Unit = {},
+    primaryTextAction: String? = null,
+    onPrimaryTextActionClick: () -> Unit = {},
+    secondaryTextAction: String? = null,
+    secondaryTextActionEnabled: Boolean = true,
+    onSecondaryTextActionClick: () -> Unit = {},
 ) {
     val lineText = model.segments.joinToString(" · ")
     val showKaraoke = karaokeLine != null && karaokeLine.cues.isNotEmpty()
@@ -174,6 +179,33 @@ internal fun LibraryStatsRow(
                     color = MicaTheme.colors.accent,
                     modifier = Modifier
                         .clickable(onClick = onMultiSelectClick)
+                        .padding(HifiSpacing.xs),
+                )
+            }
+            primaryTextAction?.let { label ->
+                Text(
+                    text = label,
+                    style = MicaTheme.typography.bodyMd,
+                    color = MicaTheme.colors.accent,
+                    modifier = Modifier
+                        .clickable(onClick = onPrimaryTextActionClick)
+                        .padding(HifiSpacing.xs),
+                )
+            }
+            secondaryTextAction?.let { label ->
+                Text(
+                    text = label,
+                    style = MicaTheme.typography.bodyMd,
+                    color = if (secondaryTextActionEnabled) {
+                        MicaTheme.colors.accent
+                    } else {
+                        MicaTheme.colors.textTertiary
+                    },
+                    modifier = Modifier
+                        .clickable(
+                            enabled = secondaryTextActionEnabled,
+                            onClick = onSecondaryTextActionClick,
+                        )
                         .padding(HifiSpacing.xs),
                 )
             }

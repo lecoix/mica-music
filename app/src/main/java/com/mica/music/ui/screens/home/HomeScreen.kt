@@ -39,6 +39,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -144,6 +145,10 @@ fun HomeScreen(
     var songMultiSelectSection by remember { mutableStateOf<HomeSection?>(null) }
     var songMultiSelectSearch by remember { mutableStateOf(false) }
     var selectedSongIds by remember { mutableStateOf(setOf<String>()) }
+    var remoteBrowserOpen by rememberSaveable { mutableStateOf(false) }
+    var remoteBrowserInfoActions by remember { mutableStateOf(SmbBrowserInfoActions()) }
+    var remoteBrowserBackRequestKey by remember { mutableIntStateOf(0) }
+    var remoteBrowserRefreshRequestKey by remember { mutableIntStateOf(0) }
     val keyboardController = LocalSoftwareKeyboardController.current
     val homeController = rememberHomeScreenController(library, playlistStore)
     val sortedRemoteSongs = remember(remoteSongs, remoteSortField, remoteSortDirection) {
@@ -985,8 +990,14 @@ fun HomeScreen(
                                 },
                             )
                         } else {
+                            val remoteInfoBar = uiState.section == HomeSection.Remote && !uiState.searchOpen
+                            val displayedModel = if (remoteInfoBar && remoteBrowserOpen) {
+                                model.copy(showSortAction = false, showMultiSelectAction = false)
+                            } else {
+                                model
+                            }
                             LibraryStatsRow(
-                                model = model,
+                                model = displayedModel,
                                 lyricText = infoRowLyricText,
                                 karaokeLine = infoRowKaraokeLine,
                                 nextLyricLineTimeMs = nextLyricLineTimeMs,
@@ -1006,6 +1017,26 @@ fun HomeScreen(
                                 } else {
                                     ::openSongMultiSelect
                                 },
+                                primaryTextAction = when {
+                                    !remoteInfoBar -> null
+                                    remoteBrowserOpen -> remoteBrowserInfoActions.backLabel
+                                    else -> "浏览 SMB 文件夹"
+                                },
+                                onPrimaryTextActionClick = {
+                                    if (remoteBrowserOpen) {
+                                        remoteBrowserBackRequestKey++
+                                    } else {
+                                        remoteBrowserInfoActions = SmbBrowserInfoActions()
+                                        remoteBrowserBackRequestKey = 0
+                                        remoteBrowserRefreshRequestKey = 0
+                                        remoteBrowserOpen = true
+                                    }
+                                },
+                                secondaryTextAction = "刷新本目录".takeIf {
+                                    remoteInfoBar && remoteBrowserOpen && remoteBrowserInfoActions.showRefresh
+                                },
+                                secondaryTextActionEnabled = remoteBrowserInfoActions.refreshEnabled,
+                                onSecondaryTextActionClick = { remoteBrowserRefreshRequestKey++ },
                             )
                         }
                         Spacer(Modifier.height(HifiSpacing.md))
@@ -1125,6 +1156,11 @@ fun HomeScreen(
                                 pendingLocateRequestKey = 0
                             }
                         },
+                        browsing = remoteBrowserOpen,
+                        onBrowsingChange = { remoteBrowserOpen = it },
+                        browserBackRequestKey = remoteBrowserBackRequestKey,
+                        browserRefreshRequestKey = remoteBrowserRefreshRequestKey,
+                        onBrowserInfoActionsChange = { remoteBrowserInfoActions = it },
                         modifier = Modifier.fillMaxSize(),
                     )
                     HomePaneKey.Analysis -> LibraryAnalysisContent(
