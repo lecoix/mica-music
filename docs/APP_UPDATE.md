@@ -10,7 +10,7 @@ Mica 的版本页只检查一个很小的 HTTPS JSON 清单，然后把下载入
 
 - GitHub Pages 清单：`https://lecoix.github.io/mica-music/update.json`，国际版 APK 内置该地址。
 - EdgeOne 清单：未来的国内清单镜像地址，例如 `https://<edgeone-public-host>/update.json`。它通过 Gradle 属性 `mica.update.domesticUrl` 注入 APK；为空时应用直接使用 GitHub Pages。
-- 123 下载页：清单里的 `domesticUrl` 字段，指向用户实际下载 APK 的 123 页面，而不是 EdgeOne 清单。
+- 蓝奏云下载页：清单里的 `domesticUrl` 字段，指向用户实际下载 APK 的蓝奏云页面，而不是 EdgeOne 清单；提取码为 `gn0e`。
 
 清单格式：
 
@@ -21,7 +21,7 @@ Mica 的版本页只检查一个很小的 HTTPS JSON 清单，然后把下载入
   "versionName": "0.2.5.0",
   "versionCode": 49,
   "changelog": "修复若干问题",
-  "domesticUrl": "https://www.123pan.com/s/example",
+  "domesticUrl": "https://wwbbr.lanzn.com/b00v09uzwj",
   "githubUrl": "https://github.com/lecoix/mica-music/releases/tag/v0.2.5.0"
 }
 ```
@@ -35,7 +35,7 @@ Mica 的版本页只检查一个很小的 HTTPS JSON 清单，然后把下载入
 1. 校验标签是否与 `app/build.gradle.kts` 的 `versionName` 一致。
 2. 使用仓库 Secret 构建并验证签名 APK。
 3. 创建或更新 GitHub Release，上传 APK；更新日志优先使用附注 tag 的 `-m` 正文，否则回退 GitHub 自动生成 notes。
-4. 生成 `site/update.json`，把版本号、更新日志、123 下载页和 GitHub Release 页写入清单。
+4. 生成 `site/update.json`，把版本号、更新日志、蓝奏云下载页和 GitHub Release 页写入清单。
 5. 将只包含 `update.json` 的 Pages artifact 部署到 GitHub Pages。
 
 Release workflow 通过 `-Pmica.abiSplitApks=true` 生成三个 ABI 产物，再由 `scripts/prepare_release_apks.sh` 检查并重命名为：
@@ -80,12 +80,12 @@ $bytes = [IO.File]::ReadAllBytes('C:\path\to\release.jks')
 
 ### 可选的 Actions Variables
 
-- `UPDATE_DOMESTIC_DOWNLOAD_URL`：123 下载页面地址，会写入 `update.json.domesticUrl`。
+- `UPDATE_LANZOU_DOWNLOAD_URL`：可选的蓝奏云下载页面地址；未设置时使用默认蓝奏云链接，写入 `update.json.domesticUrl`。旧变量 `UPDATE_DOMESTIC_DOWNLOAD_URL` 不再使用。
 - `UPDATE_DOMESTIC_MANIFEST_URL`：EdgeOne 上的国内 `update.json` 地址，会编译进之后构建的 APK，作为国内检查更新入口。
 
 前者是下载地址，后者是清单地址。EdgeOne 流程尚未接入此 workflow；在它配置好之前，保持 `UPDATE_DOMESTIC_MANIFEST_URL` 为空即可，应用会回退 GitHub Pages。
 
-也可以从 Actions 页面手动运行 workflow，输入标签，并可选填写本次更新日志和 123 下载页地址；输入值只覆盖本次运行的仓库变量。
+也可以从 Actions 页面手动运行 workflow，输入标签，并可选填写本次更新日志和蓝奏云下载页地址；输入值只覆盖本次运行的默认地址或仓库变量。
 
 ## 国内镜像的后续接入
 

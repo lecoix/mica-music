@@ -127,7 +127,7 @@ fun VersionUpdateScreen(
                     if (state.result.hasUpdate) {
                         SettingsSectionTitle("下载新版本")
                         DownloadLinkRow(
-                            title = "123 云盘下载",
+                            title = "蓝奏云下载（密码：gn0e）",
                             url = manifest.domesticUrl,
                         )
                         DownloadLinkRow(

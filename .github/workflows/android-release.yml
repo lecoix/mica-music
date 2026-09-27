@@ -15,7 +15,7 @@ on:
         required: false
         type: string
       domestic_download_url:
-        description: "Optional 123 download page; otherwise UPDATE_DOMESTIC_DOWNLOAD_URL is used"
+        description: "Optional download page; otherwise UPDATE_LANZOU_DOWNLOAD_URL or the default Lanzou link is used"
         required: false
         type: string
 
@@ -36,7 +36,7 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     env:
       DOMESTIC_MANIFEST_URL: ${{ vars.UPDATE_DOMESTIC_MANIFEST_URL || '' }}
-      DOMESTIC_DOWNLOAD_URL: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.domestic_download_url || vars.UPDATE_DOMESTIC_DOWNLOAD_URL || '' }}
+      DOMESTIC_DOWNLOAD_URL: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.domestic_download_url || vars.UPDATE_LANZOU_DOWNLOAD_URL || 'https://wwbbr.lanzn.com/b00v09uzwj' }}
     steps:
       - uses: actions/checkout@v4
         with:
