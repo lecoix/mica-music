@@ -2,6 +2,7 @@ package com.mica.music.ui.components
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -184,9 +185,177 @@ internal fun PlayerPlaybackControlsSection(
     visualScale: Float = 1f,
     hiddenButtons: Set<PlayerControlButton> = emptySet(),
     redistributeHiddenButtons: Boolean = false,
+    compactTwoRow: Boolean = false,
+    maximizeInteractionSlots: Boolean = false,
 ) {
     val mode = surfaceState.playbackQueueMode
     val modeActive = mode != PlaybackQueueMode.OFF
+
+    if (compactTwoRow) {
+        Column(modifier = modifier.fillMaxWidth()) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                IconButton(
+                    onClick = onPrevious,
+                    modifier = Modifier.size(HifiSize.touchTarget),
+                ) {
+                    Icon(
+                        Icons.Default.SkipPrevious,
+                        contentDescription = "上一首",
+                        tint = colors.primary,
+                        modifier = Modifier.size(HifiSize.iconXl * visualScale),
+                    )
+                }
+                SharpPlayPauseButton(
+                    isPlaying = surfaceState.playbackStatus.showsPauseAction,
+                    onToggle = onTogglePlay,
+                    onLongPress = onPlayLongPress,
+                    size = HifiSize.iconXxl * visualScale,
+                    color = colors.primary,
+                )
+                IconButton(
+                    onClick = onNext,
+                    modifier = Modifier.size(HifiSize.touchTarget),
+                ) {
+                    Icon(
+                        Icons.Default.SkipNext,
+                        contentDescription = "下一首",
+                        tint = colors.primary,
+                        modifier = Modifier.size(HifiSize.iconXl * visualScale),
+                    )
+                }
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                IconButton(
+                    onClick = onCyclePlaybackQueueMode,
+                    modifier = Modifier.size(HifiSize.touchTarget),
+                ) {
+                    Icon(
+                        imageVector = playbackQueueModeIcon(mode),
+                        contentDescription = playbackQueueModeDescription(mode),
+                        tint = if (modeActive) colors.primary else colors.secondary,
+                        modifier = Modifier.size(HifiSize.iconLg * visualScale),
+                    )
+                }
+                IconButton(
+                    onClick = onOpenQueue,
+                    modifier = Modifier.size(HifiSize.touchTarget),
+                ) {
+                    Icon(
+                        imageVector = MicaPlaybackIcons.queueMusic19,
+                        contentDescription = "播放列表",
+                        tint = colors.secondary,
+                        modifier = Modifier.size(HifiSize.iconLg * visualScale),
+                    )
+                }
+            }
+        }
+        return
+    }
+
+    if (maximizeInteractionSlots && hiddenButtons.isEmpty()) {
+        BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+            val slots = equalPlayerControlInteractionSlots(
+                availableWidthDp = maxWidth.value,
+                count = 5,
+                minimumTouchTargetDp = HifiSize.touchTarget.value,
+            )
+            if (slots == null) {
+                PlayerPlaybackControlsSection(
+                    surfaceState = surfaceState,
+                    colors = colors,
+                    onCyclePlaybackQueueMode = onCyclePlaybackQueueMode,
+                    onPrevious = onPrevious,
+                    onTogglePlay = onTogglePlay,
+                    onPlayLongPress = onPlayLongPress,
+                    onNext = onNext,
+                    onOpenEqualizer = onOpenEqualizer,
+                    onOpenQueue = onOpenQueue,
+                    visualScale = visualScale,
+                    compactTwoRow = true,
+                )
+            } else {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(HifiSize.touchTarget),
+                ) {
+                    IconButton(
+                        onClick = onCyclePlaybackQueueMode,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(HifiSize.touchTarget),
+                    ) {
+                        Icon(
+                            imageVector = playbackQueueModeIcon(mode),
+                            contentDescription = playbackQueueModeDescription(mode),
+                            tint = if (modeActive) colors.primary else colors.secondary,
+                            modifier = Modifier.size(HifiSize.iconLg * visualScale),
+                        )
+                    }
+                    IconButton(
+                        onClick = onPrevious,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(HifiSize.touchTarget),
+                    ) {
+                        Icon(
+                            Icons.Default.SkipPrevious,
+                            contentDescription = "上一首",
+                            tint = colors.primary,
+                            modifier = Modifier.size(HifiSize.iconXl * visualScale),
+                        )
+                    }
+                    SharpPlayPauseButton(
+                        isPlaying = surfaceState.playbackStatus.showsPauseAction,
+                        onToggle = onTogglePlay,
+                        onLongPress = onPlayLongPress,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(HifiSize.touchTarget),
+                        size = HifiSize.iconXxl * visualScale,
+                        color = colors.primary,
+                    )
+                    IconButton(
+                        onClick = onNext,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(HifiSize.touchTarget),
+                    ) {
+                        Icon(
+                            Icons.Default.SkipNext,
+                            contentDescription = "下一首",
+                            tint = colors.primary,
+                            modifier = Modifier.size(HifiSize.iconXl * visualScale),
+                        )
+                    }
+                    IconButton(
+                        onClick = onOpenQueue,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(HifiSize.touchTarget),
+                    ) {
+                        Icon(
+                            imageVector = MicaPlaybackIcons.queueMusic19,
+                            contentDescription = "播放列表",
+                            tint = colors.secondary,
+                            modifier = Modifier.size(HifiSize.iconLg * visualScale),
+                        )
+                    }
+                }
+            }
+        }
+        return
+    }
+
     // 默认保留五个槽位；自定义主题可选择移除隐藏槽位，让剩余按钮由 SpaceEvenly 重新均分。
     val playPauseSlot = maxOf(HifiSize.iconXxl * visualScale, HifiSize.touchTarget)
     Row(

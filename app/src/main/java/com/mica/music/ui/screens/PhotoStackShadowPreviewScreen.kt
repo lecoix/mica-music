@@ -150,6 +150,7 @@ fun PhotoStackShadowPreviewScreen(
                         enabled = true,
                         normalLayerVisible = true,
                         immersiveProgress = 0f,
+                        visualScale = 1f,
                         slotWidth = cardWidth,
                         slotHeight = cardHeight,
                         cardTopInset = 0.dp,

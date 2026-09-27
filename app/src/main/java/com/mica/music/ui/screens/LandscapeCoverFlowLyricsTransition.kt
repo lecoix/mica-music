@@ -88,7 +88,11 @@ internal fun LandscapeCoverFlowCoverLayer(
     ) {
         val bottomInset = contentPadding.calculateBottomPadding()
         val contentHeight = (maxHeight - bottomInset).coerceAtLeast(1.dp)
-        val barHeight = (contentHeight * 0.22f).coerceIn(72.dp, 88.dp)
+        val barHeight = if (maxWidth < 520.dp) {
+            (contentHeight * 0.38f).coerceIn(132.dp, 148.dp)
+        } else {
+            (contentHeight * 0.22f).coerceIn(72.dp, 88.dp)
+        }
         val barTop = contentHeight - barHeight
         val targetCoverTop = contentHeight * 0.025f
         val safeCoverHeight = coverHeight.coerceAtLeast(1.dp)
@@ -380,63 +384,121 @@ internal fun LandscapeCoverFlowPlayerBar(
         val startInset = contentPadding.calculateLeftPadding(layoutDirection)
         val endInset = contentPadding.calculateRightPadding(layoutDirection)
         val contentHeight = (maxHeight - bottomInset).coerceAtLeast(1.dp)
-        val barHeight = (contentHeight * 0.22f).coerceIn(72.dp, 88.dp)
+        val compactBar = maxWidth < 520.dp
+        val barHeight = if (compactBar) {
+            (contentHeight * 0.38f).coerceIn(132.dp, 148.dp)
+        } else {
+            (contentHeight * 0.22f).coerceIn(72.dp, 88.dp)
+        }
         val horizontalPad = edgePadding.coerceIn(16.dp, 24.dp)
-        val sideWidth = 240.dp
-        val sectionGap = (maxWidth * 0.03f).coerceIn(18.dp, 48.dp)
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(barHeight + bottomInset)
-                .align(Alignment.BottomCenter)
-                .padding(
-                    start = horizontalPad + startInset,
-                    end = horizontalPad + endInset,
-                    bottom = bottomInset,
-                ),
-            horizontalArrangement = Arrangement.spacedBy(sectionGap),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(
-                modifier = Modifier.width(sideWidth),
-                contentAlignment = Alignment.CenterStart,
-            ) {
-                titleContent(Modifier.fillMaxWidth())
-            }
+        if (compactBar) {
             Column(
                 modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight(),
-                verticalArrangement = Arrangement.Center,
+                    .fillMaxWidth()
+                    .height(barHeight + bottomInset)
+                    .align(Alignment.BottomCenter)
+                    .padding(
+                        start = horizontalPad + startInset,
+                        end = horizontalPad + endInset,
+                        bottom = bottomInset,
+                    ),
             ) {
-                Box(
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f),
-                    contentAlignment = Alignment.Center,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    lyricsContent(Modifier.fillMaxWidth())
+                    Box(
+                        modifier = Modifier.weight(1.15f),
+                        contentAlignment = Alignment.CenterStart,
+                    ) {
+                        titleContent(Modifier.fillMaxWidth())
+                    }
+                    Box(
+                        modifier = Modifier.weight(0.85f),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        lyricsContent(Modifier.fillMaxWidth())
+                    }
                 }
                 if (showStandardProgress) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(38.dp)
-                            .graphicsLayer {
-                                translationY = (-2).dp.toPx()
-                            },
+                            .height(50.dp),
                         contentAlignment = Alignment.BottomCenter,
                     ) {
                         progressContent(Modifier.fillMaxWidth())
                     }
                 }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    controlsContent(Modifier.fillMaxWidth())
+                }
             }
-            Box(
-                modifier = Modifier.width(sideWidth),
-                contentAlignment = Alignment.CenterEnd,
+        } else {
+            val sideWidth = 240.dp
+            val sectionGap = (maxWidth * 0.03f).coerceIn(18.dp, 48.dp)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(barHeight + bottomInset)
+                    .align(Alignment.BottomCenter)
+                    .padding(
+                        start = horizontalPad + startInset,
+                        end = horizontalPad + endInset,
+                        bottom = bottomInset,
+                    ),
+                horizontalArrangement = Arrangement.spacedBy(sectionGap),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                controlsContent(Modifier.fillMaxWidth())
+                Box(
+                    modifier = Modifier.width(sideWidth),
+                    contentAlignment = Alignment.CenterStart,
+                ) {
+                    titleContent(Modifier.fillMaxWidth())
+                }
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        lyricsContent(Modifier.fillMaxWidth())
+                    }
+                    if (showStandardProgress) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(38.dp)
+                                .graphicsLayer {
+                                    translationY = (-2).dp.toPx()
+                                },
+                            contentAlignment = Alignment.BottomCenter,
+                        ) {
+                            progressContent(Modifier.fillMaxWidth())
+                        }
+                    }
+                }
+                Box(
+                    modifier = Modifier.width(sideWidth),
+                    contentAlignment = Alignment.CenterEnd,
+                ) {
+                    controlsContent(Modifier.fillMaxWidth())
+                }
             }
         }
     }

@@ -17,6 +17,79 @@ class LandscapePlayerPolicyTest {
     }
 
     @Test
+    fun viewportAuthorityUsesSafeDpCapacityInsteadOfRawAspect() {
+        assertTrue(
+            playerViewportPlan(
+                widthDp = 406f,
+                heightDp = 381f,
+                mode = PlayerCoverFlowMode.STANDARD,
+            ).usesLandscapeLayout,
+        )
+        assertTrue(
+            playerViewportPlan(
+                widthDp = 406f,
+                heightDp = 421f,
+                mode = PlayerCoverFlowMode.RETRO_3D,
+            ).usesLandscapeLayout,
+        )
+        assertTrue(
+            playerViewportPlan(
+                widthDp = 406f,
+                heightDp = 455f,
+                mode = PlayerCoverFlowMode.STANDARD,
+            ).usesLandscapeLayout,
+        )
+        assertFalse(
+            playerViewportPlan(
+                widthDp = 406f,
+                heightDp = 590f,
+                mode = PlayerCoverFlowMode.STANDARD,
+            ).usesLandscapeLayout,
+        )
+    }
+
+    @Test
+    fun themesWithoutLandscapeLayoutsStayVerticalAndExposeCompactCoverBudget() {
+        val particle = playerViewportPlan(406f, 381f, PlayerCoverFlowMode.PARTICLE_COVER)
+        val photoStack = playerViewportPlan(406f, 381f, PlayerCoverFlowMode.PHOTO_STACK)
+        val custom = playerViewportPlan(406f, 381f, PlayerCoverFlowMode.CUSTOM_STANDARD)
+
+        listOf(particle, photoStack, custom).forEach { plan ->
+            assertFalse(plan.usesLandscapeLayout)
+            assertTrue(plan.compactVertical)
+        }
+        assertEquals(141f, particle.verticalCoverMaxDp, 0.001f)
+        assertEquals(209.82f, photoStack.verticalCoverMaxDp, 0.01f)
+        assertEquals(333f, custom.verticalCoverMaxDp, 0.001f)
+    }
+
+    @Test
+    fun selectedLandscapeGeometryCanBeBuiltWhenRawBoxIsNearSquare() {
+        assertNotNull(landscapePlayerLayoutPlanForBounds(widthDp = 406f, heightDp = 411f))
+    }
+
+    @Test
+    fun coverFlowStageUsesFullStageInsteadOfClassicDetailLaneReservation() {
+        val pause = landscapeCoverFlowStageCoverSizeDp(
+            widthDp = 406f,
+            heightDp = 381f,
+            edgePaddingDp = 16f,
+            mode = PlayerCoverFlowMode.PAUSE_FOLD,
+        )
+        val retro = landscapeCoverFlowStageCoverSizeDp(
+            widthDp = 406f,
+            heightDp = 381f,
+            edgePaddingDp = 16f,
+            mode = PlayerCoverFlowMode.RETRO_3D,
+        )
+
+        assertTrue(pause > 200f)
+        assertTrue(retro > 250f)
+        assertTrue(pause <= 374f)
+        assertTrue(retro <= 374f)
+    }
+
+    @Test
     fun classifiesCompactWideAndStageAtExplicitBoundaries() {
         assertEquals(
             LandscapePlayerViewport.Compact,

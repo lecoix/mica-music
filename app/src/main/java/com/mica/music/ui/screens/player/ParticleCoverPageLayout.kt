@@ -18,13 +18,27 @@ internal object ParticleCoverPageLayout {
         titleToCoverExtraGap: Dp = 0.dp,
     ): CoverFrame {
         val halfExtraGap = titleToCoverExtraGap / 2
-        val particleInfoTopPadding = input.statusBarTop + InfoTopExtraPadding + halfExtraGap
+        val preferredCoverSize = input.screenWidth * CoverScreenFraction
+        val coverSize = input.coverSizeLimit?.let { minOf(preferredCoverSize, it) }
+            ?: preferredCoverSize
+        val coverFraction = if (preferredCoverSize.value > 0f) {
+            (coverSize.value / preferredCoverSize.value).coerceIn(0f, 1f)
+        } else {
+            1f
+        }
+        // Short vertical windows keep the particle theme's vertical semantics, but the fixed
+        // 96dp info slot / 24dp drop cannot stay rigid or it consumes the lower controls.
+        val compactness = coverFraction * coverFraction
+        val infoTopExtra = lerpDp(8.dp, InfoTopExtraPadding, compactness)
+        val infoBlockHeight = lerpDp(72.dp, InfoBlockHeight, compactness)
+        val infoToCoverGap = lerpDp(8.dp, HifiSpacing.lg, compactness)
+        val coverDrop = lerpDp(8.dp, CoverDrop, compactness)
+        val particleInfoTopPadding = input.statusBarTop + infoTopExtra + halfExtraGap
         val particleCoverTopPadding = particleInfoTopPadding +
-            InfoBlockHeight +
-            HifiSpacing.lg +
-            CoverDrop +
+            infoBlockHeight +
+            infoToCoverGap +
+            coverDrop +
             halfExtraGap
-        val coverSize = input.screenWidth * CoverScreenFraction
         val useParticleLyricsLayout =
             headerFocus > ImmersiveProgressEpsilon &&
                 input.queueProgress <= ImmersiveProgressEpsilon &&

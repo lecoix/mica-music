@@ -10,6 +10,102 @@ internal enum class LandscapePlayerViewport {
     Stage,
 }
 
+internal enum class PlayerViewportLayout {
+    Vertical,
+    Landscape,
+}
+
+/**
+ * Single playback-page viewport authority. [widthDp]/[heightDp] are safe app bounds in dp
+ * (system bars already excluded by Configuration), not physical display pixels.
+ */
+internal data class PlayerViewportPlan(
+    val layout: PlayerViewportLayout,
+    val compactVertical: Boolean,
+    /** Maximum artwork/card width while the page keeps its vertical semantics. */
+    val verticalCoverMaxDp: Float,
+) {
+    val usesLandscapeLayout: Boolean
+        get() = layout == PlayerViewportLayout.Landscape
+}
+
+private const val ClassicPortraitLowerReserveDp = 180f
+private const val CustomVerticalReserveDp = 48f
+private const val ParticleVerticalReserveDp = 240f
+private const val PhotoStackVerticalReserveDp = 112f
+private const val PhotoStackAspectRatio = 0.78f
+private const val ParticleCoverFraction = 0.78f
+private const val PhotoStackCoverFraction = 0.80f
+private const val MinimumCompactCoverDp = 136f
+private const val MinimumParticleCompactCoverDp = 120f
+private const val StandardLandscapeMinWidthDp = 360f
+private const val CoverFlowLandscapeMinWidthDp = 320f
+private const val LandscapeMinHeightDp = 260f
+
+internal fun playerViewportPlan(
+    widthDp: Float,
+    heightDp: Float,
+    mode: PlayerCoverFlowMode,
+): PlayerViewportPlan {
+    val width = widthDp.coerceAtLeast(0f)
+    val height = heightDp.coerceAtLeast(0f)
+
+    val portraitRequiredHeight = when (mode) {
+        PlayerCoverFlowMode.PARTICLE_COVER ->
+            width * ParticleCoverFraction + ParticleVerticalReserveDp
+        PlayerCoverFlowMode.PHOTO_STACK ->
+            width * PhotoStackCoverFraction / PhotoStackAspectRatio + PhotoStackVerticalReserveDp
+        PlayerCoverFlowMode.STANDARD,
+        PlayerCoverFlowMode.PAUSE_FOLD,
+        PlayerCoverFlowMode.RETRO_3D,
+        -> width + ClassicPortraitLowerReserveDp
+        PlayerCoverFlowMode.CUSTOM_STANDARD -> width + CustomVerticalReserveDp
+    }
+    val portraitFits = width > 0f && height >= portraitRequiredHeight
+    val landscapeFits = when (mode) {
+        PlayerCoverFlowMode.STANDARD ->
+            width >= StandardLandscapeMinWidthDp && height >= LandscapeMinHeightDp
+        PlayerCoverFlowMode.PAUSE_FOLD,
+        PlayerCoverFlowMode.RETRO_3D,
+        -> width >= CoverFlowLandscapeMinWidthDp && height >= LandscapeMinHeightDp
+        PlayerCoverFlowMode.CUSTOM_STANDARD,
+        PlayerCoverFlowMode.PARTICLE_COVER,
+        PlayerCoverFlowMode.PHOTO_STACK,
+        -> false
+    }
+    val useLandscape = !portraitFits && landscapeFits
+    val compactVertical = !useLandscape && !portraitFits
+    val verticalCoverMax = when (mode) {
+        PlayerCoverFlowMode.PARTICLE_COVER -> minOf(
+            width * ParticleCoverFraction,
+            (height - ParticleVerticalReserveDp).coerceAtLeast(MinimumParticleCompactCoverDp),
+        )
+        PlayerCoverFlowMode.PHOTO_STACK -> minOf(
+            width * PhotoStackCoverFraction,
+            (height - PhotoStackVerticalReserveDp)
+                .coerceAtLeast(MinimumCompactCoverDp / PhotoStackAspectRatio) *
+                PhotoStackAspectRatio,
+        )
+        PlayerCoverFlowMode.STANDARD,
+        PlayerCoverFlowMode.PAUSE_FOLD,
+        PlayerCoverFlowMode.RETRO_3D,
+        -> minOf(
+            width,
+            (height - ClassicPortraitLowerReserveDp).coerceAtLeast(MinimumCompactCoverDp),
+        )
+        PlayerCoverFlowMode.CUSTOM_STANDARD -> minOf(
+            width,
+            (height - CustomVerticalReserveDp).coerceAtLeast(MinimumCompactCoverDp),
+        )
+    }.coerceAtLeast(0f)
+
+    return PlayerViewportPlan(
+        layout = if (useLandscape) PlayerViewportLayout.Landscape else PlayerViewportLayout.Vertical,
+        compactVertical = compactVertical,
+        verticalCoverMaxDp = verticalCoverMax,
+    )
+}
+
 internal data class LandscapePlayerLayoutPlan(
     val viewport: LandscapePlayerViewport,
     val horizontalPaddingDp: Float,
@@ -52,6 +148,15 @@ internal fun landscapePlayerLayoutPlan(
     heightDp: Float,
 ): LandscapePlayerLayoutPlan? {
     if (widthDp <= heightDp || widthDp <= 0f || heightDp <= 0f) return null
+    return landscapePlayerLayoutPlanForBounds(widthDp, heightDp)
+}
+
+/** Geometry only. Whether landscape is selected is owned by [playerViewportPlan]. */
+internal fun landscapePlayerLayoutPlanForBounds(
+    widthDp: Float,
+    heightDp: Float,
+): LandscapePlayerLayoutPlan? {
+    if (widthDp <= 0f || heightDp <= 0f) return null
 
     val viewport = when {
         widthDp >= 1_200f && heightDp >= 600f -> LandscapePlayerViewport.Stage
@@ -87,6 +192,28 @@ internal fun landscapePlayerLayoutPlan(
         detailLaneWidthDp = detailLaneWidth,
         coverSizeDp = coverSize,
     )
+}
+
+internal fun landscapeCoverFlowStageCoverSizeDp(
+    widthDp: Float,
+    heightDp: Float,
+    edgePaddingDp: Float,
+    mode: PlayerCoverFlowMode,
+): Float {
+    if (widthDp <= 0f || heightDp <= 0f) return 0f
+    val edge = edgePaddingDp.coerceAtLeast(0f)
+    val contentHeight = (heightDp - edge).coerceAtLeast(0f)
+    val barHeight = if (widthDp < 520f) {
+        (contentHeight * 0.38f).coerceIn(132f, 148f)
+    } else {
+        (contentHeight * 0.22f).coerceIn(72f, 88f)
+    }
+    val stageHeight = (contentHeight - barHeight - edge).coerceAtLeast(0f)
+    val centerScale = CoverFlowMath.centerScale(mode, foldProgress = 1f).coerceAtLeast(0.01f)
+    val visibleHeightFactor = centerScale * (1f + CoverFlowMath.ReflectionHeightFraction)
+    val heightBound = stageHeight / visibleHeightFactor.coerceAtLeast(0.01f)
+    val widthBound = (widthDp - edge * 2f).coerceAtLeast(0f)
+    return minOf(widthBound, heightBound).coerceAtLeast(0f)
 }
 
 /** Special landscape renderers opt in here as they become production-ready. */

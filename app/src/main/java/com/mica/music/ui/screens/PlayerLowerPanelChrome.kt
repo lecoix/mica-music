@@ -43,6 +43,9 @@ internal fun PlayerLowerPanelChrome(
     onOpenEqualizer: () -> Unit,
     onOpenQueue: () -> Unit,
     modifier: Modifier = Modifier,
+    compactControls: Boolean = false,
+    controlVisualScale: Float = 1f,
+    maximizeInteractionSlots: Boolean = false,
 ) {
     val motionEnabled = rememberMicaMotionEnabled()
     val chromeVisibility by animateFloatAsState(
@@ -135,6 +138,9 @@ internal fun PlayerLowerPanelChrome(
             onOpenEqualizer = onOpenEqualizer,
             onOpenQueue = onOpenQueue,
             modifier = controlsModifier.align(Alignment.BottomCenter),
+            visualScale = controlVisualScale,
+            compactTwoRow = compactControls,
+            maximizeInteractionSlots = maximizeInteractionSlots,
         )
     }
 }

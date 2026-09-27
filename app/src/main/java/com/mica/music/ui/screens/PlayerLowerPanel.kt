@@ -81,10 +81,13 @@ internal fun PlayerLowerPanelSection(
     showCompactLyrics: Boolean = true,
     trackSkipDirection: TrackSkipDirection? = null,
     trackWipeMotionEnabled: Boolean = true,
+    titleContentScale: Float = 1f,
+    photoStackVisualScale: Float = 1f,
     titleModifier: Modifier = Modifier,
     chromeModifier: Modifier = Modifier,
     metaModifier: Modifier = Modifier,
     compactLyricsModifier: Modifier = Modifier,
+    compactLandscapeControls: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val spacing = lower.spacing
@@ -123,6 +126,7 @@ internal fun PlayerLowerPanelSection(
                         playbackError = surfaceState.playbackError,
                         colors = colors,
                         immersiveProgress = lower.immersiveProgress,
+                        contentScale = titleContentScale * photoStackVisualScale,
                         modifier = titleModifier.graphicsLayer {
                             translationY = lower.titleSlideDown.toPx()
                         },
@@ -145,6 +149,9 @@ internal fun PlayerLowerPanelSection(
                     onOpenEqualizer = onOpenEqualizer,
                     onOpenQueue = onOpenQueue,
                     modifier = chromeModifier,
+                    compactControls = compactLandscapeControls,
+                    controlVisualScale = photoStackVisualScale,
+                    maximizeInteractionSlots = true,
                 )
                 Spacer(Modifier.weight(1f))
             }
@@ -289,6 +296,7 @@ internal fun PlayerLowerPanelSection(
             onOpenEqualizer = onOpenEqualizer,
             onOpenQueue = onOpenQueue,
             modifier = chromeModifier,
+            compactControls = compactLandscapeControls,
         )
     }
 }

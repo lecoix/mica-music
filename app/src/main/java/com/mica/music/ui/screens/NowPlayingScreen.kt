@@ -110,9 +110,11 @@ import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.screens.player.landscapeCoverFlowCloudExitActive
 import com.mica.music.ui.screens.player.landscapeCoverFlowImmersiveEligible
 import com.mica.music.ui.screens.player.landscapeCoverFlowStageActive
+import com.mica.music.ui.screens.player.landscapeCoverFlowStageCoverSizeDp
 import com.mica.music.ui.screens.player.landscapeCoverModeForPage
 import com.mica.music.ui.screens.player.landscapeChromeHeight
-import com.mica.music.ui.screens.player.landscapePlayerLayoutPlan
+import com.mica.music.ui.screens.player.landscapePlayerLayoutPlanForBounds
+import com.mica.music.ui.screens.player.playerViewportPlan
 import com.mica.music.ui.screens.player.stableGeometry
 import com.mica.music.ui.screens.player.rememberPlayerPageUiModel
 import com.mica.music.ui.screens.player.view.PhotoStackCarouselNavigationBridge
@@ -277,7 +279,18 @@ fun NowPlayingContent(
     var customLayoutDraft by remember { mutableStateOf(uiSettings.customPlayerLowerLayout.normalized()) }
     var customLayoutSelectedComponent by remember { mutableStateOf(PlayerLowerComponent.COVER) }
     val configuration = LocalConfiguration.current
-    val isLandscapeWindow = configuration.screenWidthDp > configuration.screenHeightDp
+    val viewportPlan = remember(
+        configuration.screenWidthDp,
+        configuration.screenHeightDp,
+        uiSettings.playerCoverFlowMode,
+    ) {
+        playerViewportPlan(
+            widthDp = configuration.screenWidthDp.toFloat(),
+            heightDp = configuration.screenHeightDp.toFloat(),
+            mode = uiSettings.playerCoverFlowMode,
+        )
+    }
+    val isLandscapeWindow = viewportPlan.usesLandscapeLayout
     val queueListState = rememberSaveable(saver = LazyListState.Saver) {
         LazyListState(
             firstVisibleItemIndex = (queueState.currentIndex - 2).coerceAtLeast(0),
@@ -580,8 +593,12 @@ fun NowPlayingContent(
             val screenHeight = fullHeight - bottomInset
             val screenWidth = fullWidth
             val density = LocalDensity.current
-            val landscapePlan = landscapePlayerLayoutPlan(fullWidth.value, screenHeight.value)
-            val landscapeMode = landscapePlan != null
+            val landscapeMode = isLandscapeWindow
+            val landscapePlan = if (landscapeMode) {
+                landscapePlayerLayoutPlanForBounds(fullWidth.value, screenHeight.value)
+            } else {
+                null
+            }
             val effectiveCoverFlowMode = if (landscapeMode) {
                 landscapeCoverModeForPage(uiSettings.playerCoverFlowMode, lyricsExpanded)
             } else {
@@ -631,7 +648,24 @@ fun NowPlayingContent(
                 topPaddingDp = landscapeTopPadding.value,
             )
             val landscapeEdgePadding = landscapeGeometry?.edgePaddingDp?.dp ?: 0.dp
-            val landscapeCoverSize = landscapeGeometry?.playbackCoverSizeDp?.dp
+            val landscapeCoverSize = when {
+                landscapeMode &&
+                    (effectiveCoverFlowMode == PlayerCoverFlowMode.PAUSE_FOLD ||
+                        effectiveCoverFlowMode == PlayerCoverFlowMode.RETRO_3D) -> {
+                    landscapeCoverFlowStageCoverSizeDp(
+                        widthDp = fullWidth.value,
+                        heightDp = screenHeight.value,
+                        edgePaddingDp = landscapeEdgePadding.value,
+                        mode = effectiveCoverFlowMode,
+                    ).dp
+                }
+                else -> landscapeGeometry?.playbackCoverSizeDp?.dp
+            }
+            val verticalCoverSizeLimit = if (!landscapeMode) {
+                viewportPlan.verticalCoverMaxDp.dp
+            } else {
+                null
+            }
 
             val darkTheme = uiSettings.isDarkTheme()
             val hasTimedPageLyrics = remember(song.lyricsDocument) {
@@ -777,6 +811,7 @@ fun NowPlayingContent(
                 screenHeight = screenHeight,
                 screenWidth = screenWidth,
                 coverViewportWidth = landscapeCoverSize,
+                coverSizeLimit = verticalCoverSizeLimit,
                 coverAspectRatio = coverAspectRatio,
                 coverSwitching = coverMotionActive,
                 spectrumAllowed = spectrumAllowed,
@@ -1150,6 +1185,9 @@ fun NowPlayingContent(
                     actions.seekToMs(LyricsTiming.seekPositionMs(lyricTimeMs, effectiveLyricsOffsetMs))
                 }
             }
+            val compactStandardLandscapeControls =
+                uiSettings.playerCoverFlowMode == PlayerCoverFlowMode.STANDARD &&
+                    configuration.screenWidthDp < 520
             val landscapeLowerSection: @Composable (Modifier, Dp, Modifier, Modifier) -> Unit =
                 { lowerModifier, panelHeight, titleSharedModifier, chromeSharedModifier ->
                 val actualFrame = pageModel.frameFor(
@@ -1157,11 +1195,16 @@ fun NowPlayingContent(
                     compactLyricsPreferThreeWhenCompressed =
                         uiSettings.playerCoverFlowMode == PlayerCoverFlowMode.STANDARD,
                 )
+                val baseLandscapeChromeHeight = landscapeChromeHeight(
+                    portraitChromeHeight = actualFrame.lower.chromeHeight,
+                    portraitControlsBottomPadding = actualFrame.lower.controlsBottomPadding,
+                )
                 val landscapeLower = actualFrame.lower.copy(
-                    chromeHeight = landscapeChromeHeight(
-                        portraitChromeHeight = actualFrame.lower.chromeHeight,
-                        portraitControlsBottomPadding = actualFrame.lower.controlsBottomPadding,
-                    ),
+                    chromeHeight = if (compactStandardLandscapeControls) {
+                        maxOf(baseLandscapeChromeHeight, 148.dp)
+                    } else {
+                        baseLandscapeChromeHeight
+                    },
                     controlsBottomPadding = 0.dp,
                 )
                 val cloudHeaderMod = if (landscapeCloudExitProgress > 0.001f) {
@@ -1216,10 +1259,12 @@ fun NowPlayingContent(
                     spectrumEnabled = actualFrame.spectrumEnabled,
                     trackSkipDirection = effectiveTrackWipeDirection,
                     trackWipeMotionEnabled = motionEnabled,
+                    titleContentScale = if (compactStandardLandscapeControls) 0.78f else 1f,
                     titleModifier = titleSharedModifier.then(cloudHeaderMod),
                     chromeModifier = chromeSharedModifier.then(cloudChromeMod),
                     metaModifier = cloudHeaderMod,
                     compactLyricsModifier = cloudLyricsMod,
+                    compactLandscapeControls = compactStandardLandscapeControls,
                     onCyclePlaybackQueueMode = actions.cyclePlaybackQueueMode,
                     onPrevious = onPlayerPrevious,
                     onTogglePlay = actions.togglePlay,
@@ -1571,7 +1616,7 @@ fun NowPlayingContent(
                                                     colors = playerUiColors,
                                                     immersiveProgress = 0f,
                                                     showAlbum = false,
-                                                    contentScale = 0.84f,
+                                                    contentScale = if (configuration.screenWidthDp < 520) 0.68f else 0.84f,
                                                     onClick = { lyricsExpanded = true },
                                                     onLongPress = {
                                                         landscapeCoverFlowImmersive = true
@@ -2137,6 +2182,7 @@ fun NowPlayingContent(
                             spectrumEnabled = actualFrame.spectrumEnabled,
                             trackSkipDirection = effectiveTrackWipeDirection,
                             trackWipeMotionEnabled = motionEnabled,
+                            photoStackVisualScale = actualFrame.photoStack.visualScale,
                             onCyclePlaybackQueueMode = actions.cyclePlaybackQueueMode,
                             onPrevious = onPlayerPrevious,
                             onTogglePlay = actions.togglePlay,

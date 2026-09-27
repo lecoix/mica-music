@@ -331,6 +331,44 @@ class PlayerPageLayoutEngineTest {
     }
 
     @Test
+    fun compactVerticalCoverLimitShrinksAndCentersStandardArtwork() {
+        val frame = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput().copy(coverSizeLimit = 220.dp),
+            density = density,
+            typography = typography,
+        )
+
+        assertEquals(220.dp, frame.cover.width)
+        assertEquals(220.dp, frame.cover.height)
+        assertEquals(90.dp, frame.cover.startPadding)
+    }
+
+    @Test
+    fun compactVerticalCoverLimitAppliesToParticleAndPhotoStackThemes() {
+        val particle = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(
+                particleCoverMode = true,
+            ).copy(coverSizeLimit = 180.dp),
+            density = density,
+            typography = typography,
+        )
+        val photoStack = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(
+                photoStackMode = true,
+            ).copy(coverSizeLimit = 200.dp),
+            density = density,
+            typography = typography,
+        )
+
+        assertEquals(180.dp, particle.cover.width)
+        assertEquals(110.dp, particle.cover.startPadding)
+        assertTrue(particle.cover.blockHeight < 340.dp)
+        assertEquals(200.dp, photoStack.cover.width)
+        assertEquals(200.dp, photoStack.photoStack.cardWidth)
+        assertEquals(100.dp, photoStack.cover.startPadding)
+    }
+
+    @Test
     fun normalScene_producesThreeLyricSlotsOnTallPanel() {
         val frame = PlayerPageLayoutEngine.computeFrame(
             input = baseInput(panelHeight = 500.dp),
@@ -1001,6 +1039,36 @@ class PlayerPageLayoutEngineTest {
         assertEquals(expectedMiddleGap, middleGap)
         assertEquals(expectedEdgeGap, frame.lower.controlsBottomPadding)
         assertEquals(frame.photoStack.cardHeight + edgeGap + middleGap, frame.cover.blockHeight)
+    }
+
+    @Test
+    fun compactPhotoStackScalesChromeVisualsButKeepsControlInteractionHeight() {
+        val normal = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(
+                photoStackMode = true,
+                useCoverEdgeProgress = true,
+            ),
+            density = density,
+            typography = typography,
+        )
+        val frame = PlayerPageLayoutEngine.computeFrame(
+            input = baseInput(
+                photoStackMode = true,
+                useCoverEdgeProgress = true,
+            ).copy(
+                coverSizeLimit = 200.dp,
+            ),
+            density = density,
+            typography = typography,
+        )
+
+        assertEquals(200.dp, frame.photoStack.cardWidth)
+        assertEquals(0.72f, frame.photoStack.visualScale, 0.001f)
+        assertEquals(48.dp + frame.lower.controlsBottomPadding, frame.lower.chromeHeight)
+        assertEquals(
+            normal.lower.photoStackTitleBlockHeight * 0.72f,
+            frame.lower.photoStackTitleBlockHeight,
+        )
     }
 
     @Test

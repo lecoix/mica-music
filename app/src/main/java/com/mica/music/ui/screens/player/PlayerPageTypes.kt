@@ -66,6 +66,8 @@ data class PhotoStackFrame(
     val enabled: Boolean,
     val normalLayerVisible: Boolean,
     val immersiveProgress: Float,
+    /** Visual scale for title/icons; interaction geometry remains unscaled. */
+    val visualScale: Float,
     val slotWidth: Dp,
     val slotHeight: Dp,
     val cardTopInset: Dp,
@@ -142,6 +144,8 @@ data class PlayerPageLayoutInput(
     val screenWidth: Dp,
     /** Cover-layout viewport when the cover occupies a lane instead of the full page width. */
     val coverViewportWidth: Dp? = null,
+    /** Optional compact-vertical cap for artwork/card width. */
+    val coverSizeLimit: Dp? = null,
     val statusBarTop: Dp,
     val lyricsExpanded: Boolean,
     val lyricsProgress: Float,

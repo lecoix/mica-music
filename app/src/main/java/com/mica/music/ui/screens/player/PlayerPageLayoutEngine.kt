@@ -23,6 +23,7 @@ object PlayerPageLayoutEngine {
     private const val PhotoStackArtworkInsetHorizontalFraction = 0.038f
     private const val PhotoStackImmersiveCenterBias = 0.82f
     private const val PhotoStackAspectRatio = 0.78f
+    private const val PhotoStackMinimumChromeVisualScale = 0.72f
     private const val PhotoStackEdgeFraction = 0.10f
     private val PhotoStackImmersiveHorizontalBleed = 40.dp
     private val PhotoStackImmersiveTopBleed = 52.dp
@@ -59,7 +60,9 @@ object PlayerPageLayoutEngine {
         val coverFlowProgress = coverFlowStage.progress
         val coverFlowStageActive = coverFlowStage.active
 
-        val photoStackTitleBlockHeight = computePhotoStackTitleBlockHeight(density, typography)
+        val photoStackChromeVisualScale = photoStackChromeVisualScale(input)
+        val photoStackTitleBlockHeight =
+            computePhotoStackTitleBlockHeight(density, typography) * photoStackChromeVisualScale
         val photoStackControlsHeight = HifiSize.touchTarget
         val cover = computeCoverFrame(
             input = input,
@@ -292,17 +295,24 @@ object PlayerPageLayoutEngine {
                 titleToCoverExtraGap = titleToCoverExtraGap,
             )
         }
-        val coverLayoutWidth = if (input.photoStackMode) {
+        val baseCoverLayoutWidth = if (input.photoStackMode) {
             input.screenWidth
         } else {
             input.coverViewportWidth ?: input.screenWidth
+        }
+        val coverLayoutWidth = if (!input.photoStackMode && input.coverSizeLimit != null) {
+            minOf(baseCoverLayoutWidth, input.coverSizeLimit.coerceAtLeast(0.dp))
+        } else {
+            baseCoverLayoutWidth
         }
         val (expandedCoverWidth, expandedCoverHeight) = when {
             input.photoStackMode -> {
                 val immersiveFraction = input.immersiveProgress.coerceIn(0f, 1f)
                 val screenFraction = PhotoStackScreenFraction +
                     (PhotoStackImmersiveScreenFraction - PhotoStackScreenFraction) * immersiveFraction
-                val cardWidth = coverLayoutWidth * screenFraction
+                val preferredCardWidth = coverLayoutWidth * screenFraction
+                val cardWidth = input.coverSizeLimit?.let { minOf(preferredCardWidth, it) }
+                    ?: preferredCardWidth
                 cardWidth to cardWidth / PhotoStackAspectRatio
             }
             input.fitOriginal -> measurePlayerCoverFitOriginal(
@@ -351,13 +361,17 @@ object PlayerPageLayoutEngine {
             PhotoStackVerticalLayout(edgeGap = 0.dp, middleGap = 0.dp)
         }
         val coverTopPadding = when {
-            pinPhotoStackGeometry -> photoStackLayout.edgeGap
+            pinPhotoStackGeometry -> maxOf(photoStackLayout.edgeGap, input.statusBarTop)
             else -> lerpDp(0.dp, input.statusBarTop, headerFocus)
         }
-        val expandedCoverStartPadding = if (input.fitOriginal || input.photoStackMode) {
-            Dp(((coverLayoutWidth - expandedCoverWidth).value / 2f).coerceAtLeast(0f))
-        } else {
-            0.dp
+        val expandedCoverStartPadding = when {
+            input.photoStackMode ->
+                Dp(((input.screenWidth - expandedCoverWidth).value / 2f).coerceAtLeast(0f))
+            input.coverViewportWidth == null && input.coverSizeLimit != null ->
+                Dp(((input.screenWidth - expandedCoverWidth).value / 2f).coerceAtLeast(0f))
+            input.fitOriginal ->
+                Dp(((coverLayoutWidth - expandedCoverWidth).value / 2f).coerceAtLeast(0f))
+            else -> 0.dp
         }
         val coverStartPadding = if (useParticleLyricsLayout || pinPhotoStackGeometry) {
             expandedCoverStartPadding
@@ -435,6 +449,7 @@ object PlayerPageLayoutEngine {
             enabled = enabled,
             normalLayerVisible = normalLayerVisible,
             immersiveProgress = input.immersiveProgress.coerceIn(0f, 1f),
+            visualScale = photoStackChromeVisualScale(input),
             slotWidth = viewport.slotWidth,
             slotHeight = viewport.slotHeight,
             cardTopInset = viewport.cardTopInset,
@@ -448,6 +463,16 @@ object PlayerPageLayoutEngine {
                 PhotoStackImmersiveScreenFraction *
                 (1f - PhotoStackArtworkInsetHorizontalFraction * 2f),
         )
+    }
+
+    private fun photoStackChromeVisualScale(input: PlayerPageLayoutInput): Float {
+        if (!input.photoStackMode || input.screenWidth.value <= 0f) return 1f
+        val preferredCardWidth = input.screenWidth * PhotoStackScreenFraction
+        if (preferredCardWidth.value <= 0f) return 1f
+        val cappedCardWidth = input.coverSizeLimit?.let { minOf(preferredCardWidth, it) }
+            ?: preferredCardWidth
+        return (cappedCardWidth.value / preferredCardWidth.value)
+            .coerceIn(PhotoStackMinimumChromeVisualScale, 1f)
     }
 
     private data class PhotoStackVerticalLayout(
