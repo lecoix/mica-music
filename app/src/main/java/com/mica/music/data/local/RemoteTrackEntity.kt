@@ -44,6 +44,7 @@ data class RemoteTrackEntity(
     val albumOpaqueId: String,
     val artistOpaqueId: String,
     val artworkOpaqueId: String,
+    @ColumnInfo(defaultValue = "''") val lyricsRevision: String = "",
     val catalogPosition: Int,
 )
 
@@ -70,6 +71,7 @@ internal fun RemoteTrackEntity.toRemoteTrackSummary(): RemoteTrackSummary = Remo
     albumOpaqueId = albumOpaqueId,
     artistOpaqueId = artistOpaqueId,
     artworkOpaqueId = artworkOpaqueId,
+    lyricsRevision = lyricsRevision,
 )
 
 internal fun RemoteTrackSummary.toEntity(position: Int): RemoteTrackEntity = RemoteTrackEntity(
@@ -96,5 +98,6 @@ internal fun RemoteTrackSummary.toEntity(position: Int): RemoteTrackEntity = Rem
     albumOpaqueId = albumOpaqueId,
     artistOpaqueId = artistOpaqueId,
     artworkOpaqueId = artworkOpaqueId,
+    lyricsRevision = lyricsRevision,
     catalogPosition = position,
 )

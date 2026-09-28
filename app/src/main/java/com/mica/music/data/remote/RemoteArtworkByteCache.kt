@@ -21,6 +21,7 @@ internal data class RemoteArtworkCacheKey(
  */
 internal class RemoteArtworkByteCache(
     private val maxBytes: Long = DEFAULT_MAX_BYTES,
+    private val diskCache: RevisionedDiskCache? = null,
 ) {
     private val lock = Mutex()
     private val entries = LinkedHashMap<RemoteArtworkCacheKey, ByteArray>(16, 0.75f, true)
@@ -49,7 +50,16 @@ internal class RemoteArtworkByteCache(
         if (!ownsLoad) return pending.await()
 
         return try {
+            diskCache?.get(key.diskKey())?.let { cached ->
+                lock.withLock {
+                    inFlight.remove(key)
+                    cacheLocked(key, cached)
+                    pending.complete(cached)
+                }
+                return cached
+            }
             val loaded = loader()
+            if (loaded.isNotEmpty()) diskCache?.put(key.diskKey(), loaded)
             lock.withLock {
                 inFlight.remove(key)
                 cacheLocked(key, loaded)
@@ -81,5 +91,11 @@ internal class RemoteArtworkByteCache(
 
     companion object {
         const val DEFAULT_MAX_BYTES = 16L * 1024L * 1024L
+        const val DEFAULT_DISK_MAX_BYTES = 100L * 1024L * 1024L
+        const val DEFAULT_DISK_MAX_ENTRIES = 512
     }
+
+    private fun RemoteArtworkCacheKey.diskKey(): String =
+        "remote-art-v1|$sourceInstanceId|$sourceConfigRevision|$catalogRevision|" +
+            "$credentialRevision|$opaqueArtworkId"
 }

@@ -71,6 +71,8 @@ data class RemoteTrackSummary(
     val albumOpaqueId: String = "",
     val artistOpaqueId: String = "",
     val artworkOpaqueId: String = "",
+    /** Revision fingerprint for the exact-basename lyric sidecars, or embedded-audio fallback. */
+    val lyricsRevision: String = "",
 ) {
     val mediaId: String get() = RemoteMediaIdCodec.encode(ref)
 }

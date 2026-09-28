@@ -196,6 +196,42 @@ class RemoteCatalogRepository internal constructor(
         }
 
     /**
+     * Metadata reuse for explicit SMB folder indexing is allowed only when the previous track is
+     * backed by a scope observed under the exact current source config.
+     */
+    internal suspend fun reusableSmbTracksIfCurrent(
+        token: RemoteOperationToken,
+        refs: List<RemoteTrackRef>,
+    ): Map<String, RemoteTrackSummary>? = mutex.withLock {
+        val owner = ownerForLocked(token.sourceInstanceId) ?: return@withLock null
+        val snapshot = owner.snapshot()
+        if (!owner.isCurrent(token) || !snapshot.instance.enabled || snapshot.instance.type != RemoteSourceType.SMB) {
+            return@withLock null
+        }
+        require(refs.all { it.sourceInstanceId == token.sourceInstanceId })
+        val requested = refs.map(RemoteTrackRef::opaqueTrackId).distinct()
+        if (requested.isEmpty()) return@withLock emptyMap()
+
+        val reusableIds = LinkedHashSet<String>()
+        requested.chunked(200).forEach { batch ->
+            reusableIds += smbScopeDao.trackIdsForConfigRevision(
+                sourceInstanceId = token.sourceInstanceId,
+                configRevision = token.configRevision,
+                opaqueTrackIds = batch,
+            )
+        }
+        if (!owner.isCurrent(token)) return@withLock null
+
+        val found = LinkedHashMap<String, RemoteTrackSummary>(reusableIds.size)
+        reusableIds.toList().chunked(200).forEach { batch ->
+            trackDao.getByOpaqueIds(token.sourceInstanceId, batch).forEach { row ->
+                found[row.opaqueTrackId] = row.toRemoteTrackSummary()
+            }
+        }
+        found
+    }
+
+    /**
      * Atomically replaces one explicit SMB folder scope. This is a partial-library publication,
      * not a source catalog sync: it deliberately does not touch lastSyncAt/catalogConfigRevision.
      */
@@ -265,8 +301,17 @@ class RemoteCatalogRepository internal constructor(
                     lastCompletedAtMs = nowMs().coerceAtLeast(0L),
                 )
 
+                val incomingIds = tracks.map { it.ref.opaqueTrackId }
+                val reusableOldIds = LinkedHashSet<String>()
+                incomingIds.chunked(200).forEach { ids ->
+                    reusableOldIds += smbScopeDao.trackIdsForConfigRevision(
+                        sourceInstanceId = source.id,
+                        configRevision = token.configRevision,
+                        opaqueTrackIds = ids,
+                    )
+                }
                 val oldRows = LinkedHashMap<String, com.mica.music.data.local.RemoteTrackEntity>()
-                tracks.map { it.ref.opaqueTrackId }.chunked(200).forEach { ids ->
+                incomingIds.chunked(200).forEach { ids ->
                     trackDao.getByOpaqueIds(source.id, ids).forEach { oldRows[it.opaqueTrackId] = it }
                 }
                 var nextPosition = trackDao.maxCatalogPosition(source.id) + 1
@@ -275,19 +320,29 @@ class RemoteCatalogRepository internal constructor(
                     val oldSummary = old?.toRemoteTrackSummary()
                     val stored = if (
                         oldSummary != null &&
+                        track.ref.opaqueTrackId in reusableOldIds &&
                         track.contentRevision.isNotBlank() &&
                         oldSummary.contentRevision == track.contentRevision &&
                         oldSummary.sizeBytes == track.sizeBytes
                     ) {
-                        oldSummary.copy(
-                            ref = track.ref,
-                            mimeTypeHint = track.mimeTypeHint,
-                            fileName = track.fileName,
-                            suffix = track.suffix,
-                            sizeBytes = track.sizeBytes,
-                            contentRevision = track.contentRevision,
-                            artworkOpaqueId = track.artworkOpaqueId.ifBlank { oldSummary.artworkOpaqueId },
-                        )
+                        if (track.metadataProbeRevision > 0) {
+                            track
+                        } else {
+                            oldSummary.copy(
+                                ref = track.ref,
+                                mimeTypeHint = track.mimeTypeHint,
+                                fileName = track.fileName,
+                                suffix = track.suffix,
+                                sizeBytes = track.sizeBytes,
+                                contentRevision = track.contentRevision,
+                                artworkOpaqueId = track.artworkOpaqueId.ifBlank {
+                                    oldSummary.artworkOpaqueId.takeIf {
+                                        RemoteEmbeddedArtworkIdCodec.decode(it) != null
+                                    }.orEmpty()
+                                },
+                                lyricsRevision = track.lyricsRevision,
+                            )
+                        }
                     } else {
                         track
                     }
@@ -366,7 +421,10 @@ class RemoteCatalogRepository internal constructor(
                         val old = previous[track.ref.opaqueTrackId]
                         val kept = old?.takeIf { track.contentRevision.isNotEmpty() &&
                             it.contentRevision == track.contentRevision && it.sizeBytes == track.sizeBytes }
-                            ?.copy(artworkOpaqueId = track.artworkOpaqueId.ifBlank { old.artworkOpaqueId }) ?: track
+                            ?.copy(
+                                artworkOpaqueId = track.artworkOpaqueId.ifBlank { old.artworkOpaqueId },
+                                lyricsRevision = track.lyricsRevision,
+                            ) ?: track
                         RemoteSelectedTrackEntity(kept.toEntity(0), token.configRevision)
                     })
                 }
@@ -419,10 +477,22 @@ class RemoteCatalogRepository internal constructor(
         ) {
             return@withLock null
         }
-        source.catalogRevision.takeIf {
-            (source.catalogConfigRevision == sourceConfigRevision && trackDao.hasArtworkRef(ref.sourceInstanceId, ref.opaqueArtworkId)) ||
-                selectedDao.hasArtwork(ref.sourceInstanceId, sourceConfigRevision, ref.opaqueArtworkId)
-        }
+        val publishedCatalog =
+            source.catalogConfigRevision == sourceConfigRevision &&
+                trackDao.hasArtworkRef(ref.sourceInstanceId, ref.opaqueArtworkId)
+        val managedSmbScope =
+            source.type == RemoteSourceType.SMB.name &&
+                smbScopeDao.hasManagedArtworkRefForConfigRevision(
+                    sourceInstanceId = ref.sourceInstanceId,
+                    configRevision = sourceConfigRevision,
+                    artworkOpaqueId = ref.opaqueArtworkId,
+                )
+        val selectedTrack = selectedDao.hasArtwork(
+            ref.sourceInstanceId,
+            sourceConfigRevision,
+            ref.opaqueArtworkId,
+        )
+        source.catalogRevision.takeIf { publishedCatalog || managedSmbScope || selectedTrack }
     }
 
     /**

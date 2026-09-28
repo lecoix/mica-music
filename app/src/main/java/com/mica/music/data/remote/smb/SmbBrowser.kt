@@ -100,10 +100,19 @@ internal class SmbDirectoryBrowser(
             val context = currentCoroutineContext()
             val entries = ArrayList<SmbBrowseEntry>()
             val artworks = ArrayList<RemoteSidecarArtworkCandidate>()
+            val lyrics = ArrayList<RemoteLyricsSidecarCandidate>()
             var estimatedBytes = 0L
             var visited = 0
             var complete = true
-            sessions.open(endpoint, login).use { session ->
+            sessions.open(endpoint, login).useReadSession(
+                onCloseFailure = { failure ->
+                    com.mica.music.util.DiagnosticLog.important(
+                        "SmbCleanup",
+                        "browse session close failed after successful read",
+                        failure,
+                    )
+                },
+            ) { session ->
                 checkCurrent()
                 session.visit(endpoint.serverPath(path)) { entry ->
                     context.ensureActive()
@@ -114,7 +123,8 @@ internal class SmbDirectoryBrowser(
                     if (entry.name == "." || entry.name == "..") return@visit true
                     val suffix = entry.name.substringAfterLast('.', "").lowercase(java.util.Locale.ROOT)
                     val isArtwork = !entry.isDirectory && isRemoteSidecarArtworkFile(entry.name)
-                    if (!entry.isDirectory && suffix !in AUDIO_MIME && !isArtwork) return@visit true
+                    val isLyrics = !entry.isDirectory && isRemoteLyricsSidecarFile(entry.name)
+                    if (!entry.isDirectory && suffix !in AUDIO_MIME && !isArtwork && !isLyrics) return@visit true
                     val child = SmbPathCodec.appendChild(path, entry.name)
                     // Conservative descriptor allowance, independent of lyrics/artwork/file sizes.
                     estimatedBytes += 1024L + 8L * (child.length + entry.name.length + entry.contentRevision.length)
@@ -125,6 +135,15 @@ internal class SmbDirectoryBrowser(
                     if (isArtwork) {
                         artworks += RemoteSidecarArtworkCandidate(entry.name, child,
                             remoteArtworkRevisionKey(entry.contentRevision, entry.sizeBytes), entry.sizeBytes)
+                        return@visit true
+                    }
+                    if (isLyrics) {
+                        lyrics += RemoteLyricsSidecarCandidate(
+                            entry.name,
+                            child,
+                            entry.contentRevision,
+                            entry.sizeBytes.coerceAtLeast(0L),
+                        )
                         return@visit true
                     }
                     val track = if (entry.isDirectory) null else RemoteTrackSummary(
@@ -145,8 +164,18 @@ internal class SmbDirectoryBrowser(
                 val track = entry.track ?: return@forEach
                 val art = selectRemoteTrackSidecarArtwork(entry.name,
                     artworkByStem[entry.name.substringBeforeLast('.').lowercase(java.util.Locale.ROOT)].orEmpty())
-                if (art != null) entries[index] = entry.copy(track = track.copy(
-                    artworkOpaqueId = RemoteFileArtworkIdCodec.encode(art.resourceId, art.contentRevision)))
+                entries[index] = entry.copy(track = track.copy(
+                    artworkOpaqueId = art?.let {
+                        RemoteFileArtworkIdCodec.encode(it.resourceId, it.contentRevision)
+                    }.orEmpty(),
+                    lyricsRevision = remoteTrackLyricsRevision(
+                        fileName = track.fileName,
+                        resourceId = track.ref.opaqueTrackId,
+                        contentRevision = track.contentRevision,
+                        sizeBytes = track.sizeBytes,
+                        candidates = lyrics,
+                    ),
+                ))
             }
             entries.sortWith { a, b ->
                 if (a.directory != b.directory) { if (a.directory) -1 else 1 }

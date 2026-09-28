@@ -3,11 +3,14 @@ package com.mica.music.data.remote.smb
 import com.mica.music.data.remote.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.IOException
+
+internal class SmbOptionalIoDeferredException(message: String) : IOException(message)
 
 /** A single optional SMB read across metadata, lyrics and artwork. Audio transport never takes this lock. */
 internal object SmbOptionalIo {
@@ -16,12 +19,60 @@ internal object SmbOptionalIo {
     @Volatile var currentMediaId: String? = null
     suspend fun <T> run(sourceId: String, block: suspend () -> T): T = mutex.withLock {
         currentCoroutineContext().ensureActive()
-        if (bufferingSourceId == sourceId) throw IOException("SMB playback has priority")
+        if (bufferingSourceId == sourceId) throw SmbOptionalIoDeferredException("SMB playback has priority")
         block()
     }
 
     fun requireCurrent(mediaId: String) {
-        if (currentMediaId != null && currentMediaId != mediaId) throw IOException("SMB optional read is not for the current song")
+        if (currentMediaId != null && currentMediaId != mediaId) {
+            throw SmbOptionalIoDeferredException("SMB optional read is not for the current song")
+        }
+    }
+
+    suspend fun <T> runWhenPlaybackReady(
+        sourceId: String,
+        mediaId: String,
+        retryDelayMs: Long = 100L,
+        maxAttempts: Int = 150,
+        block: suspend () -> T,
+    ): T {
+        require(retryDelayMs >= 0L) { "retryDelayMs must not be negative" }
+        require(maxAttempts > 0) { "maxAttempts must be positive" }
+        var lastDeferred: SmbOptionalIoDeferredException? = null
+        repeat(maxAttempts) { attempt ->
+            currentCoroutineContext().ensureActive()
+            try {
+                return run(sourceId) {
+                    requireCurrent(mediaId)
+                    block()
+                }
+            } catch (deferred: SmbOptionalIoDeferredException) {
+                lastDeferred = deferred
+                if (attempt + 1 < maxAttempts) delay(retryDelayMs)
+            }
+        }
+        throw checkNotNull(lastDeferred)
+    }
+
+    suspend fun <T> runWhenSourceReady(
+        sourceId: String,
+        retryDelayMs: Long = 100L,
+        maxAttempts: Int = 150,
+        block: suspend () -> T,
+    ): T {
+        require(retryDelayMs >= 0L) { "retryDelayMs must not be negative" }
+        require(maxAttempts > 0) { "maxAttempts must be positive" }
+        var lastDeferred: SmbOptionalIoDeferredException? = null
+        repeat(maxAttempts) { attempt ->
+            currentCoroutineContext().ensureActive()
+            try {
+                return run(sourceId, block)
+            } catch (deferred: SmbOptionalIoDeferredException) {
+                lastDeferred = deferred
+                if (attempt + 1 < maxAttempts) delay(retryDelayMs)
+            }
+        }
+        throw checkNotNull(lastDeferred)
     }
 }
 
@@ -46,7 +97,15 @@ internal class SmbNowPlayingMetadata(
             SmbOptionalIo.requireCurrent(mediaId)
             withContext(Dispatchers.IO) {
                 val context = currentCoroutineContext()
-                sessions.open(endpoint, login).use { session ->
+                sessions.open(endpoint, login).useReadSession(
+                    onCloseFailure = { failure ->
+                        com.mica.music.util.DiagnosticLog.important(
+                            "SmbCleanup",
+                            "metadata session close failed after successful read",
+                            failure,
+                        )
+                    },
+                ) { session ->
                     context.ensureActive()
                     if (!owner.isCurrent(request.token)) return@withContext null
                     session.openFile(endpoint.serverPath(ref.opaqueTrackId)).use { file ->

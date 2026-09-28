@@ -41,4 +41,34 @@ interface RemoteSmbScopeDao {
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun putMembership(rows: List<RemoteSmbScopeTrackEntity>)
+
+    @Query(
+        "SELECT DISTINCT membership.opaqueTrackId FROM remote_smb_scope_tracks AS membership " +
+            "INNER JOIN remote_smb_scopes AS scope ON scope.id = membership.scopeId " +
+            "WHERE scope.sourceInstanceId = :sourceInstanceId " +
+            "AND scope.observedConfigRevision = :configRevision " +
+            "AND membership.opaqueTrackId IN (:opaqueTrackIds)",
+    )
+    suspend fun trackIdsForConfigRevision(
+        sourceInstanceId: String,
+        configRevision: Long,
+        opaqueTrackIds: List<String>,
+    ): List<String>
+
+    @Query(
+        "SELECT EXISTS(SELECT 1 FROM remote_tracks AS track " +
+            "INNER JOIN remote_smb_scope_tracks AS membership " +
+            "ON membership.opaqueTrackId = track.opaqueTrackId " +
+            "INNER JOIN remote_smb_scopes AS scope ON scope.id = membership.scopeId " +
+            "WHERE track.sourceInstanceId = :sourceInstanceId " +
+            "AND scope.sourceInstanceId = :sourceInstanceId " +
+            "AND scope.kind = 'MANAGED' " +
+            "AND scope.observedConfigRevision = :configRevision " +
+            "AND track.artworkOpaqueId = :artworkOpaqueId LIMIT 1)",
+    )
+    suspend fun hasManagedArtworkRefForConfigRevision(
+        sourceInstanceId: String,
+        configRevision: Long,
+        artworkOpaqueId: String,
+    ): Boolean
 }

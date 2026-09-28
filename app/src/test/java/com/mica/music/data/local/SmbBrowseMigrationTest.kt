@@ -59,7 +59,7 @@ class SmbBrowseMigrationTest {
         helper.writableDatabase
         helper.close()
         val room = Room.databaseBuilder(context, MicaDatabase::class.java, name)
-            .addMigrations(MIGRATION_32_33, MIGRATION_33_34)
+            .addMigrations(MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35)
             .allowMainThreadQueries()
             .build()
         try {
@@ -84,6 +84,9 @@ class SmbBrowseMigrationTest {
                 "SELECT opaqueTrackId FROM remote_smb_scope_tracks WHERE scopeId='legacy:smb'",
             ).use { cursor ->
                 assertTrue(cursor.moveToFirst()); assertEquals("Album/Old.flac", cursor.getString(0))
+            }
+            db.query("SELECT lyricsRevision FROM remote_tracks WHERE sourceInstanceId='smb'").use { cursor ->
+                assertTrue(cursor.moveToFirst()); assertEquals("", cursor.getString(0))
             }
         } finally { room.close(); context.deleteDatabase(name) }
     }

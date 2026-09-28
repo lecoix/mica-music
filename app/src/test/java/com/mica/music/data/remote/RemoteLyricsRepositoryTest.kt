@@ -7,6 +7,7 @@ import com.mica.music.data.local.MicaDatabase
 import com.mica.music.data.remote.navidrome.NavidromeHttpExecutor
 import com.mica.music.data.remote.navidrome.NavidromeRequestFactory
 import kotlinx.coroutines.test.runTest
+import java.nio.file.Files
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -105,17 +106,57 @@ class RemoteLyricsRepositoryTest {
         assertTrue(first.lyricsDocument.lines.isEmpty())
     }
 
+    @Test
+    fun `successful lyrics survive memory reset through revisioned disk cache`() = runTest {
+        publishCatalog()
+        val directory = Files.createTempDirectory("mica-remote-lyrics-repository").toFile()
+        try {
+            var calls = 0
+            val diskCache = RemoteLyricsDiskCache(directory)
+            val firstRepository = repository(
+                executor = NavidromeHttpExecutor {
+                    calls++
+                    structuredResponse("Persisted")
+                },
+                persistentCache = diskCache,
+            )
+            val song = track.toPlaybackSong()
+
+            assertEquals("Persisted", firstRepository.songWithLyrics(song).lyricsDocument.lines.single().parts.single().text)
+            assertEquals(1, calls)
+
+            SharedLyricsMemoryCache.clear()
+            val reopenedRepository = repository(
+                executor = NavidromeHttpExecutor {
+                    calls++
+                    structuredResponse("Network should not win")
+                },
+                persistentCache = RemoteLyricsDiskCache(directory),
+            )
+            val reopened = reopenedRepository.songWithLyrics(song)
+
+            assertEquals(1, calls)
+            assertEquals("Persisted", reopened.lyricsDocument.lines.single().parts.single().text)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
     private suspend fun publishCatalog() {
         if (catalog.source(source.id) == null) catalog.upsertSource(source)
         val operation = requireNotNull(catalog.beginOperation(source.id))
         assertTrue(catalog.publishCatalogIfCurrent(operation.token, listOf(track)))
     }
 
-    private fun repository(executor: NavidromeHttpExecutor): RemoteLyricsRepository = RemoteLyricsRepository(
+    private fun repository(
+        executor: NavidromeHttpExecutor,
+        persistentCache: RemoteLyricsDiskCache? = null,
+    ): RemoteLyricsRepository = RemoteLyricsRepository(
         catalogRepository = catalog,
         credentialStore = SecureRemoteCredentialStore { credential },
         navidromeExecutor = executor,
         navidromeRequestFactory = NavidromeRequestFactory(saltProvider = { "fixedsalt" }),
+        persistentCache = persistentCache,
     )
 
     private fun structuredResponse(value: String): String =

@@ -1,5 +1,6 @@
 package com.mica.music.data.remote
 
+import java.nio.file.Files
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
@@ -122,6 +123,47 @@ class RemoteArtworkByteCacheTest {
         assertTrue(firstFailure.isFailure)
         assertArrayEquals(byteArrayOf(6), recovered)
         assertEquals(2, loads)
+    }
+
+    @Test
+    fun `disk cache survives new artwork cache instance and keeps revision fencing`() = runBlocking {
+        val directory = Files.createTempDirectory("mica-remote-artwork").toFile()
+        try {
+            val loads = AtomicInteger(0)
+            val first = RemoteArtworkByteCache(
+                maxBytes = 1024,
+                diskCache = RevisionedDiskCache(directory, maxBytes = 4096, maxEntries = 8),
+            )
+            val original = key()
+            assertArrayEquals(
+                byteArrayOf(1, 2, 3),
+                first.getOrLoad(original) {
+                    loads.incrementAndGet()
+                    byteArrayOf(1, 2, 3)
+                },
+            )
+
+            val reopened = RemoteArtworkByteCache(
+                maxBytes = 1024,
+                diskCache = RevisionedDiskCache(directory, maxBytes = 4096, maxEntries = 8),
+            )
+            assertArrayEquals(
+                byteArrayOf(1, 2, 3),
+                reopened.getOrLoad(original) {
+                    loads.incrementAndGet()
+                    byteArrayOf(9)
+                },
+            )
+            assertEquals(1, loads.get())
+
+            reopened.getOrLoad(original.copy(opaqueArtworkId = "cover-new-revision")) {
+                loads.incrementAndGet()
+                byteArrayOf(4)
+            }
+            assertEquals(2, loads.get())
+        } finally {
+            directory.deleteRecursively()
+        }
     }
 
     private fun key() = RemoteArtworkCacheKey(

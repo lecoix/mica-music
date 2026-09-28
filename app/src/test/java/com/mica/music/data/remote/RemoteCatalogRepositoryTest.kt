@@ -238,6 +238,46 @@ class RemoteCatalogRepositoryTest {
         )
     }
 
+    @Test
+    fun smbScopedArtworkAuthorizationUsesCurrentScopeMembership() = runTest {
+        val source = RemoteSourceInstance(
+            id = "smb-art",
+            type = RemoteSourceType.SMB,
+            displayName = "SMB Art",
+            endpoint = "smb://host/share",
+            credentialRef = "credential/smb-art",
+        )
+        repository.upsertSource(source)
+        val token = repository.beginOperation(source.id)!!.token
+        val scoped = track(source.id, "Album/Song.flac")
+
+        assertTrue(
+            repository.replaceSmbFolderScopeIfCurrent(
+                token = token,
+                relativeDirectory = "Album",
+                includeSubdirectories = false,
+                tracks = listOf(scoped),
+            ),
+        )
+        assertEquals(
+            0L,
+            repository.artworkCatalogRevisionIfPublishedForConfig(
+                RemoteArtworkRef(source.id, scoped.artworkOpaqueId),
+                sourceConfigRevision = token.configRevision,
+            ),
+        )
+
+        val scope = repository.smbFolderScopes(source.id).single()
+        assertTrue(repository.removeSmbFolderScope(source.id, scope.id))
+        assertEquals(
+            null,
+            repository.artworkCatalogRevisionIfPublishedForConfig(
+                RemoteArtworkRef(source.id, scoped.artworkOpaqueId),
+                sourceConfigRevision = token.configRevision,
+            ),
+        )
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun catalogPublicationRejectsMixedSourceTracks() = runTest {
         val source = source("nav-1")

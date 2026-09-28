@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.mica.music.MicaApp
 import com.mica.music.data.Song
+import com.mica.music.data.remote.AndroidTagLibRemoteTrackMetadataProbe
 import com.mica.music.data.remote.RemoteSourceType
 import com.mica.music.data.remote.toPlaybackSong
 import com.mica.music.data.remote.smb.*
@@ -41,7 +42,13 @@ internal fun SmbBrowserPane(
 ) {
     val app = LocalContext.current.applicationContext as MicaApp
     val browser = remember(app) { SmbDirectoryBrowser(app.remoteCatalogRepository, app.remoteCredentialStore) }
-    val indexer = remember(app) { SmbFolderLibraryIndexer(app.remoteCatalogRepository, app.remoteCredentialStore) }
+    val indexer = remember(app) {
+        SmbFolderLibraryIndexer(
+            repository = app.remoteCatalogRepository,
+            credentials = app.remoteCredentialStore,
+            metadataProbe = AndroidTagLibRemoteTrackMetadataProbe(app),
+        )
+    }
     SmbBrowserContent(
         repo = app.remoteCatalogRepository,
         playlists = app.playlistStore,
@@ -357,7 +364,7 @@ internal fun SmbBrowserContent(
         text = {
             Column(Modifier.width(260.dp)) {
                 Text(
-                    "只会读取你选择的目录。开启“包含子目录”后才会继续进入下面的文件夹；发现不完整时不会修改已有曲库。",
+                    "只处理你选择的目录，并读取其中歌曲的标签信息；开启“包含子目录”后才会继续进入下面的文件夹。不会扫描共享里的其他目录，也不会自动抓取歌词或在线封面；发现不完整时不会修改已有曲库。",
                     style = MicaTheme.typography.bodySm,
                     color = MicaTheme.colors.textSecondary,
                 )

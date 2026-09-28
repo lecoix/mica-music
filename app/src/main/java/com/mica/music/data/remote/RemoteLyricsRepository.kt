@@ -23,6 +23,9 @@ class RemoteLyricsRepository internal constructor(
     context: Context? = null,
     navidromeExecutor: NavidromeHttpExecutor = UrlConnectionNavidromeHttpExecutor(),
     navidromeRequestFactory: NavidromeRequestFactory = NavidromeRequestFactory(),
+    private val persistentCache: RemoteLyricsDiskCache? = context?.applicationContext?.cacheDir
+        ?.resolve("remote_lyrics")
+        ?.let(::RemoteLyricsDiskCache),
 ) {
     private val navidromeLoader = NavidromeLyricsLoader(
         catalogRepository = catalogRepository,
@@ -54,9 +57,12 @@ class RemoteLyricsRepository internal constructor(
             return song.copy(lyricsDocument = LyricsDocument(), lyricsLoaded = true)
         }
         if (isPrefetch && status.instance.type == RemoteSourceType.SMB) return song
-        val selectedRevision = if (status.instance.type == RemoteSourceType.SMB) {
-            catalogRepository.find(listOf(ref))[ref]?.contentRevision.orEmpty()
-        } else ""
+        val persistedTrack = catalogRepository.find(listOf(ref))[ref]
+        val payloadRevision = persistedTrack?.lyricsRevision
+            ?.takeIf(String::isNotBlank)
+            ?: persistedTrack?.contentRevision.orEmpty()
+        val persistentRevisionReady =
+            status.instance.type != RemoteSourceType.SMB || persistedTrack?.lyricsRevision?.isNotBlank() == true
         val revision = buildString {
             append("remote-lyrics-v2:")
             append(status.instance.type.name)
@@ -67,7 +73,7 @@ class RemoteLyricsRepository internal constructor(
             append(':')
             append(song.lyricsCacheRevision)
             append(':')
-            append(selectedRevision)
+            append(payloadRevision)
         }
         val document = try {
             SharedLyricsMemoryCache.load(
@@ -76,14 +82,25 @@ class RemoteLyricsRepository internal constructor(
                 lyricsDataVersion = REMOTE_LYRICS_DATA_VERSION,
                 isPrefetch = isPrefetch,
             ) {
-                when (status.instance.type) {
+                if (persistentRevisionReady) {
+                    persistentCache?.get(song.id, revision, REMOTE_LYRICS_DATA_VERSION)?.let {
+                        return@load it
+                    }
+                }
+                val loaded = when (status.instance.type) {
                     RemoteSourceType.NAVIDROME -> navidromeLoader.load(song)
                     RemoteSourceType.WEBDAV -> webDavLoader?.load(song) ?: LyricsDocument()
-                    RemoteSourceType.SMB -> com.mica.music.data.remote.smb.SmbOptionalIo.run(ref.sourceInstanceId) {
-                        com.mica.music.data.remote.smb.SmbOptionalIo.requireCurrent(song.id)
+                    RemoteSourceType.SMB -> com.mica.music.data.remote.smb.SmbOptionalIo.runWhenPlaybackReady(
+                        sourceId = ref.sourceInstanceId,
+                        mediaId = song.id,
+                    ) {
                         smbLoader?.load(song) ?: LyricsDocument()
                     }
                 }
+                if (persistentRevisionReady) {
+                    persistentCache?.put(song.id, revision, REMOTE_LYRICS_DATA_VERSION, loaded)
+                }
+                loaded
             }
         } catch (error: CancellationException) {
             throw error
@@ -99,6 +116,6 @@ class RemoteLyricsRepository internal constructor(
     }
 
     private companion object {
-        const val REMOTE_LYRICS_DATA_VERSION = 2
+        const val REMOTE_LYRICS_DATA_VERSION = 3
     }
 }

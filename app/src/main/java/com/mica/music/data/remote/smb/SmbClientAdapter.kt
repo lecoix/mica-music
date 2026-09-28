@@ -99,6 +99,31 @@ internal fun interface SmbSessionFactory {
     fun open(endpoint: SmbEndpoint, login: SmbLogin): SmbSessionHandle
 }
 
+/**
+ * One-shot SMB reads own a disposable connection. A cleanup failure must not replace a successful
+ * discovery/read result; if the body failed, keep that failure authoritative and attach cleanup as
+ * suppressed evidence instead.
+ */
+internal inline fun <T> SmbSessionHandle.useReadSession(
+    onCloseFailure: (Throwable) -> Unit = {},
+    block: (SmbSessionHandle) -> T,
+): T {
+    var bodyFailure: Throwable? = null
+    try {
+        return block(this)
+    } catch (failure: Throwable) {
+        bodyFailure = failure
+        throw failure
+    } finally {
+        try {
+            close()
+        } catch (closeFailure: Throwable) {
+            val primary = bodyFailure
+            if (primary != null) primary.addSuppressed(closeFailure) else onCloseFailure(closeFailure)
+        }
+    }
+}
+
 internal class SmbjSessionFactory : SmbSessionFactory {
     override fun open(endpoint: SmbEndpoint, login: SmbLogin): SmbSessionHandle {
         val client = SMBClient(
@@ -123,11 +148,12 @@ internal class SmbjSessionFactory : SmbSessionFactory {
             val connectedShare = session.connectShare(endpoint.share)
             share = connectedShare as? DiskShare
                 ?: throw SmbException(SmbFailureKind.PROTOCOL, "SMB source is not a disk share")
-            return SmbjSessionHandle(client, connection, session, share)
+            return SmbjSessionHandle(client, connection, share)
         } catch (failure: Throwable) {
             runCatching { share?.close() }
-            runCatching { session?.close() }
-            runCatching { connection?.close() }
+            // Each handle owns its connection. Force-close skips SMBJ's graceful Session.logoff(),
+            // which can block until the socket timeout on otherwise compatible servers.
+            runCatching { connection?.close(true) }
             runCatching { client.close() }
             if (failure is SmbException) throw failure
             val kind = (failure as? SMBApiException)?.status?.let(::classifySmbStatus)
@@ -162,7 +188,6 @@ internal fun classifySmbStatus(status: NtStatus): SmbFailureKind = when (status)
 private class SmbjSessionHandle(
     private val client: SMBClient,
     private val connection: Connection,
-    private val session: Session,
     private val share: DiskShare,
 ) : SmbSessionHandle {
     override fun checkDirectory(serverPath: String) {
@@ -228,8 +253,9 @@ private class SmbjSessionHandle(
             }
         }
         closePart { share.close() }
-        closePart { session.close() }
-        closePart { connection.close() }
+        // The client/connection is not pooled across operations. Avoid SMBJ Session.close(), whose
+        // LOGOFF wait can turn a completed read into a 20 s teardown timeout on some servers.
+        closePart { connection.close(true) }
         closePart { client.close() }
         firstFailure?.let { throw SmbException(SmbFailureKind.IO, "SMB session close failed", it) }
     }

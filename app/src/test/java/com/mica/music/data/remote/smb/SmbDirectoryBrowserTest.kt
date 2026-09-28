@@ -50,6 +50,7 @@ class SmbDirectoryBrowserTest {
             assertEquals("Song2.flac", snapshot.entries[2].name)
             assertEquals("Song10000.flac", snapshot.entries.last().name)
             assertTrue(snapshot.entries[1].track!!.artworkOpaqueId.isNotBlank())
+            assertTrue(snapshot.entries[1].track!!.lyricsRevision.isNotBlank())
             assertTrue(repository.tracksForSource(source.id).isEmpty())
             assertEquals(0L, repository.sourceStatus(source.id)!!.lastSyncAtMs)
         } finally { db.close() }

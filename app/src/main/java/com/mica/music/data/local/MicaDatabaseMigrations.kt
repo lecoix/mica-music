@@ -641,6 +641,13 @@ val MIGRATION_33_34 = object : Migration(33, 34) {
     }
 }
 
+val MIGRATION_34_35 = object : Migration(34, 35) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE remote_tracks ADD COLUMN lyricsRevision TEXT NOT NULL DEFAULT ''")
+        db.execSQL("ALTER TABLE remote_selected_tracks ADD COLUMN lyricsRevision TEXT NOT NULL DEFAULT ''")
+    }
+}
+
 val MIGRATION_32_33 = object : Migration(32, 33) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL(
