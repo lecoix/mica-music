@@ -1340,16 +1340,9 @@ internal class PhotoStackTransitionView(context: Context) : View(context) {
         val artworkSize = (frame.cardWidthPx - frame.artworkInsetHorizontalPx * 2f).coerceAtLeast(1f)
         val left = -halfWidth + frame.artworkInsetHorizontalPx
         val right = left + artworkSize
-        val top = lerp(
-            halfHeight - dp(46f),
-            halfHeight - dp(48f),
-            immersiveProgress,
-        )
-        val bottom = lerp(
-            halfHeight - dp(28f),
-            halfHeight - dp(16f),
-            immersiveProgress,
-        )
+        val hitBand = photoStackProgressHitBandDp(immersiveProgress)
+        val top = halfHeight - dp(hitBand.topFromBottomDp)
+        val bottom = halfHeight - dp(hitBand.bottomFromBottomDp)
         return local.takeIf { it.first in left..right && it.second in top..bottom }
     }
 
