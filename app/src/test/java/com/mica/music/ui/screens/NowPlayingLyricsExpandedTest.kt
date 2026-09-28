@@ -214,6 +214,64 @@ class NowPlayingLyricsExpandedTest {
     }
 
     @Test
+    fun expandedLyricsFollowDecision_doesNotLeakSnapSuppressionIntoFirstRealLineChange() {
+        val initialSnap = expandedLyricsFollowDecision(
+            needsSnap = true,
+            suppressedIndex = null,
+            currentIndex = 18,
+            motionEnabled = true,
+            targetVisible = true,
+            scrollDistancePx = 280f,
+        )
+        assertEquals(ExpandedLyricsFollowMode.INSTANT, initialSnap.mode)
+        assertEquals(18, initialSnap.nextSuppressedIndex)
+
+        val firstRealLineChange = expandedLyricsFollowDecision(
+            needsSnap = false,
+            suppressedIndex = initialSnap.nextSuppressedIndex,
+            currentIndex = 19,
+            motionEnabled = true,
+            targetVisible = true,
+            scrollDistancePx = 280f,
+        )
+        assertEquals(ExpandedLyricsFollowMode.SPRING, firstRealLineChange.mode)
+        assertEquals(null, firstRealLineChange.nextSuppressedIndex)
+    }
+
+    @Test
+    fun expandedLyricsFollowDecision_consumesSameLineSettleBeforeNextLineSprings() {
+        val initialSnap = expandedLyricsFollowDecision(
+            needsSnap = true,
+            suppressedIndex = null,
+            currentIndex = 18,
+            motionEnabled = true,
+            targetVisible = true,
+            scrollDistancePx = 280f,
+        )
+
+        val sameLineSettle = expandedLyricsFollowDecision(
+            needsSnap = false,
+            suppressedIndex = initialSnap.nextSuppressedIndex,
+            currentIndex = 18,
+            motionEnabled = true,
+            targetVisible = true,
+            scrollDistancePx = 12f,
+        )
+        assertEquals(ExpandedLyricsFollowMode.INSTANT, sameLineSettle.mode)
+        assertEquals(null, sameLineSettle.nextSuppressedIndex)
+
+        val nextLine = expandedLyricsFollowDecision(
+            needsSnap = false,
+            suppressedIndex = sameLineSettle.nextSuppressedIndex,
+            currentIndex = 19,
+            motionEnabled = true,
+            targetVisible = true,
+            scrollDistancePx = 280f,
+        )
+        assertEquals(ExpandedLyricsFollowMode.SPRING, nextLine.mode)
+    }
+
+    @Test
     fun classicLyricsMoveSpring_isStifferForRapidLines() {
         val rapid = classicLyricsMoveStiffness(100)
         val relaxed = classicLyricsMoveStiffness(800)

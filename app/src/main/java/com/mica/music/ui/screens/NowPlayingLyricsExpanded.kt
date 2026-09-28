@@ -186,12 +186,12 @@ internal fun ExpandedLyricsPanel(
         !layoutTransition.hideUntilSettled
     // After a track/lyrics snap, one more layout pass often re-triggers the spring follow with
     // staggerOffsets; those translationY lags get clipped by the item bounds (top/bottom shaved).
-    var suppressFollowAnimation by remember { mutableStateOf(false) }
+    var suppressedFollowIndex by remember { mutableStateOf<Int?>(null) }
 
     LaunchedEffect(layoutTransition.hideUntilSettled) {
         if (layoutTransition.hideUntilSettled) {
             revealedLyricsKey = null
-            suppressFollowAnimation = true
+            suppressedFollowIndex = null
         }
     }
 
@@ -264,19 +264,22 @@ internal fun ExpandedLyricsPanel(
                 itemSizePx = itemInfo.size,
             )
         }
-        val useFollowAnimation = motionEnabled &&
-            !needsSnap &&
-            !suppressFollowAnimation &&
-            visibleTarget != null &&
-            scrollDistance != null &&
-            kotlin.math.abs(scrollDistance) > 1f
+        val followDecision = expandedLyricsFollowDecision(
+            needsSnap = needsSnap,
+            suppressedIndex = suppressedFollowIndex,
+            currentIndex = currentIndex,
+            motionEnabled = motionEnabled,
+            targetVisible = visibleTarget != null,
+            scrollDistancePx = scrollDistance,
+        )
 
-        if (useFollowAnimation) {
+        if (followDecision.mode == ExpandedLyricsFollowMode.SPRING) {
+            val springDistance = requireNotNull(scrollDistance)
             val scrollAnimation = TargetBasedAnimation(
                 animationSpec = classicLyricsScrollSpring(lineIntervalMs),
                 typeConverter = Float.VectorConverter,
                 initialValue = 0f,
-                targetValue = scrollDistance,
+                targetValue = springDistance,
             )
             var previousScroll = 0f
             var maxDelayNanos = 0L
@@ -307,7 +310,8 @@ internal fun ExpandedLyricsPanel(
             } finally {
                 staggerOffsets.clear()
             }
-        } else if (visibleTarget != null && scrollDistance != null) {
+        } else if (followDecision.mode == ExpandedLyricsFollowMode.INSTANT) {
+            check(scrollDistance != null)
             listState.scrollBy(scrollDistance)
         } else {
             listState.scrollToItem(currentDisplayItemIndex, scrollOffset = indexedScrollOffset)
@@ -329,8 +333,7 @@ internal fun ExpandedLyricsPanel(
                 }
         }
         revealedLyricsKey = lyricsContentKey
-        // Consume one settle pass after snap; real line-to-line follows stay animated.
-        suppressFollowAnimation = needsSnap
+        suppressedFollowIndex = followDecision.nextSuppressedIndex
     }
 
     LyricsAreaEdgeFade(
@@ -710,6 +713,43 @@ internal fun expandedLyricsCurrentLineAnchorYPx(
         MAX_LYRICS_CURRENT_LINE_POSITION_PERCENT,
     )
     return viewportHeightPx * (normalizedPercent / 100f)
+}
+
+internal enum class ExpandedLyricsFollowMode {
+    SPRING,
+    INSTANT,
+    SNAP,
+}
+
+internal data class ExpandedLyricsFollowDecision(
+    val mode: ExpandedLyricsFollowMode,
+    val nextSuppressedIndex: Int?,
+)
+
+internal fun expandedLyricsFollowDecision(
+    needsSnap: Boolean,
+    suppressedIndex: Int?,
+    currentIndex: Int,
+    motionEnabled: Boolean,
+    targetVisible: Boolean,
+    scrollDistancePx: Float?,
+): ExpandedLyricsFollowDecision {
+    val suppressThisLine = suppressedIndex != null && suppressedIndex == currentIndex
+    val useSpring = motionEnabled &&
+        !needsSnap &&
+        !suppressThisLine &&
+        targetVisible &&
+        scrollDistancePx != null &&
+        kotlin.math.abs(scrollDistancePx) > 1f
+    val mode = when {
+        useSpring -> ExpandedLyricsFollowMode.SPRING
+        targetVisible && scrollDistancePx != null -> ExpandedLyricsFollowMode.INSTANT
+        else -> ExpandedLyricsFollowMode.SNAP
+    }
+    return ExpandedLyricsFollowDecision(
+        mode = mode,
+        nextSuppressedIndex = if (needsSnap) currentIndex else null,
+    )
 }
 
 internal fun expandedLyricsGeometryScrollDelta(
