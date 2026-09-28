@@ -79,6 +79,7 @@ import com.mica.music.media.DesktopLyricsOverlayStateStore
 import com.mica.music.media.ExternalLyricsLine
 import com.mica.music.media.ExternalLyricsSurfaceState
 import com.mica.music.media.ExternalLyricsText
+import com.mica.music.data.LyricTextRole
 import com.mica.music.media.forExternalDisplay
 import com.mica.music.ui.components.marqueeHorizontalEdgeFade
 import com.mica.music.ui.theme.MicaTheme
@@ -535,32 +536,25 @@ private fun DesktopLyricsOverlayContent(
             ) {
                 // AnimatedVisibility may keep this content alive during its exit transition,
                 // after a song change has already cleared the current lyric line.
-                surfaceState.line?.forExternalDisplay(bilingualDisplayMode)?.let { line ->
+                surfaceState.line?.forExternalDisplay(
+                    mode = bilingualDisplayMode,
+                    readingEnabled = uiSettings.lyricReadingEnabled,
+                )?.let { line ->
                     Column(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalAlignment = textAlignment.toHorizontalAlignment(),
                         verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
-                        line.original?.let { text ->
-                            key(line.lineIndex, line.startMs, text.text) {
+                        line.rows.forEach { row ->
+                            key(line.lineIndex, line.startMs, row.role, row.text.text) {
                                 ExternalLyricsLineText(
-                                    text = text,
+                                    text = row.text,
                                     line = line,
                                     positionMs = displayPositionMs,
-                                    fontSizeSp = originalFontSize,
-                                    style = style,
-                                    marquee = true,
-                                    textAlign = textAlignment.toTextAlign(),
-                                )
-                            }
-                        }
-                        line.translation?.let { text ->
-                            key(line.lineIndex, line.startMs, text.text) {
-                                ExternalLyricsLineText(
-                                    text = text,
-                                    line = line,
-                                    positionMs = displayPositionMs,
-                                    fontSizeSp = translationFontSize,
+                                    fontSizeSp = when (row.role) {
+                                        LyricTextRole.ORIGINAL, LyricTextRole.EXTRA -> originalFontSize
+                                        LyricTextRole.READING, LyricTextRole.TRANSLATION -> translationFontSize
+                                    },
                                     style = style,
                                     marquee = true,
                                     textAlign = textAlignment.toTextAlign(),
@@ -580,9 +574,7 @@ private fun rememberExternalLyricsFramePosition(
     active: Boolean,
 ): Int {
     val line = surfaceState.line
-    val hasTimedCues =
-        line?.original?.cues?.isNotEmpty() == true ||
-            line?.translation?.cues?.isNotEmpty() == true
+    val hasTimedCues = line?.rows?.any { it.text.cues.isNotEmpty() } == true
     var framePositionMs by remember(line?.lineIndex, line?.startMs) {
         mutableLongStateOf(surfaceState.positionMs.toLong())
     }

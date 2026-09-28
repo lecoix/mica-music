@@ -2,11 +2,17 @@ package com.mica.music.media
 
 import com.mica.music.lyrics.LyricsDisplayOptions
 import com.mica.music.data.LyricCue
+import com.mica.music.data.LyricLineNode
+import com.mica.music.data.LyricTextPart
+import com.mica.music.data.LyricTextRole
+import com.mica.music.data.LyricToken
 import com.mica.music.ui.overlay.externalLyricsFillFraction
 import com.mica.music.ui.overlay.externalLyricsFramePositionMs
 import com.mica.music.ui.overlay.statusBarLyricsWindowFlags
 import com.mica.music.data.LyricLine
 import com.mica.music.data.LyricsBilingualDisplayMode
+import com.mica.music.data.LyricsDocument
+import com.mica.music.data.toLegacyLyricLines
 import com.mica.music.data.toLyricsDocumentCompat
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -15,6 +21,54 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ExternalLyricsProjectionTest {
+
+    @Test
+    fun structuredExternalLyricsKeepReadingOriginalAndTranslationAsIndependentTimedRows() {
+        val document = LyricsDocument(
+            lines = listOf(
+                LyricLineNode(
+                    id = "triple",
+                    startMs = 1_000,
+                    endMs = 3_000,
+                    parts = listOf(
+                        LyricTextPart(LyricTextRole.READING, "ni hao"),
+                        LyricTextPart(LyricTextRole.ORIGINAL, "你好"),
+                        LyricTextPart(LyricTextRole.TRANSLATION, "hello"),
+                    ),
+                    tokens = listOf(
+                        LyricToken("ni", 1_000, 1_500, LyricTextRole.READING),
+                        LyricToken("hao", 1_500, 3_000, LyricTextRole.READING),
+                        LyricToken("你", 1_000, 1_500, LyricTextRole.ORIGINAL),
+                        LyricToken("好", 1_500, 3_000, LyricTextRole.ORIGINAL),
+                        LyricToken("hel", 1_000, 1_700, LyricTextRole.TRANSLATION),
+                        LyricToken("lo", 1_700, 3_000, LyricTextRole.TRANSLATION),
+                    ),
+                ),
+            ),
+        )
+
+        val line = buildExternalLyricsLine(
+            document = document,
+            lyrics = document.toLegacyLyricLines(),
+            index = 0,
+            display = LyricsDisplayOptions(
+                splitEnabled = true,
+                bilingualMode = LyricsBilingualDisplayMode.ALL,
+                wordByWordEnabled = true,
+                readingEnabled = true,
+            ),
+        )
+
+        assertEquals(
+            listOf(LyricTextRole.READING, LyricTextRole.ORIGINAL, LyricTextRole.TRANSLATION),
+            line?.rows?.map { it.role },
+        )
+        assertEquals(listOf("ni hao", "你好", "hello"), line?.rows?.map { it.text.text })
+        assertEquals(
+            listOf(listOf("ni", "hao"), listOf("你", "好"), listOf("hel", "lo")),
+            line?.rows?.map { row -> row.text.cues.map { it.text } },
+        )
+    }
 
     @Test
     fun finalExternalDisplayModeFiltersTheProjectedLine() {
@@ -47,6 +101,28 @@ class ExternalLyricsProjectionTest {
         assertEquals(
             "original",
             line.forExternalDisplay(LyricsBilingualDisplayMode.TRANSLATION).original?.text,
+        )
+    }
+
+    @Test
+    fun finalExternalDisplayHidesReadingWithoutRepublishingTheCurrentLine() {
+        val line = ExternalLyricsLine(
+            lineIndex = 0,
+            startMs = 1_000,
+            endMs = 2_000,
+            rows = listOf(
+                ExternalLyricsRow(LyricTextRole.READING, ExternalLyricsText("ni hao")),
+                ExternalLyricsRow(LyricTextRole.ORIGINAL, ExternalLyricsText("你好")),
+                ExternalLyricsRow(LyricTextRole.TRANSLATION, ExternalLyricsText("hello")),
+            ),
+        )
+
+        assertEquals(
+            listOf(LyricTextRole.ORIGINAL, LyricTextRole.TRANSLATION),
+            line.forExternalDisplay(
+                mode = LyricsBilingualDisplayMode.ALL,
+                readingEnabled = false,
+            ).rows.map { it.role },
         )
     }
 

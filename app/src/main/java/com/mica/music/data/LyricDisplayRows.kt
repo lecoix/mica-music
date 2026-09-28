@@ -139,6 +139,18 @@ object LyricDisplayRows {
         return built.takeIf { it.isNotEmpty() }
     }
 
+    /** Returns the word-timed tokens owned by one displayed semantic row. */
+    fun tokensForRole(tokens: List<LyricToken>, role: LyricTextRole): List<LyricToken> =
+        tokens.filter { token ->
+            when (role) {
+                LyricTextRole.ORIGINAL -> token.partRole == LyricTextRole.ORIGINAL ||
+                    token.partRole == LyricTextRole.EXTRA
+                LyricTextRole.EXTRA -> token.partRole == LyricTextRole.EXTRA
+                LyricTextRole.READING -> token.partRole == LyricTextRole.READING
+                LyricTextRole.TRANSLATION -> token.partRole == LyricTextRole.TRANSLATION
+            }
+        }
+
     fun isBilingualLine(text: String, enabled: Boolean = true): Boolean =
         splitForDisplay(text, enabled).size > 1
 

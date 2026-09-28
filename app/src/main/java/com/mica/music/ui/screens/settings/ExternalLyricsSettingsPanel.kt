@@ -60,7 +60,7 @@ internal fun ExternalLyricsSettingsPanel(
 
     if (uiSettings.externalLyricsMode == ExternalLyricsMode.DESKTOP) {
         SettingsSliderRow(
-            title = "桌面歌词：原文大小",
+            title = "桌面歌词：主歌词大小",
             value = uiSettings.desktopLyricsOriginalFontSizeSp,
             valueRange = MIN_LYRICS_PAGE_FONT_SIZE_SP..MAX_LYRICS_PAGE_FONT_SIZE_SP,
             suffix = " sp",
@@ -68,7 +68,8 @@ internal fun ExternalLyricsSettingsPanel(
         )
 
         SettingsSliderRow(
-            title = "桌面歌词：译文大小",
+            title = "桌面歌词：副歌词大小",
+            subtitle = "罗马音与译文",
             value = uiSettings.desktopLyricsTranslationFontSizeSp,
             valueRange = MIN_LYRICS_PAGE_FONT_SIZE_SP..MAX_LYRICS_PAGE_FONT_SIZE_SP,
             suffix = " sp",

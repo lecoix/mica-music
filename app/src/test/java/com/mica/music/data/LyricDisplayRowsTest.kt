@@ -63,6 +63,29 @@ class LyricDisplayRowsTest {
     }
 
     @Test
+    fun displayRowsSelectOnlyTheTokensOwnedByTheirSemanticRole() {
+        val tokens = listOf(
+            LyricToken("ni", 1_000, 1_500, LyricTextRole.READING),
+            LyricToken("你", 1_000, 1_500, LyricTextRole.ORIGINAL),
+            LyricToken("和声", 1_500, 2_000, LyricTextRole.EXTRA),
+            LyricToken("you", 1_000, 2_000, LyricTextRole.TRANSLATION),
+        )
+
+        assertEquals(
+            listOf("ni"),
+            LyricDisplayRows.tokensForRole(tokens, LyricTextRole.READING).map { it.text },
+        )
+        assertEquals(
+            listOf("你", "和声"),
+            LyricDisplayRows.tokensForRole(tokens, LyricTextRole.ORIGINAL).map { it.text },
+        )
+        assertEquals(
+            listOf("you"),
+            LyricDisplayRows.tokensForRole(tokens, LyricTextRole.TRANSLATION).map { it.text },
+        )
+    }
+
+    @Test
     fun splitRowsRetainRangesInOriginalText() {
         val rows = LyricDisplayRows.splitForDisplayRows("original / translation")
 

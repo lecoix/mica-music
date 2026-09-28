@@ -4,6 +4,7 @@ import com.mica.music.data.ExternalLyricsStyle
 import com.mica.music.data.LyricCue
 import com.mica.music.data.DEFAULT_LYRICS_PAGE_FONT_SIZE_SP
 import com.mica.music.data.LyricsBilingualDisplayMode
+import com.mica.music.data.LyricTextRole
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -14,23 +15,68 @@ data class ExternalLyricsText(
     val cues: List<LyricCue> = emptyList(),
 )
 
+data class ExternalLyricsRow(
+    val role: LyricTextRole,
+    val text: ExternalLyricsText,
+)
+
 data class ExternalLyricsLine(
     val lineIndex: Int,
     val startMs: Int,
     val endMs: Int?,
-    val original: ExternalLyricsText? = null,
-    val translation: ExternalLyricsText? = null,
-)
+    val rows: List<ExternalLyricsRow> = emptyList(),
+) {
+    constructor(
+        lineIndex: Int,
+        startMs: Int,
+        endMs: Int?,
+        original: ExternalLyricsText? = null,
+        translation: ExternalLyricsText? = null,
+    ) : this(
+        lineIndex = lineIndex,
+        startMs = startMs,
+        endMs = endMs,
+        rows = buildList {
+            original?.let { add(ExternalLyricsRow(LyricTextRole.ORIGINAL, it)) }
+            translation?.let { add(ExternalLyricsRow(LyricTextRole.TRANSLATION, it)) }
+        },
+    )
+
+    val reading: ExternalLyricsText?
+        get() = rows.firstOrNull { it.role == LyricTextRole.READING }?.text
+
+    val original: ExternalLyricsText?
+        get() = rows.firstOrNull {
+            it.role == LyricTextRole.ORIGINAL || it.role == LyricTextRole.EXTRA
+        }?.text
+
+    val translation: ExternalLyricsText?
+        get() = rows.firstOrNull { it.role == LyricTextRole.TRANSLATION }?.text
+}
 
 /** Applies the selected external bilingual mode at the final rendering boundary. */
 internal fun ExternalLyricsLine.forExternalDisplay(
     mode: LyricsBilingualDisplayMode,
-): ExternalLyricsLine = when (mode) {
-    LyricsBilingualDisplayMode.ALL -> this
-    LyricsBilingualDisplayMode.ORIGINAL ->
-        if (original != null) copy(translation = null) else this
-    LyricsBilingualDisplayMode.TRANSLATION ->
-        if (translation != null) copy(original = null) else this
+    readingEnabled: Boolean = true,
+): ExternalLyricsLine {
+    val visibleLine = if (readingEnabled) {
+        this
+    } else {
+        copy(rows = rows.filter { it.role != LyricTextRole.READING })
+    }
+    return when (mode) {
+        LyricsBilingualDisplayMode.ALL -> visibleLine
+        LyricsBilingualDisplayMode.ORIGINAL -> if (visibleLine.original != null) {
+            visibleLine.copy(rows = visibleLine.rows.filter { it.role != LyricTextRole.TRANSLATION })
+        } else {
+            visibleLine
+        }
+        LyricsBilingualDisplayMode.TRANSLATION -> if (visibleLine.translation != null) {
+            visibleLine.copy(rows = visibleLine.rows.filter { it.role == LyricTextRole.TRANSLATION })
+        } else {
+            visibleLine
+        }
+    }
 }
 
 data class ExternalLyricsSurfaceState(

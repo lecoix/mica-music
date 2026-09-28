@@ -11,6 +11,7 @@ data class LyricsDisplayOptions(
     val bilingualMode: LyricsBilingualDisplayMode,
     val wordByWordEnabled: Boolean = true,
     val hideTranslationWhenWordByWordEnabled: Boolean = false,
+    val readingEnabled: Boolean = true,
 )
 
 /** Pure lyric-display rules shared by media projections and in-app presentation. */

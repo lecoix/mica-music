@@ -2,7 +2,7 @@ package com.mica.music.data
 
 import android.net.Uri
 
-internal const val CURRENT_LYRICS_PARSER_VERSION = 12
+internal const val CURRENT_LYRICS_PARSER_VERSION = 13
 
 internal interface ScanEnvironment {
     fun hasAudioReadPermission(): Boolean

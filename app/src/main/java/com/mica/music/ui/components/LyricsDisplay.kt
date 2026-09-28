@@ -45,6 +45,7 @@ import com.mica.music.data.LyricDisplayRows
 import com.mica.music.data.LyricLine
 import com.mica.music.data.LyricTextPart
 import com.mica.music.data.LyricTextRole
+import com.mica.music.data.LyricToken
 import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.LyricsSync
 import com.mica.music.ui.motion.MicaMotion
@@ -254,6 +255,7 @@ fun LyricLineBlock(
     translationTextStyle: TextStyle = textStyle,
     readingTextStyle: TextStyle = translationTextStyle,
     parts: List<LyricTextPart>? = null,
+    tokens: List<LyricToken>? = null,
     karaokeSyllableLift: Boolean = false,
     karaokeDiscreteActiveCue: Boolean = karaokeSyllableLift,
     karaokeWordFadeWidthEm: Float = 0f,
@@ -274,7 +276,7 @@ fun LyricLineBlock(
         )
     }
     val bilingualGap = if (rows.size > 1) HifiSpacing.lyricBilingualGap else 0.dp
-    val originalCueLine = remember(lyricLine, parts, rows) {
+    val originalCueLine = remember(lyricLine, parts) {
         val originalText = parts
             ?.filter { it.role == LyricTextRole.ORIGINAL || it.role == LyricTextRole.EXTRA }
             ?.joinToString(" ") { it.text.trim() }
@@ -282,14 +284,13 @@ fun LyricLineBlock(
             ?.takeIf { it.isNotEmpty() }
         when {
             lyricLine == null -> null
-            originalText != null && parts != null -> lyricLine.copy(text = originalText)
+            originalText != null -> lyricLine.copy(text = originalText)
             else -> lyricLine
         }
     }
-    val cueRanges = remember(originalCueLine) { originalCueLine?.let(::lyricCueRanges).orEmpty() }
-    val canFillLineTimed = lyricLineFillEnabled &&
-        lyricLine != null &&
-        (lyricLine.timeMs > 0 || nextLineTimeMs != null)
+    val lineTimedSource = lyricLine?.takeIf { line ->
+        lyricLineFillEnabled && (line.timeMs > 0 || nextLineTimeMs != null)
+    }
     val fillPositionMs = positionMs
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -297,8 +298,20 @@ fun LyricLineBlock(
         verticalArrangement = Arrangement.spacedBy(bilingualGap),
     ) {
         rows.forEach { row ->
-            val rowCueLine = if (row.role == LyricTextRole.ORIGINAL) originalCueLine else null
-            val rowCueRanges = if (row.role == LyricTextRole.ORIGINAL) cueRanges else emptyList()
+            val roleTokens = tokens?.let { LyricDisplayRows.tokensForRole(it, row.role) }.orEmpty()
+            val rowCueLine = when {
+                lyricLine != null && roleTokens.isNotEmpty() -> LyricLine(
+                    timeMs = lyricLine.timeMs,
+                    text = row.text,
+                    cues = roleTokens.map { token ->
+                        com.mica.music.data.LyricCue(token.startMs, token.text)
+                    },
+                    endTimeMs = lyricLine.endTimeMs,
+                )
+                row.role == LyricTextRole.ORIGINAL -> originalCueLine
+                else -> null
+            }
+            val rowCueRanges = rowCueLine?.let(::lyricCueRanges).orEmpty()
             val rowHasCueRanges = rowCueRanges.any { it.overlaps(row) }
             val rowTextStyle = when (row.role) {
                 LyricTextRole.READING -> readingTextStyle
@@ -334,9 +347,8 @@ fun LyricLineBlock(
                 )
             } else if (
                 isCurrent &&
-                canFillLineTimed &&
-                row.role == LyricTextRole.ORIGINAL &&
-                lyricLine != null
+                lineTimedSource != null &&
+                row.role == LyricTextRole.ORIGINAL
             ) {
                 KaraokeLyricLineText(
                     text = row.text,
@@ -344,7 +356,7 @@ fun LyricLineBlock(
                     colors = colors,
                     textStyle = rowTextStyle,
                     fillFraction = lineTimedFillFraction(
-                        line = lyricLine,
+                        line = lineTimedSource,
                         row = row,
                         positionMs = fillPositionMs,
                         nextLineTimeMs = nextLineTimeMs,

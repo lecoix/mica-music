@@ -494,6 +494,125 @@ class LyricsParsingTest {
     }
 
     @Test
+    fun ttmlKeepsTimedItunesTransliterationAsReadingTokens() {
+        val document = TtmlLyricsParser.parseDocument(
+            """
+            <tt xmlns="http://www.w3.org/ns/ttml"
+                xmlns:itunes="http://music.apple.com/lyric-ttml-extensions">
+              <head><metadata>
+                <iTunesMetadata xmlns="http://music.apple.com/lyric-ttml-internal">
+                  <translations><translation xml:lang="zh-Hans">
+                    <text for="L1">人生</text>
+                  </translation></translations>
+                  <transliterations><transliteration xml:lang="zh-Latn">
+                    <text for="L1">
+                      <span begin="1.000s" end="1.400s">ren</span>
+                      <span begin="1.400s" end="2.000s">sheng</span>
+                    </text>
+                  </transliteration></transliterations>
+                </iTunesMetadata>
+              </metadata></head>
+              <body><div><p begin="1s" end="2s" itunes:key="L1">
+                <span begin="1.000s" end="1.400s">人</span>
+                <span begin="1.400s" end="2.000s">生</span>
+              </p></div></body>
+            </tt>
+            """.trimIndent(),
+        )
+
+        val line = document.lines.single()
+        assertEquals(listOf("ren sheng", "人生", "人生"), line.parts.map { it.text })
+        assertEquals(
+            listOf(
+                com.mica.music.data.LyricTextRole.READING,
+                com.mica.music.data.LyricTextRole.ORIGINAL,
+                com.mica.music.data.LyricTextRole.TRANSLATION,
+            ),
+            line.parts.map { it.role },
+        )
+        assertEquals(
+            listOf(
+                com.mica.music.data.LyricToken(
+                    text = "ren",
+                    startMs = 1_000,
+                    endMs = 1_400,
+                    partRole = com.mica.music.data.LyricTextRole.READING,
+                ),
+                com.mica.music.data.LyricToken(
+                    text = "sheng",
+                    startMs = 1_400,
+                    endMs = 2_000,
+                    partRole = com.mica.music.data.LyricTextRole.READING,
+                ),
+                com.mica.music.data.LyricToken(
+                    text = "人",
+                    startMs = 1_000,
+                    endMs = 1_400,
+                    partRole = com.mica.music.data.LyricTextRole.ORIGINAL,
+                ),
+                com.mica.music.data.LyricToken(
+                    text = "生",
+                    startMs = 1_400,
+                    endMs = 2_000,
+                    partRole = com.mica.music.data.LyricTextRole.ORIGINAL,
+                ),
+            ),
+            line.tokens,
+        )
+    }
+
+    @Test
+    fun ttmlKeepsNestedReadingAndTranslationWordTimings() {
+        val document = TtmlLyricsParser.parseDocument(
+            """
+            <tt xmlns:ttm="http://www.w3.org/ns/ttml#metadata"><body><div>
+              <p begin="1s" end="2s">
+                <span begin="1s" end="2s">你</span>
+                <span ttm:role="x-romanization">
+                  <span begin="1s" end="2s">ni</span>
+                </span>
+                <span ttm:role="x-translation">
+                  <span begin="1s" end="2s">you</span>
+                </span>
+              </p>
+            </div></body></tt>
+            """.trimIndent(),
+        )
+
+        val line = document.lines.single()
+        assertEquals(listOf("ni", "你", "you"), line.parts.map { it.text })
+        assertEquals(
+            listOf(
+                com.mica.music.data.LyricTextRole.READING,
+                com.mica.music.data.LyricTextRole.ORIGINAL,
+                com.mica.music.data.LyricTextRole.TRANSLATION,
+            ),
+            line.tokens.map { it.partRole },
+        )
+        assertEquals(listOf(2_000, 2_000, 2_000), line.tokens.map { it.endMs })
+    }
+
+    @Test
+    fun ttmlInfersMissingTokenEndsWithinEachSemanticTrack() {
+        val document = TtmlLyricsParser.parseDocument(
+            """
+            <tt xmlns:ttm="http://www.w3.org/ns/ttml#metadata"><body><div>
+              <p begin="1s" end="3s">
+                <span ttm:role="x-romanization"><span begin="1s">ni</span><span begin="2s">hao</span></span>
+                <span begin="1s">你</span><span begin="2s">好</span>
+              </p>
+            </div></body></tt>
+            """.trimIndent(),
+        )
+
+        val line = document.lines.single()
+        assertEquals(
+            listOf(2_000, 3_000, 2_000, 3_000),
+            line.tokens.map { it.endMs },
+        )
+    }
+
+    @Test
     fun ttmlAcceptsXRomanAlias() {
         val document = TtmlLyricsParser.parseDocument(
             """

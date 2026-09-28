@@ -18,6 +18,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import com.mica.music.data.LyricLine
 import com.mica.music.data.LyricTextPart
+import com.mica.music.data.LyricToken
 import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.LyricsRenderState
 import com.mica.music.ui.components.LyricLineBlock
@@ -85,6 +86,9 @@ internal fun LyricsSection(
                         partsForIndex = { lineIndex ->
                             renderState.document.lines.getOrNull(lineIndex)?.parts
                         },
+                        tokensForIndex = { lineIndex ->
+                            renderState.document.lines.getOrNull(lineIndex)?.tokens
+                        },
                         targetIndex = index,
                         compact = compact,
                         colors = colors,
@@ -124,6 +128,7 @@ private fun EmptyCompactLyrics(
 private fun CompactLyricsRows(
     lyrics: List<LyricLine>,
     partsForIndex: (Int) -> List<LyricTextPart>?,
+    tokensForIndex: (Int) -> List<LyricToken>?,
     targetIndex: Int,
     compact: Boolean,
     colors: PlayerContentColors,
@@ -149,6 +154,7 @@ private fun CompactLyricsRows(
             compact -> CompactSingleLyricLine(
                 lyrics = lyrics,
                 partsForIndex = partsForIndex,
+                tokensForIndex = tokensForIndex,
                 displayIndex = safeDisplayIndex,
                 colors = colors,
                 textStyle = textStyle,
@@ -171,6 +177,7 @@ private fun CompactLyricsRows(
             else -> CompactThreeLyricLines(
                 lyrics = lyrics,
                 partsForIndex = partsForIndex,
+                tokensForIndex = tokensForIndex,
                 displayIndex = safeDisplayIndex,
                 colors = colors,
                 textStyle = textStyle,
@@ -189,6 +196,7 @@ private fun CompactLyricsRows(
 private fun CompactSingleLyricLine(
     lyrics: List<LyricLine>,
     partsForIndex: (Int) -> List<LyricTextPart>?,
+    tokensForIndex: (Int) -> List<LyricToken>?,
     displayIndex: Int,
     colors: PlayerContentColors,
     textStyle: TextStyle,
@@ -217,6 +225,7 @@ private fun CompactSingleLyricLine(
         bilingualDisplayMode = bilingualDisplayMode,
         textAlign = textAlign,
         parts = partsForIndex(displayIndex),
+        tokens = tokensForIndex(displayIndex),
     )
 }
 
@@ -224,6 +233,7 @@ private fun CompactSingleLyricLine(
 private fun CompactThreeLyricLines(
     lyrics: List<LyricLine>,
     partsForIndex: (Int) -> List<LyricTextPart>?,
+    tokensForIndex: (Int) -> List<LyricToken>?,
     displayIndex: Int,
     colors: PlayerContentColors,
     textStyle: TextStyle,
@@ -249,6 +259,7 @@ private fun CompactThreeLyricLines(
         bilingualDisplayMode = bilingualDisplayMode,
         textAlign = textAlign,
         parts = partsForIndex(safeIndex - 1),
+        tokens = tokensForIndex(safeIndex - 1),
     )
     LyricLineBlock(
         text = lyrics[safeIndex].text,
@@ -264,6 +275,7 @@ private fun CompactThreeLyricLines(
         bilingualDisplayMode = bilingualDisplayMode,
         textAlign = textAlign,
         parts = partsForIndex(safeIndex),
+        tokens = tokensForIndex(safeIndex),
     )
     LyricLineBlock(
         text = lyrics.getOrNull(safeIndex + 1)?.text,
@@ -279,5 +291,6 @@ private fun CompactThreeLyricLines(
         bilingualDisplayMode = bilingualDisplayMode,
         textAlign = textAlign,
         parts = partsForIndex(safeIndex + 1),
+        tokens = tokensForIndex(safeIndex + 1),
     )
 }

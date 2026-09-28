@@ -508,13 +508,14 @@ internal class NotificationLyricsCoordinator(
             desktopLyricsEnabled -> display.copy(
                 bilingualMode = LyricsPreferences.desktopLyricsBilingualDisplayMode(appContext),
                 wordByWordEnabled = LyricsPreferences.desktopLyricsWordByWordEnabled(appContext),
-                hideTranslationWhenWordByWordEnabled = true,
+                readingEnabled = LyricsPreferences.lyricReadingEnabled(appContext),
             )
             statusBarLyricsEnabled -> display.copy(
                 splitEnabled = LyricsPreferences.statusBarLyricsSplitEnabled(appContext),
                 bilingualMode = LyricsPreferences.statusBarLyricsBilingualDisplayMode(appContext),
                 wordByWordEnabled = LyricsPreferences.statusBarLyricsWordByWordEnabled(appContext),
                 hideTranslationWhenWordByWordEnabled = true,
+                readingEnabled = false,
             )
             else -> display
         }
@@ -753,10 +754,6 @@ internal fun buildExternalLyricsLine(
             allRows.size >= 2 -> allRows.firstOrNull()?.text.orEmpty()
             else -> rawText
         }.trim()
-        val baseOriginal = listOf(readingPart, baseOriginalCore)
-            .filter { it.isNotBlank() }
-            .joinToString("\n")
-            .ifBlank { baseOriginalCore }
         val baseTranslation = when {
             hasSemanticTranslation -> translationPart
             allRows.size >= 2 -> allRows.drop(1).joinToString(" ") { it.text.trim() }
@@ -766,6 +763,10 @@ internal fun buildExternalLyricsLine(
             tokens = node.tokens.filter {
                 it.partRole == LyricTextRole.ORIGINAL || it.partRole == LyricTextRole.EXTRA
             },
+            enabled = display.wordByWordEnabled,
+        )
+        val readingCues = externalLyricsWordCues(
+            tokens = node.tokens.filter { it.partRole == LyricTextRole.READING },
             enabled = display.wordByWordEnabled,
         )
         val translationCues = externalLyricsWordCues(
@@ -783,9 +784,9 @@ internal fun buildExternalLyricsLine(
         }
         if (!display.splitEnabled) {
             val collapsedText = when (bilingualMode) {
-                LyricsBilingualDisplayMode.ORIGINAL -> baseOriginal
-                LyricsBilingualDisplayMode.TRANSLATION -> baseTranslation.ifBlank { baseOriginal }
-                LyricsBilingualDisplayMode.ALL -> listOf(baseOriginal, baseTranslation)
+                LyricsBilingualDisplayMode.ORIGINAL -> baseOriginalCore
+                LyricsBilingualDisplayMode.TRANSLATION -> baseTranslation.ifBlank { baseOriginalCore }
+                LyricsBilingualDisplayMode.ALL -> listOf(baseOriginalCore, baseTranslation)
                     .filter { it.isNotBlank() }
                     .joinToString(" ")
             }.ifBlank { rawText.replace(Regex("\\s+"), " ").trim() }
@@ -809,36 +810,63 @@ internal fun buildExternalLyricsLine(
                 lineIndex = index,
                 startMs = node.startMs,
                 endMs = node.endMs ?: document.lines.getOrNull(index + 1)?.startMs,
-                original = selectedText.takeUnless { renderAsTranslation },
-                translation = selectedText.takeIf { renderAsTranslation },
+                rows = buildList {
+                    if (display.readingEnabled && readingPart.isNotBlank() && !renderAsTranslation) {
+                        add(
+                            ExternalLyricsRow(
+                                LyricTextRole.READING,
+                                ExternalLyricsText(readingPart, readingCues),
+                            ),
+                        )
+                    }
+                    add(
+                        ExternalLyricsRow(
+                            if (renderAsTranslation) LyricTextRole.TRANSLATION else LyricTextRole.ORIGINAL,
+                            selectedText,
+                        ),
+                    )
+                },
             )
         }
 
-        val original = when (bilingualMode) {
-            LyricsBilingualDisplayMode.TRANSLATION -> null
-            else -> baseOriginal.takeIf { it.isNotBlank() }?.let { ExternalLyricsText(it, originalCues) }
-        }
-        val translation = when (bilingualMode) {
-            LyricsBilingualDisplayMode.ORIGINAL -> null
-            LyricsBilingualDisplayMode.TRANSLATION ->
-                (baseTranslation.ifBlank { baseOriginal })
-                    .takeIf { it.isNotBlank() }
-                    ?.let {
-                        ExternalLyricsText(
-                            it,
-                            translationCues.ifEmpty { originalCues },
+        val rows = buildList {
+            if (bilingualMode != LyricsBilingualDisplayMode.TRANSLATION) {
+                if (display.readingEnabled && readingPart.isNotBlank()) {
+                    add(ExternalLyricsRow(LyricTextRole.READING, ExternalLyricsText(readingPart, readingCues)))
+                }
+                baseOriginalCore.takeIf { it.isNotBlank() }?.let {
+                    add(ExternalLyricsRow(LyricTextRole.ORIGINAL, ExternalLyricsText(it, originalCues)))
+                }
+            }
+            when (bilingualMode) {
+                LyricsBilingualDisplayMode.ORIGINAL -> Unit
+                LyricsBilingualDisplayMode.TRANSLATION -> {
+                    val text = baseTranslation.ifBlank { baseOriginalCore }
+                    text.takeIf { it.isNotBlank() }?.let {
+                        val role = if (baseTranslation.isNotBlank()) {
+                            LyricTextRole.TRANSLATION
+                        } else {
+                            LyricTextRole.ORIGINAL
+                        }
+                        add(
+                            ExternalLyricsRow(
+                                role,
+                                ExternalLyricsText(it, translationCues.ifEmpty { originalCues }),
+                            ),
                         )
                     }
-            LyricsBilingualDisplayMode.ALL ->
-                baseTranslation.takeIf { it.isNotBlank() }?.let { ExternalLyricsText(it, translationCues) }
+                }
+                LyricsBilingualDisplayMode.ALL -> baseTranslation.takeIf { it.isNotBlank() }?.let {
+                    add(ExternalLyricsRow(LyricTextRole.TRANSLATION, ExternalLyricsText(it, translationCues)))
+                }
+            }
         }
-        if (original == null && translation == null) return null
+        if (rows.isEmpty()) return null
         return ExternalLyricsLine(
             lineIndex = index,
             startMs = node.startMs,
             endMs = node.endMs ?: document.lines.getOrNull(index + 1)?.startMs,
-            original = original,
-            translation = translation,
+            rows = rows,
         )
     }
 

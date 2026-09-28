@@ -1,6 +1,5 @@
 package com.mica.music.data.scanner
 
-import com.mica.music.data.LyricCue
 import com.mica.music.data.LyricLine
 import com.mica.music.data.LyricLineNode
 import com.mica.music.data.LyricTextPart
@@ -9,7 +8,6 @@ import com.mica.music.data.LyricToken
 import com.mica.music.data.LyricsDocument
 import com.mica.music.data.LyricsFormat
 import com.mica.music.data.toLegacyLyricLines
-import com.mica.music.util.DiagnosticLog
 import java.io.StringReader
 import javax.xml.XMLConstants
 import javax.xml.parsers.DocumentBuilderFactory
@@ -64,8 +62,9 @@ internal object TtmlLyricsParser {
                 setEntityResolver { _, _ -> InputSource(StringReader("")) }
             }
             val document = builder.parse(InputSource(StringReader(text)))
-            // AMLL: head transliterations preferred; inline x-roman* is fallback only.
+            // AMLL / Apple Music: keyed head tracks are preferred; inline roles are fallbacks.
             val headRomanizations = parseItunesRomanizations(document.documentElement)
+            val headTranslations = parseItunesTranslations(document.documentElement)
             val paragraphs = document.getElementsByTagNameNS("*", "p")
             if (paragraphs.length !in 1..MAX_PARAGRAPHS) return LyricsDocument(format = LyricsFormat.TTML)
 
@@ -74,27 +73,32 @@ internal object TtmlLyricsParser {
                 for (index in 0 until paragraphs.length) {
                     val paragraph = paragraphs.item(index) as? Element ?: continue
                     val rendered = renderParagraph(paragraph)
-                    totalCues += rendered.cues.size
+                    val itunesKey = paragraph.itunesKey()
+                    val headReading = itunesKey?.let { headRomanizations[it] }
+                    val readingTokens = headReading?.tokens
+                        ?.takeIf { headReading.text.isNotBlank() }
+                        ?: rendered.romanizationTokens
+                    val headTranslation = itunesKey?.let { headTranslations[it] }
+                    val translationTokens = headTranslation?.tokens
+                        ?.takeIf { headTranslation.text.isNotBlank() }
+                        ?: rendered.translationTokens
+                    val lineTokens = readingTokens + rendered.originalTokens + translationTokens
+                    totalCues += lineTokens.size
                     if (totalCues > MAX_CUES) return LyricsDocument(format = LyricsFormat.TTML)
                     val originalText = MetadataTextFix.normalize(rendered.text).trim()
-                    val translationText = MetadataTextFix.normalize(rendered.translation).trim()
-                    val itunesKey = paragraph.itunesKey()
-                    val headReading = itunesKey?.let { headRomanizations[it] }.orEmpty()
+                    val translationText = MetadataTextFix.normalize(
+                        headTranslation?.text?.ifBlank { rendered.translation } ?: rendered.translation,
+                    ).trim()
                     val readingText = MetadataTextFix.normalize(
-                        headReading.ifBlank { rendered.romanization },
+                        headReading?.text?.ifBlank { rendered.romanization } ?: rendered.romanization,
                     ).trim()
                     if (originalText.isEmpty() && translationText.isEmpty() && readingText.isEmpty()) continue
                     val lineStart = parseTime(paragraph.getAttribute("begin"))
-                        ?: rendered.cues.firstOrNull()?.timeMs
+                        ?: rendered.originalTokens.firstOrNull()?.startMs
                         ?: continue
                     val lineStartMs = lineStart.coerceAtLeast(0)
                     val lineEndMs = parseTime(paragraph.getAttribute("end"))
                         ?: parseTime(paragraph.getAttribute("dur"))?.let { durationMs -> lineStartMs + durationMs }
-                    val cues = rendered.cues.takeIf { candidate ->
-                        candidate.isNotEmpty() &&
-                            candidate.first().timeMs >= lineStartMs &&
-                            candidate.zipWithNext().none { (left, right) -> right.timeMs < left.timeMs }
-                    }.orEmpty()
                     val endMs = lineEndMs?.takeIf { it > lineStartMs }
                     add(
                         LyricLineNode(
@@ -112,19 +116,16 @@ internal object TtmlLyricsParser {
                                     add(LyricTextPart(LyricTextRole.TRANSLATION, translationText))
                                 }
                             },
-                            tokens = cues.mapIndexed { cueIndex, cue ->
-                                LyricToken(
-                                    text = cue.text,
-                                    startMs = cue.timeMs,
-                                    endMs = cues.getOrNull(cueIndex + 1)?.timeMs ?: endMs,
-                                )
-                            },
+                            tokens = normalizeTokensByRole(
+                                tokens = lineTokens,
+                                lineStartMs = lineStartMs,
+                                lineEndMs = endMs,
+                            ),
                         ),
                     )
                 }
             }.sortedBy { it.startMs }
             LyricsDocument(format = LyricsFormat.TTML, lines = lines)
-        }.onFailure { error ->
         }.getOrDefault(LyricsDocument(format = LyricsFormat.TTML))
     }
 
@@ -132,18 +133,29 @@ internal object TtmlLyricsParser {
         val text: String,
         val translation: String,
         val romanization: String,
-        val cues: List<LyricCue>,
+        val originalTokens: List<LyricToken>,
+        val translationTokens: List<LyricToken>,
+        val romanizationTokens: List<LyricToken>,
+    )
+
+    private data class ParsedTrack(
+        val text: String,
+        val tokens: List<LyricToken>,
     )
 
     private fun renderParagraph(paragraph: Element): RenderedParagraph {
         val text = StringBuilder()
         val translation = StringBuilder()
         val romanization = StringBuilder()
-        val cues = mutableListOf<LyricCue>()
+        val originalTokens = mutableListOf<LyricToken>()
+        val translationTokens = mutableListOf<LyricToken>()
+        val romanizationTokens = mutableListOf<LyricToken>()
 
         fun append(node: Node) {
             when (node.nodeType) {
-                Node.TEXT_NODE, Node.CDATA_SECTION_NODE -> text.append(node.nodeValue.orEmpty())
+                Node.TEXT_NODE, Node.CDATA_SECTION_NODE -> node.nodeValue.orEmpty()
+                    .takeIf { it.isNotBlank() }
+                    ?.let(text::append)
                 Node.ELEMENT_NODE -> {
                     val element = node as Element
                     when (element.localName?.lowercase() ?: element.tagName.substringAfter(':').lowercase()) {
@@ -152,21 +164,38 @@ internal object TtmlLyricsParser {
                             val visible = element.textContent.orEmpty()
                             when {
                                 element.isTranslationSpan() -> {
-                                    translation.append(visible)
+                                    val track = extractRoleTrack(
+                                        element,
+                                        role = LyricTextRole.TRANSLATION,
+                                        separateTimedFragments = false,
+                                    )
+                                    translation.append(track.text)
+                                    translationTokens += track.tokens
                                     return
                                 }
                                 element.isRomanizationSpan() -> {
-                                    if (romanization.isNotEmpty() && visible.isNotBlank()) {
+                                    val track = extractRoleTrack(
+                                        element,
+                                        role = LyricTextRole.READING,
+                                        separateTimedFragments = true,
+                                    )
+                                    if (romanization.isNotEmpty() && track.text.isNotBlank()) {
                                         romanization.append(' ')
                                     }
-                                    romanization.append(visible)
+                                    romanization.append(track.text)
+                                    romanizationTokens += track.tokens
                                     return
                                 }
                             }
                             val begin = parseTime(element.getAttribute("begin"))
                             if (begin != null && visible.isNotEmpty()) {
                                 text.append(visible)
-                                cues += LyricCue(begin.coerceAtLeast(0), MetadataTextFix.normalizeFragment(visible))
+                                originalTokens += LyricToken(
+                                    text = MetadataTextFix.normalizeFragment(visible),
+                                    startMs = begin.coerceAtLeast(0),
+                                    endMs = parseTime(element.getAttribute("end")),
+                                    partRole = LyricTextRole.ORIGINAL,
+                                )
                             } else {
                                 var child = element.firstChild
                                 while (child != null) {
@@ -196,7 +225,9 @@ internal object TtmlLyricsParser {
             text = text.toString(),
             translation = translation.toString(),
             romanization = romanization.toString(),
-            cues = cues,
+            originalTokens = originalTokens,
+            translationTokens = translationTokens,
+            romanizationTokens = romanizationTokens,
         )
     }
 
@@ -205,38 +236,75 @@ internal object TtmlLyricsParser {
      * `iTunesMetadata > transliterations > transliteration > text[for=Ln]`
      * Line-level plain text or timed spans; x-bg nested content is skipped for the main reading.
      */
-    private fun parseItunesRomanizations(root: Element): Map<String, String> {
-        val result = linkedMapOf<String, String>()
+    private fun parseItunesRomanizations(root: Element): Map<String, ParsedTrack> {
+        return parseItunesTracks(
+            root = root,
+            containerLocalName = "transliteration",
+            role = LyricTextRole.READING,
+            separateTimedFragments = true,
+        )
+    }
+
+    private fun parseItunesTranslations(root: Element): Map<String, ParsedTrack> {
+        return parseItunesTracks(
+            root = root,
+            containerLocalName = "translation",
+            role = LyricTextRole.TRANSLATION,
+            separateTimedFragments = false,
+        )
+    }
+
+    private fun parseItunesTracks(
+        root: Element,
+        containerLocalName: String,
+        role: LyricTextRole,
+        separateTimedFragments: Boolean,
+    ): Map<String, ParsedTrack> {
+        val result = linkedMapOf<String, ParsedTrack>()
         val metadataNodes = root.getElementsByTagNameNS("*", "iTunesMetadata")
         for (metaIndex in 0 until metadataNodes.length) {
             val metadata = metadataNodes.item(metaIndex) as? Element ?: continue
             val textNodes = metadata.getElementsByTagNameNS("*", "text")
             for (textIndex in 0 until textNodes.length) {
                 val textEl = textNodes.item(textIndex) as? Element ?: continue
-                if (!textEl.isUnderLocalName("transliteration")) continue
+                if (!textEl.isUnderLocalName(containerLocalName)) continue
                 val key = textEl.getAttribute("for").trim()
                 if (key.isEmpty() || result.containsKey(key)) continue
-                val lineRoman = extractTransliterationText(textEl)
-                if (lineRoman.isNotEmpty()) result[key] = lineRoman
+                val track = extractRoleTrack(textEl, role, separateTimedFragments)
+                if (track.text.isNotEmpty()) result[key] = track
             }
         }
         return result
     }
 
-    private fun extractTransliterationText(textEl: Element): String {
+    private fun extractRoleTrack(
+        root: Element,
+        role: LyricTextRole,
+        separateTimedFragments: Boolean,
+    ): ParsedTrack {
         val parts = StringBuilder()
+        val tokens = mutableListOf<LyricToken>()
+
+        fun appendVisible(visible: String, timed: Boolean) {
+            if (visible.isEmpty()) return
+            if (timed && separateTimedFragments && parts.isNotEmpty() && !parts.last().isWhitespace()) {
+                parts.append(' ')
+            }
+            parts.append(visible)
+        }
+
         fun appendMain(node: Node) {
             when (node.nodeType) {
-                Node.TEXT_NODE, Node.CDATA_SECTION_NODE -> parts.append(node.nodeValue.orEmpty())
+                Node.TEXT_NODE, Node.CDATA_SECTION_NODE -> node.nodeValue.orEmpty()
+                    .takeIf { it.isNotBlank() }
+                    ?.let { appendVisible(it, timed = false) }
                 Node.ELEMENT_NODE -> {
                     val element = node as Element
                     if (element.isBackgroundSpan()) return
-                    if (element.hasTimestamps()) {
-                        val visible = element.textContent.orEmpty().trim()
-                        if (visible.isNotEmpty()) {
-                            if (parts.isNotEmpty()) parts.append(' ')
-                            parts.append(visible)
-                        }
+                    val token = element.toTimedToken(role)
+                    if (token != null) {
+                        appendVisible(token.text, timed = true)
+                        tokens += token
                         return
                     }
                     var child = element.firstChild
@@ -247,12 +315,20 @@ internal object TtmlLyricsParser {
                 }
             }
         }
-        var child = textEl.firstChild
-        while (child != null) {
-            appendMain(child)
-            child = child.nextSibling
-        }
-        return parts.toString().trim()
+        appendMain(root)
+        return ParsedTrack(parts.toString().trim(), tokens)
+    }
+
+    private fun Element.toTimedToken(role: LyricTextRole): LyricToken? {
+        val startMs = parseTime(getAttribute("begin")) ?: return null
+        val visible = MetadataTextFix.normalizeFragment(textContent.orEmpty()).trim()
+        if (visible.isEmpty()) return null
+        return LyricToken(
+            text = visible,
+            startMs = startMs.coerceAtLeast(0),
+            endMs = parseTime(getAttribute("end")),
+            partRole = role,
+        )
     }
 
     private fun Element.isUnderLocalName(localName: String): Boolean {
@@ -290,8 +366,28 @@ internal object TtmlLyricsParser {
     private fun Element.isBackgroundSpan(): Boolean =
         ttmRoles().any { it == "x-bg" }
 
-    private fun Element.hasTimestamps(): Boolean =
-        getAttribute("begin").isNotBlank() && getAttribute("end").isNotBlank()
+    private fun normalizeTokensByRole(
+        tokens: List<LyricToken>,
+        lineStartMs: Int,
+        lineEndMs: Int?,
+    ): List<LyricToken> {
+        val tracks = linkedMapOf<LyricTextRole, MutableList<LyricToken>>()
+        tokens.forEach { token ->
+            val track = tracks.getOrPut(token.partRole) { mutableListOf() }
+            if (token.startMs >= lineStartMs && (track.isEmpty() || token.startMs >= track.last().startMs)) {
+                track += token
+            }
+        }
+        return tracks.values.flatMap { track ->
+            track.mapIndexed { index, token ->
+                val inferredEndMs = track.getOrNull(index + 1)?.startMs ?: lineEndMs
+                token.copy(
+                    endMs = token.endMs?.takeIf { it > token.startMs }
+                        ?: inferredEndMs?.takeIf { it > token.startMs },
+                )
+            }
+        }
+    }
 
     private fun parseTime(raw: String?): Int? {
         val value = raw?.trim().orEmpty()
