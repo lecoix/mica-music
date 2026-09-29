@@ -63,8 +63,8 @@ android {
             ?: if (qaSideBySide) "com.mica.music.qa" else "com.mica.music"
         minSdk = 26
         targetSdk = 34
-        versionCode = 57
-        versionName = "0.4.2" + if (qaSideBySide) "-qa" else ""
+        versionCode = 58
+        versionName = "0.4.3" + if (qaSideBySide) "-qa" else ""
         buildConfigField(
             "String",
             "UPDATE_DOMESTIC_MANIFEST_URL",
