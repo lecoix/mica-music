@@ -69,6 +69,48 @@ class LandscapePlayerPolicyTest {
     }
 
     @Test
+    fun tabletStandardArtworkUsesFullHeightWhenTheRightLaneStillFits() {
+        assertTrue(adaptiveLandscapeStandardArtworkEligible(960f, 576f))
+        assertTrue(adaptiveLandscapeStandardArtworkEligible(1024f, 744f))
+        assertFalse(adaptiveLandscapeStandardArtworkEligible(904f, 407f))
+
+        val sixteenTen = landscapeStandardArtworkLayout(
+            widthDp = 960f,
+            heightDp = 600f,
+            edgePaddingDp = 32f,
+            columnGapDp = 38.4f,
+        )
+        assertEquals(600f, sixteenTen.artworkSizeDp, 0.001f)
+        assertEquals(308.8f, sixteenTen.detailWidthDp, 0.001f)
+        assertFalse(sixteenTen.compactControls)
+
+        val fourThree = landscapeStandardArtworkLayout(
+            widthDp = 1024f,
+            heightDp = 768f,
+            edgePaddingDp = 32f,
+            columnGapDp = 40.96f,
+        )
+        assertEquals(699.52f, fourThree.artworkSizeDp, 0.001f)
+        assertEquals(34.24f, fourThree.artworkTopDp, 0.001f)
+        assertEquals(272f, fourThree.detailWidthDp, 0.001f)
+        assertFalse(fourThree.compactControls)
+    }
+
+    @Test
+    fun tabletStandardArtworkShrinksBeforeTheRightTextLaneDoes() {
+        val plan = landscapeStandardArtworkLayout(
+            widthDp = 800f,
+            heightDp = 600f,
+            edgePaddingDp = 32f,
+            columnGapDp = 32f,
+        )
+        assertEquals(480f, plan.artworkSizeDp, 0.001f)
+        assertEquals(60f, plan.artworkTopDp, 0.001f)
+        assertEquals(272f, plan.detailWidthDp, 0.001f)
+        assertFalse(plan.compactControls)
+    }
+
+    @Test
     fun coverFlowStageUsesFullStageInsteadOfClassicDetailLaneReservation() {
         val pause = landscapeCoverFlowStageCoverSizeDp(
             widthDp = 406f,

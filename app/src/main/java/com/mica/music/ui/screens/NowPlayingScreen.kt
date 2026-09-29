@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.layout.size
@@ -114,6 +116,8 @@ import com.mica.music.ui.screens.player.landscapeCoverFlowStageCoverSizeDp
 import com.mica.music.ui.screens.player.landscapeCoverModeForPage
 import com.mica.music.ui.screens.player.landscapeChromeHeight
 import com.mica.music.ui.screens.player.landscapePlayerLayoutPlanForBounds
+import com.mica.music.ui.screens.player.adaptiveLandscapeStandardArtworkEligible
+import com.mica.music.ui.screens.player.landscapeStandardArtworkLayout
 import com.mica.music.ui.screens.player.playerViewportPlan
 import com.mica.music.ui.screens.player.stableGeometry
 import com.mica.music.ui.screens.player.rememberPlayerPageUiModel
@@ -648,6 +652,20 @@ fun NowPlayingContent(
                 topPaddingDp = landscapeTopPadding.value,
             )
             val landscapeEdgePadding = landscapeGeometry?.edgePaddingDp?.dp ?: 0.dp
+            val adaptiveLandscapeStandardArtwork =
+                landscapeMode &&
+                    uiSettings.playerCoverFlowMode == PlayerCoverFlowMode.STANDARD &&
+                    adaptiveLandscapeStandardArtworkEligible(fullWidth.value, screenHeight.value)
+            val tabletStandardArtworkLayout = if (adaptiveLandscapeStandardArtwork) {
+                landscapeStandardArtworkLayout(
+                    widthDp = fullWidth.value,
+                    heightDp = screenHeight.value,
+                    edgePaddingDp = landscapeEdgePadding.value,
+                    columnGapDp = checkNotNull(landscapePlan).columnGapDp,
+                )
+            } else {
+                null
+            }
             val landscapeCoverSize = when {
                 landscapeMode &&
                     (effectiveCoverFlowMode == PlayerCoverFlowMode.PAUSE_FOLD ||
@@ -1026,8 +1044,12 @@ fun NowPlayingContent(
             } else {
                 null
             }
-            val landscapeStandardArtworkWidth = fullWidth * 0.50f
-            val landscapeStandardArtworkHeight = fullHeight
+            val landscapeStandardArtworkWidth =
+                tabletStandardArtworkLayout?.artworkSizeDp?.dp ?: fullWidth * 0.50f
+            val landscapeStandardArtworkHeight =
+                tabletStandardArtworkLayout?.artworkSizeDp?.dp ?: fullHeight
+            val landscapeStandardArtworkTop =
+                tabletStandardArtworkLayout?.artworkTopDp?.dp ?: 0.dp
             val coverSection: @Composable (Modifier, Dp?, Float?) -> Unit =
                 { coverModifier, coverStartPaddingOverride, coverFlowProgressOverride ->
                 val fullBleedLandscapeStandard = LocalLandscapeStandardCoverFullBleed.current
@@ -1187,7 +1209,8 @@ fun NowPlayingContent(
             }
             val compactStandardLandscapeControls =
                 uiSettings.playerCoverFlowMode == PlayerCoverFlowMode.STANDARD &&
-                    configuration.screenWidthDp < 520
+                    (tabletStandardArtworkLayout?.compactControls == true ||
+                        (!adaptiveLandscapeStandardArtwork && configuration.screenWidthDp < 520))
             val landscapeLowerSection: @Composable (Modifier, Dp, Modifier, Modifier) -> Unit =
                 { lowerModifier, panelHeight, titleSharedModifier, chromeSharedModifier ->
                 val actualFrame = pageModel.frameFor(
@@ -1956,19 +1979,26 @@ fun NowPlayingContent(
                                 Box(
                                     modifier = Modifier
                                         .width(landscapeStandardArtworkWidth)
-                                        .fillMaxHeight()
+                                        .height(landscapeStandardArtworkHeight)
+                                        .offset(y = landscapeStandardArtworkTop)
                                         .graphicsLayer {
                                             if (landscapeCloudExitProgress > 0f) {
                                                 translationX = -landscapeCloudScatterPx
                                                 alpha = 1f - landscapeCloudExitProgress
                                             }
                                         }
-                                        .landscapeStandardCoverRightFade(),
+                                        .landscapeStandardCoverRightFade(
+                                            fadeStartFraction = if (adaptiveLandscapeStandardArtwork) 0.90f else 0.60f,
+                                        ),
                                     contentAlignment = Alignment.TopStart,
                                 ) {
                                     CompositionLocalProvider(
                                         LocalLandscapeStandardCoverFullBleed provides true,
-                                        LocalCoverDisplayMode provides CoverDisplayMode.CROP_FILL,
+                                        LocalCoverDisplayMode provides if (adaptiveLandscapeStandardArtwork) {
+                                            CoverDisplayMode.FIT_ORIGINAL
+                                        } else {
+                                            CoverDisplayMode.CROP_FILL
+                                        },
                                     ) {
                                         coverSection(
                                             Modifier

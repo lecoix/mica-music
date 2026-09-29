@@ -122,6 +122,39 @@ internal data class LandscapePlayerStableGeometry(
     val lyricsCoverSizeDp: Float,
 )
 
+internal data class LandscapeStandardArtworkLayout(
+    val artworkSizeDp: Float,
+    val artworkTopDp: Float,
+    val detailWidthDp: Float,
+    val compactControls: Boolean,
+)
+
+internal fun adaptiveLandscapeStandardArtworkEligible(widthDp: Float, heightDp: Float): Boolean =
+    widthDp >= 720f && heightDp >= 440f && widthDp <= heightDp * 1.8f
+
+/** Give tablet artwork the remaining width after reserving text and playback controls. */
+internal fun landscapeStandardArtworkLayout(
+    widthDp: Float,
+    heightDp: Float,
+    edgePaddingDp: Float,
+    columnGapDp: Float,
+): LandscapeStandardArtworkLayout {
+    val width = widthDp.coerceAtLeast(0f)
+    val height = heightDp.coerceAtLeast(0f)
+    val rightInset = edgePaddingDp.coerceAtLeast(0f) + columnGapDp.coerceAtLeast(0f) / 2f
+    // The single-row chrome needs five 48dp targets and 16dp padding on each side.
+    // A two-row minimum clips lyric lines on a 4:3 tablet, so preserve this text width too.
+    val singleRowWidth = 5f * 48f + 2f * 16f
+    val artworkSize = minOf(height, (width - rightInset - singleRowWidth).coerceAtLeast(0f))
+    val detailWidth = (width - artworkSize - rightInset).coerceAtLeast(0f)
+    return LandscapeStandardArtworkLayout(
+        artworkSizeDp = artworkSize,
+        artworkTopDp = (height - artworkSize).coerceAtLeast(0f) / 2f,
+        detailWidthDp = detailWidth,
+        compactControls = detailWidth + 0.01f < singleRowWidth,
+    )
+}
+
 internal fun LandscapePlayerLayoutPlan.stableGeometry(
     widthDp: Float,
     heightDp: Float,
