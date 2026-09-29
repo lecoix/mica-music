@@ -91,8 +91,6 @@ fun AboutScreen(
         ) {
             val context = LocalContext.current
             val coroutineScope = rememberCoroutineScope()
-            var storageReport by remember { mutableStateOf<String?>(null) }
-            var collectingStorage by remember { mutableStateOf(false) }
             var artworkRecoveryReport by remember { mutableStateOf<String?>(null) }
             var checkingArtworkRecovery by remember { mutableStateOf(false) }
             val versionName = remember(context) {
@@ -171,26 +169,6 @@ fun AboutScreen(
             Spacer(Modifier.height(HifiSpacing.lg))
 
             SettingsSectionTitle("诊断")
-            AboutLinkRow(
-                title = if (collectingStorage) "正在分析存储占用…" else "分析存储占用",
-                url = "只读统计数据库、歌词、封面与缓存，不会清理数据",
-                onClick = {
-                    if (!collectingStorage) {
-                        collectingStorage = true
-                        coroutineScope.launch {
-                            storageReport = runCatching {
-                                StorageDiagnostics.collect(context).toReportText()
-                            }.getOrElse { error ->
-                                "Storage diagnostics failed: ${error.javaClass.simpleName}: " +
-                                    error.message.orEmpty()
-                            }
-                            collectingStorage = false
-                        }
-                    }
-                },
-            )
-            storageReport?.let { report -> AboutParagraph(report) }
-
             AboutLinkRow(
                 title = if (checkingArtworkRecovery) "正在验证封面按需恢复…" else "验证封面按需恢复",
                 url = "淘汰一张缓存封面并立即从原音频恢复，只影响可重建缓存",
