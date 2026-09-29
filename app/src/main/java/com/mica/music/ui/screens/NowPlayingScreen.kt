@@ -1987,9 +1987,7 @@ fun NowPlayingContent(
                                                 alpha = 1f - landscapeCloudExitProgress
                                             }
                                         }
-                                        .landscapeStandardCoverRightFade(
-                                            fadeStartFraction = if (adaptiveLandscapeStandardArtwork) 0.90f else 0.60f,
-                                        ),
+                                        .landscapeStandardCoverRightFade(),
                                     contentAlignment = Alignment.TopStart,
                                 ) {
                                     CompositionLocalProvider(
