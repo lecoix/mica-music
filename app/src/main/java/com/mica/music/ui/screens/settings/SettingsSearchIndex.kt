@@ -202,6 +202,7 @@ internal object SettingsSearchIndex {
             isExperimental = true,
         ),
 
+        setting("diagnostics.export-log", "导出诊断日志", "日志", "闪退", "切歌", "掉帧", "封面", category = SettingsCategory.DIAGNOSTICS, section = SettingsIndexSections.DIAGNOSTICS),
         setting("diagnostics.metadata", "元数据调试", "ID3", "Vorbis", "解析器", category = SettingsCategory.DIAGNOSTICS, section = SettingsIndexSections.DIAGNOSTICS),
         setting("diagnostics.audio-offload", "音频硬件卸载（Offload）", "offload", "硬件解码", "DSP", "PCM", "省电", "失速", "mp3", category = SettingsCategory.DIAGNOSTICS, section = SettingsIndexSections.DIAGNOSTICS),
         setting("diagnostics.detailed", "详细诊断", "日志", "排障", "扫描", "播放", "音频", "USB", "渲染", "小窗", category = SettingsCategory.DIAGNOSTICS, section = SettingsIndexSections.DIAGNOSTICS),

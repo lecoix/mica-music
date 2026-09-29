@@ -408,6 +408,7 @@ fun SettingsScreen(
 
                                 SettingsCategory.DIAGNOSTICS -> {
                                     DiagnosticsSettingsPanel(
+                                        songs = library.songs,
                                         hasSongs = library.songs.isNotEmpty(),
                                         audioOffloadState = audioOffloadState,
                                         onAudioOffloadChanged = { enabled ->

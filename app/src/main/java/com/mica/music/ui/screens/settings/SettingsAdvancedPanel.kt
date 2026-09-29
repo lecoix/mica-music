@@ -1,17 +1,26 @@
 package com.mica.music.ui.screens.settings
 
+import android.content.Context
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalContext
+import com.mica.music.data.Song
+import com.mica.music.data.local.StorageDiagnostics
 import com.mica.music.data.preferences.AudioOffloadDisabledReason
 import com.mica.music.data.preferences.AudioOffloadPreferenceState
+import com.mica.music.data.scanner.AlbumArtCache
 import com.mica.music.util.DiagnosticDetailConfig
+import com.mica.music.util.DiagnosticLog
 import com.mica.music.ui.components.SettingsActionRow
 import com.mica.music.ui.components.SettingsNavigationRow
 import com.mica.music.ui.components.SettingsSectionTitle
 import com.mica.music.ui.components.SettingsTipRow
 import com.mica.music.ui.components.SettingsToggleRow
+import kotlinx.coroutines.launch
 
 @Composable
 internal fun DiagnosticsSettingsPanel(
+    songs: List<Song>,
     hasSongs: Boolean,
     audioOffloadState: AudioOffloadPreferenceState,
     onAudioOffloadChanged: (Boolean) -> Unit,
@@ -21,6 +30,9 @@ internal fun DiagnosticsSettingsPanel(
     onOpenSpatialAudio: () -> Unit,
     onOpenAppSettings: () -> Unit,
 ) {
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+
     SettingsSectionTitle("诊断与系统")
 
     SettingsToggleRow(
@@ -84,6 +96,17 @@ internal fun DiagnosticsSettingsPanel(
     }
 
     SettingsActionRow(
+        title = "导出诊断日志",
+        modifier = settingsSearchAnchor("diagnostics.export-log"),
+        subtitle = "包含闪退、切歌阶段、掉帧和封面绘制耗时",
+        onClick = {
+            coroutineScope.launch {
+                exportDiagnosticLogs(context, songs)
+            }
+        },
+    )
+
+    SettingsActionRow(
         title = "元数据调试",
         modifier = settingsSearchAnchor("diagnostics.metadata"),
         subtitle = "查看标签与各解析器结果",
@@ -102,5 +125,21 @@ internal fun DiagnosticsSettingsPanel(
         title = "系统权限与应用信息",
         modifier = settingsSearchAnchor("diagnostics.app-settings"),
         onClick = onOpenAppSettings,
+    )
+}
+
+private suspend fun exportDiagnosticLogs(context: Context, songs: List<Song>) {
+    val health = AlbumArtCache.health(context, songs)
+    val storage = StorageDiagnostics.collect(context)
+    val storageReport = storage.toReportText()
+    DiagnosticLog.event("StorageDiagnostics", storageReport.replace("\n", " | "))
+    DiagnosticLog.shareReport(
+        context = context,
+        extraReportSection = buildString {
+            appendLine("Album art cache health:")
+            appendLine(health.toLogMessage())
+            appendLine()
+            appendLine(storageReport)
+        },
     )
 }

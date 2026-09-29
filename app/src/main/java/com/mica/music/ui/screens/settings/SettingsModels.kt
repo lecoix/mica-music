@@ -239,6 +239,6 @@ internal enum class SettingsCategory(
     ),
     DIAGNOSTICS(
         title = "诊断与系统",
-        subtitle = "元数据调试、空间音频、系统权限",
+        subtitle = "导出诊断日志、元数据调试、空间音频、系统权限",
     ),
 }

@@ -36,7 +36,6 @@ import androidx.compose.ui.unit.dp
 import com.mica.music.BuildConfig
 import com.mica.music.data.Song
 import com.mica.music.data.local.StorageDiagnostics
-import com.mica.music.data.scanner.AlbumArtCache
 import com.mica.music.diagnostics.PlaybackCapabilityReport
 import com.mica.music.diagnostics.PlaybackCapabilityReportProvider
 import com.mica.music.ui.components.SettingsSectionTitle
@@ -44,7 +43,6 @@ import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.MicaTheme
 import com.mica.music.ui.theme.micaAppBackground
-import com.mica.music.util.DiagnosticLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -184,28 +182,6 @@ fun AboutScreen(
                 },
             )
             artworkRecoveryReport?.let { report -> AboutParagraph(report) }
-
-            AboutLinkRow(
-                title = "导出诊断日志",
-                url = "包含闪退、切歌阶段、掉帧和封面绘制耗时",
-                onClick = {
-                    coroutineScope.launch {
-                        val health = AlbumArtCache.health(context, songs)
-                        val storage = StorageDiagnostics.collect(context)
-                        val storageReport = storage.toReportText()
-                        DiagnosticLog.event("StorageDiagnostics", storageReport.replace("\n", " | "))
-                        DiagnosticLog.shareReport(
-                            context = context,
-                            extraReportSection = buildString {
-                                appendLine("Album art cache health:")
-                                appendLine(health.toLogMessage())
-                                appendLine()
-                                appendLine(storageReport)
-                            },
-                        )
-                    }
-                },
-            )
 
             Spacer(Modifier.height(HifiSpacing.lg))
 

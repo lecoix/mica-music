@@ -28,6 +28,7 @@ class SettingsSearchIndexTest {
     fun searchMatchesChineseAndEnglishKeywords() {
         assertTrue(SettingsSearchIndex.search("ReplayGain").any { it.id == "audio.replaygain" })
         assertTrue(SettingsSearchIndex.search("offload").any { it.id == "diagnostics.audio-offload" })
+        assertTrue(SettingsSearchIndex.search("导出诊断日志").any { it.id == "diagnostics.export-log" })
         assertTrue(SettingsSearchIndex.search("迷你 播放").any { it.id == "appearance.mini-player-style" })
         assertTrue(SettingsSearchIndex.search("睡眠", SettingsIndexSurface.PLAYER_MENU)
             .any { it.id == "player-menu.sleep-timer" })
