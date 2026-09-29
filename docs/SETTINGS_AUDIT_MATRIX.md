@@ -27,6 +27,7 @@
 | --- | --- | --- | --- | --- |
 | 主题模式 | `AppearancePreferences` / `theme_mode` | `MicaAppRoot`、`Theme.kt`；全局生效 | `ACTIVE` | 保留在“外观”首页 |
 | 强调色 | `AppearancePreferences` / `app_accent_color`、`custom_accent_color` | `MicaTheme.colors.accent`；`CUSTOM` 时额外读取自定义色 | `ACTIVE` | 自定义颜色作为该行详情，不单独占主页面 |
+| 应用图标 | 无 SharedPreferences；`LauncherIconController` 以 PackageManager 中 `activity-alias` 启用状态为唯一事实来源 | 桌面启动入口；manifest 默认启用 `.MainActivity`（晨曦），其余 6 个 alias 默认停用，切换时先启用目标再停用其余（`DONT_KILL_APP`） | `ACTIVE` | 真实 Activity 为 `MicaMainActivity`，默认 alias 保持 `.MainActivity` 组件名以兼容老版本桌面图标；各 OEM 桌面刷新、主屏图标保留与播放不中断仍需真机验收 |
 | 云母背景 | `AppearancePreferences` / `mica_background_preset`、`custom_mica_*` | `micaAppBackground()`、主题背景；`CUSTOM` 时额外读取自定义色 | `ACTIVE` | 与强调色合并为“颜色与背景” |
 | 自定义壁纸 | `AppearancePreferences` / `custom_wallpaper_path` | 主界面背景和设置页背景；播放页/歌词页有明确排除 | `ACTIVE` | 保留；恢复默认作为同一详情页动作 |
 | 隐藏状态栏 | `AppearancePreferences` / `status_bar_visibility_mode` | Activity 状态栏控制和播放页/非播放页顶部 inset | `ACTIVE` | 四档：关闭、仅播放页隐藏、仅非播放页隐藏、全部隐藏；旧 `hide_status_bar` 与 `immersive_player_status_bar` 兼容迁移为关闭/全部隐藏 |

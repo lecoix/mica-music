@@ -6,11 +6,20 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.LocalContext
 import com.mica.music.data.AppAccentColor
+import com.mica.music.data.AppLauncherIcon
 import com.mica.music.data.AppThemeMode
 import com.mica.music.data.AppUiSettings
 import com.mica.music.data.MiniPlayerStyle
@@ -24,6 +33,7 @@ import com.mica.music.ui.components.SettingsPairedDropdownRow
 import com.mica.music.ui.components.SettingsSectionTitle
 import com.mica.music.ui.components.SettingsSliderRow
 import com.mica.music.ui.screens.settings.color.formatAccentHex
+import com.mica.music.ui.system.LauncherIconController
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.MicaPreset
 import kotlinx.coroutines.launch
@@ -68,6 +78,8 @@ internal fun AppearanceSettingsPanel(
             }
         },
     )
+
+    LauncherIconSettingRow()
 
     SettingsChoiceRow(
         title = "云母背景",
@@ -127,6 +139,51 @@ internal fun AppearanceSettingsPanel(
         subtitle = "${uiSettings.miniPlayerStyle.settingsLabel} · 歌词与滑动手势",
         onClick = onOpenMiniPlayer,
     )
+}
+
+@Composable
+private fun LauncherIconSettingRow() {
+    val context = LocalContext.current
+    var currentIcon by remember { mutableStateOf(LauncherIconController.current(context)) }
+    var pendingIcon by remember { mutableStateOf<AppLauncherIcon?>(null) }
+
+    SettingsChoiceRow(
+        title = "应用图标",
+        modifier = settingsSearchAnchor("appearance.launcher-icon"),
+        subtitle = "桌面图标配色",
+        choices = LauncherIconChoices,
+        selectedValue = currentIcon.ordinal,
+        onSelect = { ordinal ->
+            val icon = AppLauncherIcon.entries[ordinal]
+            if (icon != currentIcon) pendingIcon = icon
+        },
+    )
+
+    pendingIcon?.let { icon ->
+        AlertDialog(
+            onDismissRequest = { pendingIcon = null },
+            shape = RectangleShape,
+            title = { Text("更换为「${icon.settingsLabel}」图标") },
+            text = {
+                Text(
+                    "桌面图标可能需要几秒才会刷新；部分桌面会移除主屏上的旧图标，" +
+                        "需要从应用列表重新添加。长按图标的快捷方式也可能需要重新添加。",
+                )
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingIcon = null }) { Text("取消") }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        LauncherIconController.apply(context, icon)
+                        currentIcon = LauncherIconController.current(context)
+                        pendingIcon = null
+                    },
+                ) { Text("更换") }
+            },
+        )
+    }
 }
 
 @Composable

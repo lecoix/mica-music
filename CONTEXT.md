@@ -126,7 +126,7 @@ App 侧队列列表变更的 owner 是 `PlaybackRuntime`（经 `PlayerController
 _Avoid_: `setQueue(playbackQueueState.queue + songs)`；删除路径入口 `currentQueue.filterNot`；假定存在跨线程队列写锁（未采用 C 方案 Mutex）
 
 **Library playback queue sync（曲库队列同步）**：
-曲库可见列表变化时，将播放队列与曲库对齐的**唯一编排入口**：`MainViewModel.syncPlaybackQueueWithLibrarySongs` → `LibraryPlaybackQueueCoordinator`（执行）+ `LibraryQueueSyncPolicy`（决策：bootstrap / bootstrap-only / 整队替换 / reconcile 按 id 移除 / 仅刷新元数据）。由 `MainActivity` 分别监听结构身份 `MusicLibrary.songIds` 与静态内容版本 `queueMetadataRevision`；后者排除播放次数、收听时长和最近播放时间，避免统计写回触发 MediaItem 刷新。同 ID 静态元数据通过 `replaceMediaItem` 增量写入服务，不重建权威队列。用户主动换队（点专辑、歌单、文件夹、「播放全部」）仍直接 `PlayerController.setQueue`，不经过此路径。追加到队尾用 `appendSongs`。App 内存队列写入服务仍走 `PlayerController` 内 `syncQueueToService`，与曲库同步分层。外部单曲/临时队列只有在 URI 权限可跨进程重启存续（MediaStore authority 或已持久化 grant）时才进入恢复快照；不可存续的临时队列不写 `ServicePlaybackStateStore`。
+曲库可见列表变化时，将播放队列与曲库对齐的**唯一编排入口**：`MainViewModel.syncPlaybackQueueWithLibrarySongs` → `LibraryPlaybackQueueCoordinator`（执行）+ `LibraryQueueSyncPolicy`（决策：bootstrap / bootstrap-only / 整队替换 / reconcile 按 id 移除 / 仅刷新元数据）。由 `MicaMainActivity` 分别监听结构身份 `MusicLibrary.songIds` 与静态内容版本 `queueMetadataRevision`；后者排除播放次数、收听时长和最近播放时间，避免统计写回触发 MediaItem 刷新。同 ID 静态元数据通过 `replaceMediaItem` 增量写入服务，不重建权威队列。用户主动换队（点专辑、歌单、文件夹、「播放全部」）仍直接 `PlayerController.setQueue`，不经过此路径。追加到队尾用 `appendSongs`。App 内存队列写入服务仍走 `PlayerController` 内 `syncQueueToService`，与曲库同步分层。外部单曲/临时队列只有在 URI 权限可跨进程重启存续（MediaStore authority 或已持久化 grant）时才进入恢复快照；不可存续的临时队列不写 `ServicePlaybackStateStore`。
 _Avoid_: 在 Composable / 扫描回调里对全库 `setQueue`、在 `init` 与 `LaunchedEffect` 各调一次 sync、用 `library.songs` 作 sync 触发键；reconcile 时对入口 `currentQueueIds` 快照按 index 删除
 
 **PlaybackQueueMode（播放模式）**：
@@ -405,7 +405,7 @@ _Avoid_: hero animation（无专名时）
 ## UI 播放适配层
 
 **Playback UI adapter（播放 UI 适配层）**：
-`MainActivity` / `AppNavigation` 中把 `PlayerController`、`AppUiSettings` 等 App 侧对象翻译成页面需要的 state/actions 的装配代码；它可以持有 `PlayerController`，但不承载播放业务规则。
+`MicaMainActivity` / `AppNavigation` 中把 `PlayerController`、`AppUiSettings` 等 App 侧对象翻译成页面需要的 state/actions 的装配代码；它可以持有 `PlayerController`，但不承载播放业务规则。
 _Avoid_: 把适配层拆成只有一个实现的 interface
 
 **HomePlaybackState**：
@@ -416,4 +416,4 @@ _Avoid_: 在列表组件里直接读取 `PlayerController.currentSong` / `isPlay
 主页输出到播放门面的最小动作集合：同步播放状态、插播下一首、替换播放队列、播放/暂停、下一首。主页子组件通过显式 action 触发播放，不直接接收 `PlayerController`。
 _Avoid_: 在 `HomeScreen`、`SongListPanel`、`LibrarySearchPanel`、`HomeBrowseContent` 中散落 `playerController.xxx()`
 
-播放页 UI 以 `PlaybackSurfaceState`、`PlaybackProgressState`、`PlaybackQueueState` 和 `NowPlayingActions` 为接口；主页 UI 以 `HomePlaybackState` 和 `HomePlaybackActions` 为接口。`PlayerSheetHost`、`NowPlayingScreen`、`HomeScreen`、歌曲列表和搜索面板不得直接接收 `PlayerController`；`AppNavigation` 和 `MainActivity` 作为装配层例外。
+播放页 UI 以 `PlaybackSurfaceState`、`PlaybackProgressState`、`PlaybackQueueState` 和 `NowPlayingActions` 为接口；主页 UI 以 `HomePlaybackState` 和 `HomePlaybackActions` 为接口。`PlayerSheetHost`、`NowPlayingScreen`、`HomeScreen`、歌曲列表和搜索面板不得直接接收 `PlayerController`；`AppNavigation` 和 `MicaMainActivity` 作为装配层例外。

@@ -22,7 +22,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.ShuffleOrder
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
-import com.mica.music.MainActivity
+import com.mica.music.MicaMainActivity
 import com.mica.music.MicaApp
 import com.mica.music.isExternalAudioUriRestorableNow
 import com.mica.music.data.TransientPlaybackCatalog
@@ -848,7 +848,7 @@ class MicaMediaService : MediaSessionService() {
     }
 
     private fun createSessionActivityPendingIntent(): PendingIntent {
-        val intent = Intent(this, MainActivity::class.java)
+        val intent = Intent(this, MicaMainActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         return PendingIntent.getActivity(
             this,

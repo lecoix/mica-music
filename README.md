@@ -87,7 +87,7 @@ Windows PowerShell 5.1 若看到中文乱码，先在当前会话启用 UTF-8：
 │   ├── COVER_FLOW_IMPLEMENTATION.md
 │   └── …
 └── app/src/main/java/com/mica/music/
-    ├── MainActivity.kt     # BlurTarget + 双 ComposeView
+    ├── MicaMainActivity.kt     # BlurTarget + 双 ComposeView
     ├── audio/              # 跨层共享的音频值模型/常量
     ├── data/               # 曲库、Room、偏好与持久化
     ├── playback/           # App 侧播放 facade/runtime/coordinators

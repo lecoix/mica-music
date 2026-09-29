@@ -35,7 +35,7 @@ $gradle = Join-Path $root "gradlew.bat"
 $apk = Join-Path $root "app\build\outputs\apk\debug\app-debug.apk"
 $metadataPath = Join-Path $root "app\build\outputs\apk\debug\output-metadata.json"
 $packageName = "com.mica.music.qa"
-$activity = "$packageName/com.mica.music.MainActivity"
+$activity = "$packageName/com.mica.music.MicaMainActivity"
 $receiver = "$packageName/com.mica.music.media.usbprototype.UsbSk02DescriptorPrototypeReceiver"
 $tag = "MicaUsbPrototype"
 if ($RunStamp -and $RunStamp -notmatch '^\d{8}-\d{6}$') {

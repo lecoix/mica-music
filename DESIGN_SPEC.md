@@ -277,7 +277,7 @@
 
 **现网（浮岛迷你栏 `FLOATING_ISLAND`）**
 
-- `MicaMaterialBackdrop`（`MicaMaterialCard.kt`）+ `MainActivity` 双 `ComposeView` / `BlurTarget` 兄弟结构。
+- `MicaMaterialBackdrop`（`MicaMaterialCard.kt`）+ `MicaMainActivity` 双 `ComposeView` / `BlurTarget` 兄弟结构。
 - 顶 hairline + tint；极简 Hi‑Fi（`AUDIOPHILE`）为不透明通栏，未接 blur。
 - **参数与视觉目标的差距**（`MiniPlayer.kt` 有意压低 blur 以保性能/可读性）：
 

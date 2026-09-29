@@ -14,7 +14,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import com.mica.music.MainActivity
+import com.mica.music.MicaMainActivity
 import com.mica.music.data.preferences.UsageTutorialPreferences
 import org.junit.After
 import org.junit.Assert.assertTrue
@@ -27,7 +27,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * Real MainActivity flow smoke.
+ * Real MicaMainActivity flow smoke.
  *
  * This deliberately runs only against the side-by-side QA application id so it cannot
  * consume or rewrite the user's ordinary Mica preferences while navigating the real UI.
@@ -38,7 +38,7 @@ class MainActivitySettingsFlowTest {
     @get:Rule
     val compose = createEmptyComposeRule()
 
-    private lateinit var qaActivity: MainActivity
+    private lateinit var qaActivity: MicaMainActivity
     private var lifecycleCallbacks: Application.ActivityLifecycleCallbacks? = null
 
     @Before
@@ -59,13 +59,13 @@ class MainActivitySettingsFlowTest {
         }
 
         val application = context.applicationContext as Application
-        val resumedActivity = AtomicReference<MainActivity?>()
+        val resumedActivity = AtomicReference<MicaMainActivity?>()
         val resumedLatch = CountDownLatch(1)
         val callbacks = object : Application.ActivityLifecycleCallbacks {
             override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
             override fun onActivityStarted(activity: Activity) = Unit
             override fun onActivityResumed(activity: Activity) {
-                if (activity is MainActivity) {
+                if (activity is MicaMainActivity) {
                     resumedActivity.set(activity)
                     resumedLatch.countDown()
                 }
@@ -81,7 +81,7 @@ class MainActivitySettingsFlowTest {
         // ActivityScenario uses Instrumentation.startActivitySync(), which can hang on MIUI 13 /
         // Android 12 even though the same explicit QA activity starts normally from shell.
         // Launch through UiAutomation's shell identity while keeping the real activity and Compose UI.
-        val component = "${context.packageName}/${MainActivity::class.java.name}"
+        val component = "${context.packageName}/${MicaMainActivity::class.java.name}"
         val shellOutput = instrumentation.uiAutomation
             .executeShellCommand("am start -W -f 0x10008000 -n $component")
             .let { descriptor ->
@@ -89,9 +89,9 @@ class MainActivitySettingsFlowTest {
                     .bufferedReader()
                     .use { it.readText() }
             }
-        assertTrue("QA MainActivity shell launch failed: $shellOutput", shellOutput.contains("Status: ok"))
+        assertTrue("QA MicaMainActivity shell launch failed: $shellOutput", shellOutput.contains("Status: ok"))
         assertTrue(
-            "QA MainActivity did not reach RESUMED; shell=$shellOutput",
+            "QA MicaMainActivity did not reach RESUMED; shell=$shellOutput",
             resumedLatch.await(10, TimeUnit.SECONDS),
         )
         qaActivity = checkNotNull(resumedActivity.get())

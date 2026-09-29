@@ -2,6 +2,7 @@ package com.mica.music.ui.screens.settings
 
 import com.mica.music.data.AppAccentColor
 import com.mica.music.data.AppFontSource
+import com.mica.music.data.AppLauncherIcon
 import com.mica.music.data.AppThemeMode
 import com.mica.music.data.CompactLyricsLineMode
 import com.mica.music.data.CoverDisplayMode
@@ -86,6 +87,10 @@ internal val MiniPlayerSwipeActionChoices = MiniPlayerSwipeAction.entries.map {
 }
 
 internal val AccentColorChoices = AppAccentColor.entries.map {
+    it.ordinal to it.settingsLabel
+}
+
+internal val LauncherIconChoices = AppLauncherIcon.entries.map {
     it.ordinal to it.settingsLabel
 }
 

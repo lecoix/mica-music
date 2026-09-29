@@ -29,11 +29,11 @@ class MainActivityRobolectricTest {
     @Test
     @Config(sdk = [34])
     fun savedStateCanBeUsedForRecreation() {
-        val first = Robolectric.buildActivity(MainActivity::class.java).create()
+        val first = Robolectric.buildActivity(MicaMainActivity::class.java).create()
         val state = Bundle()
         first.saveInstanceState(state).destroy()
 
-        Robolectric.buildActivity(MainActivity::class.java)
+        Robolectric.buildActivity(MicaMainActivity::class.java)
             .create(state)
             .destroy()
     }
@@ -46,13 +46,13 @@ class MainActivityRobolectricTest {
             putString("locate_request", "invalid")
         }
 
-        Robolectric.buildActivity(MainActivity::class.java)
+        Robolectric.buildActivity(MicaMainActivity::class.java)
             .create(state)
             .destroy()
     }
 
     private fun createAndDestroy() {
-        Robolectric.buildActivity(MainActivity::class.java)
+        Robolectric.buildActivity(MicaMainActivity::class.java)
             .create()
             .destroy()
     }

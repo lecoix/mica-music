@@ -67,6 +67,7 @@ internal object SettingsSearchIndex {
     val entries: List<SettingsIndexEntry> = listOf(
         setting("appearance.theme", "主题", "主题模式", "浅色", "深色"),
         setting("appearance.accent", "强调色", "颜色", "自定义颜色", "动态取色"),
+        setting("appearance.launcher-icon", "应用图标", "图标", "桌面图标", "启动图标", "图标颜色"),
         setting("appearance.mica-background", "云母背景", "背景", "渐变", "自定义背景"),
         setting("appearance.wallpaper", "自定义壁纸", "壁纸", "主界面背景"),
         setting("appearance.wallpaper-overlay", "壁纸遮罩强度", "壁纸", "遮罩", "透明度", availability = "请先选择自定义壁纸"),

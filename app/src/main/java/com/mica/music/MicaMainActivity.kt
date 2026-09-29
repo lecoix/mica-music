@@ -92,7 +92,7 @@ internal fun MainAppSurface(
     }
 }
 
-class MainActivity : ComponentActivity(), LyricoTagEditorHost {
+class MicaMainActivity : ComponentActivity(), LyricoTagEditorHost {
 
     override fun onStart() {
         super.onStart()
@@ -288,7 +288,7 @@ override fun onConfigurationChanged(newConfig: Configuration) {
                 LaunchedEffect(Unit) {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                         val granted = ContextCompat.checkSelfPermission(
-                            this@MainActivity,
+                            this@MicaMainActivity,
                             Manifest.permission.POST_NOTIFICATIONS,
                         ) == PackageManager.PERMISSION_GRANTED
                         if (!granted) {
@@ -423,7 +423,7 @@ override fun onConfigurationChanged(newConfig: Configuration) {
         externalAudioOpenJob = lifecycleScope.launch {
             val song = withContext(Dispatchers.IO) {
                 ExternalAudioSongResolver.resolve(
-                    context = this@MainActivity,
+                    context = this@MicaMainActivity,
                     request = request,
                     librarySongs = viewModel.library.songs,
                     transientCatalog = transientCatalog,
@@ -435,7 +435,7 @@ override fun onConfigurationChanged(newConfig: Configuration) {
                     "unreadable uri=${request.uri} mime=${request.mimeType.orEmpty()}",
                 )
                 android.widget.Toast.makeText(
-                    this@MainActivity,
+                    this@MicaMainActivity,
                     "无法读取所选音乐文件",
                     android.widget.Toast.LENGTH_SHORT,
                 ).show()

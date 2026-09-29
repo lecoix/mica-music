@@ -34,7 +34,7 @@ Write-Host ">> Install side-by-side QA APK on $Serial..." -ForegroundColor Cyan
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 # MIUI suppresses an exported receiver until the newly installed package has been launched once.
-& $adb -s $Serial shell am start -n "$packageName/com.mica.music.MainActivity" | Out-Host
+& $adb -s $Serial shell am start -n "$packageName/com.mica.music.MicaMainActivity" | Out-Host
 Start-Sleep -Seconds 1
 
 & $adb -s $Serial logcat -c

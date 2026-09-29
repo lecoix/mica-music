@@ -29,13 +29,13 @@
   - `ui/motion/` — `MicaMotion.kt`
   - `widget/` — Glance 桌面播放小组件（自适应 / 大封面 / 四宫格）
 - `app/src/test/java/.../player/` — `CoverFlowRailsTest`, `PlayerPageLayoutEngineTest`, …
-- `MainActivity.kt` — **双 `ComposeView`**：`BlurTarget` 包裹主内容 + 底部 overlay（迷你栏 BlurView）
+- `MicaMainActivity.kt` — **双 `ComposeView`**：`BlurTarget` 包裹主内容 + 底部 overlay（迷你栏 BlurView）
 
 ## Playback UI boundaries
 
 - **播放页：** `PlaybackSurfaceState` / `PlaybackProgressState` / `PlaybackQueueState` + `NowPlayingActions`（`PlayerSheetHost` / `NowPlayingScreen` 不得直接收 `PlayerController`）
 - **主页 / 列表：** `HomePlaybackState` + `HomePlaybackActions`（`HomeScreen`、搜索与列表组件同上）
-- **装配层例外：** `MainActivity` / `AppNavigation` 持有 `PlayerController` 并翻译 state/actions
+- **装配层例外：** `MicaMainActivity` / `AppNavigation` 持有 `PlayerController` 并翻译 state/actions
 - **状态所有权：** `PlayerController` 只做 Compose/UI facade；`PlaybackRuntime` 持有 connection/listener 与 playback application coordination，内部队列 / 时间轴 / 调音由 `Playback*Coordinator` 收口；`PlaybackConnectionSession` 用连接 generation 拒绝旧连接回调，陈旧队列镜像不会覆盖新状态
 - **冷启动恢复：** `ServicePlaybackStateStore` + `PlayerController.bootstrapQueue()`（service_wins）；`PlaybackSessionStore` 仅补 shuffle 等 App 偏好
 
