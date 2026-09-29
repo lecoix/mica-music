@@ -15,6 +15,7 @@ internal fun SettingsCategoryList(
     onSelectCategory: (SettingsCategory) -> Unit,
     onOpenUsageTutorial: () -> Unit,
     onOpenEqualizer: () -> Unit = {},
+    onOpenSearchEntry: ((SettingsIndexEntry) -> Unit)? = null,
 ) {
     if (query.isBlank()) {
         SettingsSectionTitle("浏览设置")
@@ -43,7 +44,10 @@ internal fun SettingsCategoryList(
                 SettingsNavigationRow(
                     title = entry.title,
                     subtitle = entry.searchSubtitle(),
-                    onClick = { entry.navigateFromSettingsRoot(onSelectCategory, onOpenUsageTutorial, onOpenEqualizer) },
+                    onClick = {
+                        if (onOpenSearchEntry != null) onOpenSearchEntry(entry)
+                        else entry.navigateFromSettingsRoot(onSelectCategory, onOpenUsageTutorial, onOpenEqualizer)
+                    },
                 )
             }
         }

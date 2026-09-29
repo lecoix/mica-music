@@ -17,6 +17,7 @@ import com.mica.music.data.MiniPlayerStyle
 import com.mica.music.data.MiniPlayerSwipeAction
 import com.mica.music.data.PlaylistSidebarStyle
 import com.mica.music.data.StatusBarVisibilityMode
+import com.mica.music.ui.components.SettingsNavigationRow
 import com.mica.music.ui.components.SettingsActionRow
 import com.mica.music.ui.components.SettingsChoiceRow
 import com.mica.music.ui.components.SettingsPairedDropdownRow
@@ -32,29 +33,14 @@ internal fun AppearanceSettingsPanel(
     uiSettings: AppUiSettings,
     onShowCustomAccentDialog: () -> Unit,
     onShowCustomMicaDialog: () -> Unit,
-    onShowCustomWallpaperCrop: () -> Unit,
+    onOpenWallpaper: () -> Unit,
+    onOpenMiniPlayer: () -> Unit,
 ) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val wallpaperPicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia(),
-    ) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        scope.launch {
-            val result = uiSettings.prepareCustomWallpaper(uri)
-            if (result.applied) {
-                onShowCustomWallpaperCrop()
-            }
-            if (result.message.isNotEmpty()) {
-                Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-
     SettingsSectionTitle("外观与主题")
 
     SettingsChoiceRow(
         title = "主题",
+        modifier = settingsSearchAnchor("appearance.theme"),
         choices = ThemeChoices,
         selectedValue = uiSettings.themeMode.ordinal,
         onSelect = { ordinal ->
@@ -65,6 +51,7 @@ internal fun AppearanceSettingsPanel(
 
     SettingsChoiceRow(
         title = "强调色",
+        modifier = settingsSearchAnchor("appearance.accent"),
         subtitle = if (uiSettings.accentColor == AppAccentColor.CUSTOM) {
             "自定义：${formatAccentHex(uiSettings.customAccentColorArgb)}"
         } else {
@@ -84,6 +71,7 @@ internal fun AppearanceSettingsPanel(
 
     SettingsChoiceRow(
         title = "云母背景",
+        modifier = settingsSearchAnchor("appearance.mica-background"),
         subtitle = when {
             uiSettings.micaBackgroundPreset == MicaPreset.CUSTOM && uiSettings.customMicaSingleColor -> {
                 "自定义：${formatAccentHex(uiSettings.customMicaStartArgb)}"
@@ -106,8 +94,66 @@ internal fun AppearanceSettingsPanel(
         },
     )
 
+    SettingsNavigationRow(
+        title = "壁纸",
+        subtitle = if (uiSettings.customWallpaperPath == null) "默认云母背景" else "自定义图片 · 裁切、遮罩与模糊",
+        onClick = onOpenWallpaper,
+    )
+
+    SettingsChoiceRow(
+        title = "侧栏歌单样式",
+        modifier = settingsSearchAnchor("appearance.playlist-sidebar-style"),
+        subtitle = "直接显示歌单，或进入歌单总览",
+        choices = PlaylistSidebarStyleChoices,
+        selectedValue = uiSettings.playlistSidebarStyle.ordinal,
+        onSelect = { ordinal ->
+            uiSettings.updatePlaylistSidebarStyle(PlaylistSidebarStyle.entries[ordinal])
+        },
+    )
+
+    SettingsChoiceRow(
+        title = "隐藏状态栏",
+        modifier = settingsSearchAnchor("appearance.hide-status-bar"),
+        subtitle = "隐藏后可从顶部下滑临时唤出",
+        choices = StatusBarVisibilityModeChoices,
+        selectedValue = uiSettings.statusBarVisibilityMode.ordinal,
+        onSelect = { ordinal ->
+            uiSettings.updateStatusBarVisibilityMode(StatusBarVisibilityMode.entries[ordinal])
+        },
+    )
+
+    SettingsNavigationRow(
+        title = "迷你播放栏",
+        subtitle = "${uiSettings.miniPlayerStyle.settingsLabel} · 歌词与滑动手势",
+        onClick = onOpenMiniPlayer,
+    )
+}
+
+@Composable
+internal fun WallpaperSettingsPanel(
+    uiSettings: AppUiSettings,
+    onShowCustomWallpaperCrop: () -> Unit,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val wallpaperPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val result = uiSettings.prepareCustomWallpaper(uri)
+            if (result.applied) {
+                onShowCustomWallpaperCrop()
+            }
+            if (result.message.isNotEmpty()) {
+                Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     SettingsActionRow(
         title = "自定义壁纸",
+        modifier = settingsSearchAnchor("appearance.wallpaper"),
         subtitle = if (uiSettings.customWallpaperPath == null) {
             "选择并裁切图片"
         } else {
@@ -123,6 +169,7 @@ internal fun AppearanceSettingsPanel(
     if (uiSettings.customWallpaperPath != null) {
         SettingsSliderRow(
             title = "壁纸遮罩强度",
+            modifier = settingsSearchAnchor("appearance.wallpaper-overlay"),
             subtitle = "同时作用于浅色和深色主题",
             value = uiSettings.customWallpaperOverlayPercent,
             valueRange = 0..100,
@@ -132,6 +179,7 @@ internal fun AppearanceSettingsPanel(
 
         SettingsSliderRow(
             title = "壁纸模糊度",
+            modifier = settingsSearchAnchor("appearance.wallpaper-blur"),
             subtitle = "0dp 为关闭",
             value = uiSettings.customWallpaperBlurDp,
             valueRange = 0..32,
@@ -141,6 +189,7 @@ internal fun AppearanceSettingsPanel(
 
         SettingsActionRow(
             title = "调整壁纸裁切",
+            modifier = settingsSearchAnchor("appearance.wallpaper-crop"),
             subtitle = "拖动移动 · 双指缩放",
             onClick = onShowCustomWallpaperCrop,
         )
@@ -148,6 +197,7 @@ internal fun AppearanceSettingsPanel(
 
     SettingsActionRow(
         title = "恢复默认壁纸",
+        modifier = settingsSearchAnchor("appearance.restore-wallpaper"),
         enabled = uiSettings.customWallpaperPath != null,
         onClick = {
             scope.launch {
@@ -157,32 +207,17 @@ internal fun AppearanceSettingsPanel(
         },
     )
 
-    SettingsChoiceRow(
-        title = "侧栏歌单样式",
-        subtitle = "直接显示歌单，或进入歌单总览",
-        choices = PlaylistSidebarStyleChoices,
-        selectedValue = uiSettings.playlistSidebarStyle.ordinal,
-        onSelect = { ordinal ->
-            uiSettings.updatePlaylistSidebarStyle(PlaylistSidebarStyle.entries[ordinal])
-        },
-    )
+}
 
-    SettingsChoiceRow(
-        title = "隐藏状态栏",
-        subtitle = "隐藏后可从顶部下滑临时唤出",
-        choices = StatusBarVisibilityModeChoices,
-        selectedValue = uiSettings.statusBarVisibilityMode.ordinal,
-        onSelect = { ordinal ->
-            uiSettings.updateStatusBarVisibilityMode(StatusBarVisibilityMode.entries[ordinal])
-        },
-    )
-
+@Composable
+internal fun MiniPlayerSettingsPanel(uiSettings: AppUiSettings) {
     Spacer(Modifier.height(HifiSpacing.lg))
 
     SettingsSectionTitle("迷你播放")
 
     SettingsChoiceRow(
         title = "迷你播放栏",
+        modifier = settingsSearchAnchor("appearance.mini-player-style"),
         choices = MiniPlayerStyleChoices,
         selectedValue = uiSettings.miniPlayerStyle.ordinal,
         onSelect = { ordinal ->
@@ -197,6 +232,7 @@ internal fun AppearanceSettingsPanel(
     }
     SettingsChoiceRow(
         title = "迷你播放栏歌词",
+        modifier = settingsSearchAnchor("appearance.mini-player-lyrics"),
         subtitle = if (miniLyricsMode == 2) "仅原文；无逐字时间轴时显示整行" else null,
         choices = MiniPlayerLyricsModeChoices,
         selectedValue = miniLyricsMode,
@@ -227,6 +263,7 @@ internal fun AppearanceSettingsPanel(
     }
     SettingsPairedDropdownRow(
         title = "滑动切歌",
+        modifier = settingsSearchAnchor("appearance.mini-player-swipe"),
         choices = MiniPlayerSwipeActionChoices,
         leftTitle = "左滑",
         leftSelectedValue = effectiveLeftSwipeAction.ordinal,

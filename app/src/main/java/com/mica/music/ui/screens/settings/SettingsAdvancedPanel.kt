@@ -25,6 +25,7 @@ internal fun DiagnosticsSettingsPanel(
 
     SettingsToggleRow(
         title = "音频硬件卸载（Offload）",
+        modifier = settingsSearchAnchor("diagnostics.audio-offload"),
         subtitle = when (audioOffloadState.disabledReason) {
             AudioOffloadDisabledReason.BUILT_IN_DENYLIST ->
                 "当前设备与系统存在已知兼容问题，已默认关闭；重新开启将忽略内置保护并再次尝试。"
@@ -44,6 +45,7 @@ internal fun DiagnosticsSettingsPanel(
     SettingsSectionTitle("详细诊断")
     SettingsToggleRow(
         title = "详细诊断总开关",
+        modifier = settingsSearchAnchor("diagnostics.detailed"),
         subtitle = "默认关闭；开启后只记录下方选中的领域，会增加日志写入与少量耗电。崩溃、带异常的错误和关键故障事件不受此开关影响。",
         checked = detailedDiagnostics.enabled,
         onCheckedChange = { onDetailedDiagnosticsChanged(detailedDiagnostics.copy(enabled = it)) },
@@ -83,6 +85,7 @@ internal fun DiagnosticsSettingsPanel(
 
     SettingsActionRow(
         title = "元数据调试",
+        modifier = settingsSearchAnchor("diagnostics.metadata"),
         subtitle = "查看标签与各解析器结果",
         onClick = onOpenMetadataDebug,
         enabled = hasSongs,
@@ -90,12 +93,14 @@ internal fun DiagnosticsSettingsPanel(
 
     SettingsNavigationRow(
         title = "系统空间音频",
+        modifier = settingsSearchAnchor("diagnostics.spatial-audio"),
         subtitle = "查看 Spatializer、输出能力与头部跟踪",
         onClick = onOpenSpatialAudio,
     )
 
     SettingsActionRow(
         title = "系统权限与应用信息",
+        modifier = settingsSearchAnchor("diagnostics.app-settings"),
         onClick = onOpenAppSettings,
     )
 }

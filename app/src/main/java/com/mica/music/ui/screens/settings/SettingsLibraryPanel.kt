@@ -30,6 +30,7 @@ internal fun LibraryScanSettingsPanel(
 
     SettingsToggleRow(
         title = "在侧栏显示远程曲库",
+        modifier = settingsSearchAnchor("library.remote-sidebar"),
         subtitle = "关闭后仍可在此管理来源",
         checked = remoteLibrarySidebarEnabled,
         onCheckedChange = onRemoteLibrarySidebarEnabledChange,
@@ -37,6 +38,7 @@ internal fun LibraryScanSettingsPanel(
 
     SettingsActionRow(
         title = "远程曲库",
+        modifier = settingsSearchAnchor("library.remote"),
         subtitle = "Navidrome / OpenSubsonic、WebDAV、SMB",
         onClick = onOpenRemoteMusic,
         enabled = !library.isUserVisibleScanning,
@@ -46,6 +48,7 @@ internal fun LibraryScanSettingsPanel(
 
     SettingsActionRow(
         title = "曲库文件夹",
+        modifier = settingsSearchAnchor("library.folder"),
         subtitle = library.scanLibraryFolderLabel?.let { label ->
             if (library.libraryFolderLabel != null && library.libraryFolderLabel != label) {
                 "待切换：$label · 当前：${library.libraryFolderLabel}"
@@ -59,6 +62,7 @@ internal fun LibraryScanSettingsPanel(
 
     SettingsActionRow(
         title = "重新扫描曲库",
+        modifier = settingsSearchAnchor("library.rescan"),
         subtitle = when {
             library.isUserVisibleScanning -> library.scanProgressLabel ?: "扫描中…"
             library.hasLibraryFolder() && !library.hasAudioReadPermission() ->
@@ -74,6 +78,7 @@ internal fun LibraryScanSettingsPanel(
 
     SettingsActionRow(
         title = "扫描系统音乐库",
+        modifier = settingsSearchAnchor("library.scan-all"),
         subtitle = "读取系统已收录的音乐 · 缺少歌曲时请选择曲库文件夹",
         onClick = onScanAllMusic,
         enabled = !library.isUserVisibleScanning,
@@ -81,6 +86,7 @@ internal fun LibraryScanSettingsPanel(
 
     SettingsActionRow(
         title = "排除目录",
+        modifier = settingsSearchAnchor("library.excluded-directories"),
         subtitle = if (excludedDirectories.isEmpty()) {
             "未排除目录 · 从已扫描文件夹中选择"
         } else {
@@ -93,6 +99,7 @@ internal fun LibraryScanSettingsPanel(
 
     SettingsChoiceRow(
         title = "最短曲目时长",
+        modifier = settingsSearchAnchor("library.min-duration"),
         subtitle = "过滤铃声、提示音等短音频",
         choices = DurationChoices,
         selectedValue = minDurationSec,
@@ -103,6 +110,7 @@ internal fun LibraryScanSettingsPanel(
 
     SettingsToggleRow(
         title = "深度分析音质与封面",
+        modifier = settingsSearchAnchor("library.deep-probe"),
         subtitle = "获取更多音频与封面信息，但扫描更慢、更耗电",
         checked = deepProbe,
         onCheckedChange = onDeepProbeChange,
@@ -112,6 +120,7 @@ internal fun LibraryScanSettingsPanel(
 
     SettingsActionRow(
         title = "艺术家分割",
+        modifier = settingsSearchAnchor("library.artist-split"),
         subtitle = "已启用 ${artistSplitConfig.enabledSeparators.size} 项 · " +
             "白名单 ${artistSplitConfig.whitelist.size} 位",
         onClick = onEditArtistSplit,

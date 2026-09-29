@@ -69,9 +69,9 @@ internal object SettingsSearchIndex {
         setting("appearance.accent", "强调色", "颜色", "自定义颜色", "动态取色"),
         setting("appearance.mica-background", "云母背景", "背景", "渐变", "自定义背景"),
         setting("appearance.wallpaper", "自定义壁纸", "壁纸", "主界面背景"),
-        setting("appearance.wallpaper-overlay", "壁纸遮罩强度", "壁纸", "遮罩", "透明度"),
-        setting("appearance.wallpaper-blur", "壁纸模糊度", "壁纸", "模糊", "清晰度"),
-        setting("appearance.wallpaper-crop", "调整壁纸裁切", "壁纸", "裁切", "缩放", "拖动"),
+        setting("appearance.wallpaper-overlay", "壁纸遮罩强度", "壁纸", "遮罩", "透明度", availability = "请先选择自定义壁纸"),
+        setting("appearance.wallpaper-blur", "壁纸模糊度", "壁纸", "模糊", "清晰度", availability = "请先选择自定义壁纸"),
+        setting("appearance.wallpaper-crop", "调整壁纸裁切", "壁纸", "裁切", "缩放", "拖动", availability = "请先选择自定义壁纸"),
         setting("appearance.restore-wallpaper", "恢复默认壁纸", "壁纸", "恢复", "云母背景"),
         setting(
             "appearance.hide-status-bar",
@@ -133,6 +133,7 @@ internal object SettingsSearchIndex {
         setting("lyrics.color", "歌词颜色", "颜色", "浅色", "深色", category = SettingsCategory.LYRICS, section = SettingsIndexSections.LYRICS_GENERAL),
         setting("lyrics.info-row", "信息行歌词", "歌词输出", "歌曲列表", "关闭", "整行", "逐字", category = SettingsCategory.LYRICS, section = SettingsIndexSections.LYRICS_OUTPUT),
         setting("lyrics.global-offset", "全局歌词偏移", "歌词同步", "提前", "延后", "微调", category = SettingsCategory.LYRICS, section = SettingsIndexSections.LYRICS_GENERAL),
+        setting("lyrics.lyricon", "词幕歌词", "Lyricon", "逐字", "翻译", "罗马音", category = SettingsCategory.LYRICS, section = SettingsIndexSections.LYRICS_OUTPUT),
         setting("lyrics.notification", "通知栏歌词", "通知", "媒体通知", "车载蓝牙", "车机", category = SettingsCategory.LYRICS, section = SettingsIndexSections.LYRICS_OUTPUT, availability = "车载蓝牙兼容为实验功能；与通知栏歌词共用开关；受系统通知和媒体会话条件影响"),
         setting(
             "lyrics.external",

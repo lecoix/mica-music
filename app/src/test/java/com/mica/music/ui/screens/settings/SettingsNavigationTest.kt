@@ -8,6 +8,24 @@ import org.junit.Test
 
 class SettingsNavigationTest {
     @Test
+    fun searchResolvesNestedPagesWithoutChangingCategory() {
+        val destinations = mapOf(
+            "appearance.wallpaper-blur" to SettingsDetailPage.WALLPAPER,
+            "appearance.restore-wallpaper" to SettingsDetailPage.WALLPAPER,
+            "appearance.mini-player-lyrics" to SettingsDetailPage.MINI_PLAYER,
+            "playback.info-custom-text" to SettingsDetailPage.PLAYER_INFO,
+            "playback.hires-badge" to SettingsDetailPage.PLAYER_INFO,
+            "audio.usb-exclusive" to SettingsDetailPage.USB,
+            "library.remote" to SettingsDetailPage.REMOTE,
+            "lyrics.external" to SettingsDetailPage.EXTERNAL_LYRICS,
+        )
+        destinations.forEach { (id, page) ->
+            assertEquals(id, page, SettingsSearchIndex.entries.first { it.id == id }.detailPage())
+        }
+        assertNull(SettingsSearchIndex.entries.first { it.id == "lyrics.lyricon" }.detailPage())
+    }
+
+    @Test
     fun canSettingsSubpageBackFalseAtRoot() {
         assertFalse(canSettingsSubpageBack(null, playerOverlayOpen = false))
     }

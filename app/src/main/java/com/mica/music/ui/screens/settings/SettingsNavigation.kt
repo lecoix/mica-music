@@ -1,5 +1,25 @@
 package com.mica.music.ui.screens.settings
 
+internal enum class SettingsDetailPage(val title: String) {
+    WALLPAPER("壁纸"),
+    MINI_PLAYER("迷你播放栏"),
+    PLAYER_INFO("信息行"),
+    USB("USB 独占输出"),
+    REMOTE("远程曲库"),
+    EXTERNAL_LYRICS("外部歌词"),
+}
+
+/** Stable search IDs also determine the destination; no preference is changed by navigation. */
+internal fun SettingsIndexEntry.detailPage(): SettingsDetailPage? = when {
+    id.startsWith("appearance.wallpaper") || id == "appearance.restore-wallpaper" -> SettingsDetailPage.WALLPAPER
+    target.sectionId == SettingsIndexSections.MINI_PLAYER -> SettingsDetailPage.MINI_PLAYER
+    target.sectionId == SettingsIndexSections.PLAYBACK_INFO -> SettingsDetailPage.PLAYER_INFO
+    id == "audio.usb-exclusive" -> SettingsDetailPage.USB
+    id == "library.remote" -> SettingsDetailPage.REMOTE
+    id == "lyrics.external" -> SettingsDetailPage.EXTERNAL_LYRICS
+    else -> null
+}
+
 /** 设置子页系统返回是否应由 Settings 消费（而非交给外层导航）。 */
 internal fun canSettingsSubpageBack(
     selectedCategory: SettingsCategory?,

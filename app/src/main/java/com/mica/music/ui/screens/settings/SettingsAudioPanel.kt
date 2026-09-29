@@ -52,6 +52,7 @@ internal fun AudioSettingsPanel(
     SettingsSectionTitle("音频标准化")
     SettingsChoiceRow(
         title = "ReplayGain",
+        modifier = settingsSearchAnchor("audio.replaygain"),
         subtitle = "优先文件标签；缺失时使用 Mica 响度分析",
         choices = ReplayGainChoices,
         selectedValue = replayGainMode.ordinal,
@@ -62,6 +63,7 @@ internal fun AudioSettingsPanel(
     )
     SettingsActionRow(
         title = if (loudnessScan.running) "正在扫描曲库响度" else "扫描曲库响度",
+        modifier = settingsSearchAnchor("audio.loudness-scan"),
         subtitle = when {
             loudnessScan.running -> buildString {
                 append(loudnessScan.progressLabel)
@@ -82,6 +84,7 @@ internal fun AudioSettingsPanel(
     SettingsSectionTitle("声道处理")
     SettingsSliderRow(
         title = "左右声道平衡",
+        modifier = settingsSearchAnchor("audio.channel-balance"),
         subtitle = "仅 Shared PCM 生效",
         value = channelBalancePercent,
         valueRange = ChannelBalancePreferences.MIN_PERCENT..ChannelBalancePreferences.MAX_PERCENT,
@@ -93,6 +96,7 @@ internal fun AudioSettingsPanel(
     )
     SettingsNavigationRow(
         title = "音效实验室",
+        modifier = settingsSearchAnchor("audio.sound-fx"),
         subtitle = "立体声宽度、音色、混响与 360° 环绕",
         onClick = onOpenSoundFx,
     )
@@ -100,12 +104,14 @@ internal fun AudioSettingsPanel(
     SettingsSectionTitle("播放行为")
     SettingsToggleRow(
         title = "启动时自动播放",
+        modifier = settingsSearchAnchor("audio.auto-play-on-launch"),
         subtitle = "打开应用后从上次队列继续播放；回到前台不会再触发",
         checked = uiSettings.autoPlayOnLaunch,
         onCheckedChange = uiSettings::updateAutoPlayOnLaunch,
     )
     SettingsToggleRow(
         title = "独占音频焦点",
+        modifier = settingsSearchAnchor("audio.focus"),
         subtitle = "开启时播放会让其他应用暂停；关闭后允许与其他应用一起播放",
         checked = uiSettings.audioFocusEnabled,
         onCheckedChange = { uiSettings.updateAudioFocusEnabled(it) },
@@ -114,6 +120,7 @@ internal fun AudioSettingsPanel(
     SettingsSectionTitle("USB 输出")
     SettingsNavigationRow(
         title = "USB 独占输出",
+        modifier = settingsSearchAnchor("audio.usb-exclusive"),
         subtitle = UsbHybridSettingsPresentation.entrySummary(usbFacts, usbMode),
         onClick = onOpenUsbExclusive,
     )

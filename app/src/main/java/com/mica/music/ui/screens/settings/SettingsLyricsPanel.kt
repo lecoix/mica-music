@@ -80,6 +80,7 @@ internal fun LyricsSettingsPanel(
 
     SettingsChoiceRow(
         title = "歌词页主题",
+        modifier = settingsSearchAnchor("lyrics.theme"),
         subtitle = "歌词云与信笺会隐藏播放控件",
         choices = LyricsPageThemeChoices,
         selectedValue = uiSettings.lyricsPageTheme.ordinal,
@@ -90,6 +91,7 @@ internal fun LyricsSettingsPanel(
 
     SettingsDropdownRow(
         title = "歌词优先级",
+        modifier = settingsSearchAnchor("lyrics.priority"),
         subtitle = "缺少首选时自动使用下一项",
         choices = LyricsPriorityChoices.mapIndexed { index, (_, label) -> index to label },
         selectedValue = LyricsPriorityChoices.indexOfFirst {
@@ -106,6 +108,7 @@ internal fun LyricsSettingsPanel(
 
         SettingsActionRow(
             title = "朱印图片",
+            modifier = settingsSearchAnchor("lyrics.letter-seal-image"),
             subtitle = if (uiSettings.letterSealCustomImagePath == null) {
                 "当前：默认印章；建议使用透明 PNG / WebP"
             } else {
@@ -120,6 +123,7 @@ internal fun LyricsSettingsPanel(
 
         SettingsActionRow(
             title = "恢复默认印章",
+            modifier = settingsSearchAnchor("lyrics.letter-seal-restore"),
             subtitle = "保留大小、浓度和旋转设置",
             enabled = uiSettings.letterSealCustomImagePath != null,
             onClick = {
@@ -131,6 +135,7 @@ internal fun LyricsSettingsPanel(
 
         SettingsDropdownRow(
             title = "朱印大小",
+            modifier = settingsSearchAnchor("lyrics.letter-seal-size"),
             choices = LetterSealSizeChoices,
             selectedValue = uiSettings.letterSealSizeDp,
             onSelect = uiSettings::updateLetterSealSizeDp,
@@ -138,6 +143,7 @@ internal fun LyricsSettingsPanel(
 
         SettingsDropdownRow(
             title = "朱印浓度",
+            modifier = settingsSearchAnchor("lyrics.letter-seal-opacity"),
             choices = LetterSealOpacityChoices,
             selectedValue = uiSettings.letterSealOpacityPercent,
             onSelect = uiSettings::updateLetterSealOpacityPercent,
@@ -145,6 +151,7 @@ internal fun LyricsSettingsPanel(
 
         SettingsDropdownRow(
             title = "朱印旋转",
+            modifier = settingsSearchAnchor("lyrics.letter-seal-rotation"),
             choices = LetterSealRotationChoices,
             selectedValue = uiSettings.letterSealRotationDegrees,
             onSelect = uiSettings::updateLetterSealRotationDegrees,
@@ -157,6 +164,7 @@ internal fun LyricsSettingsPanel(
 
     SettingsActionRow(
         title = "全局歌词偏移",
+        modifier = settingsSearchAnchor("lyrics.global-offset"),
         subtitle = "当前 ${formatLyricsOffset(uiSettings.globalLyricsOffsetMs)}；正数提前，负数延后",
         onClick = { showGlobalLyricsOffset = true },
     )
@@ -168,6 +176,7 @@ internal fun LyricsSettingsPanel(
     }
     SettingsChoiceRow(
         title = "双语歌词",
+        modifier = settingsSearchAnchor("lyrics.bilingual"),
         subtitle = if (bilingualLyricsMode == 0) null else "将同行双语歌词拆成上下两行",
         choices = BilingualLyricsModeChoices,
         selectedValue = bilingualLyricsMode,
@@ -191,6 +200,7 @@ internal fun LyricsSettingsPanel(
 
     SettingsToggleRow(
         title = "显示读音 / 罗马音",
+        modifier = settingsSearchAnchor("lyrics.reading"),
         subtitle = "歌词自带读音时显示在原文上方",
         checked = uiSettings.lyricReadingEnabled,
         onCheckedChange = { uiSettings.updateLyricReadingEnabled(it) },
@@ -199,6 +209,7 @@ internal fun LyricsSettingsPanel(
 
     SettingsChoiceRow(
         title = "歌词颜色",
+        modifier = settingsSearchAnchor("lyrics.color"),
         subtitle = "动态取色跟随歌曲；自动模式按背景选择黑白",
         choices = LyricsPageTextColorChoices,
         selectedValue = uiSettings.lyricsPageTextColorMode.ordinal,
@@ -218,6 +229,7 @@ internal fun LyricsSettingsPanel(
     }
     SettingsChoiceRow(
         title = "信息行歌词",
+        modifier = settingsSearchAnchor("lyrics.info-row"),
         subtitle = when (infoRowLyricsMode) {
             0 -> null
             2 -> "仅原文；无逐字时间轴时显示整行"
@@ -232,6 +244,7 @@ internal fun LyricsSettingsPanel(
     )
     SettingsToggleRow(
         title = "通知栏歌词",
+        modifier = settingsSearchAnchor("lyrics.notification"),
         subtitle = "主位显示歌词，副位显示歌名与歌手；车载蓝牙兼容为实验功能",
         checked = uiSettings.notificationLyricsEnabled,
         onCheckedChange = { uiSettings.updateNotificationLyricsEnabled(it) },
@@ -239,6 +252,7 @@ internal fun LyricsSettingsPanel(
 
     SettingsToggleRow(
         title = "词幕歌词",
+        modifier = settingsSearchAnchor("lyrics.lyricon"),
         subtitle = "提供逐字、翻译与罗马音",
         checked = uiSettings.lyriconLyricsEnabled,
         onCheckedChange = { uiSettings.updateLyriconLyricsEnabled(it) },
@@ -246,6 +260,7 @@ internal fun LyricsSettingsPanel(
 
     SettingsActionRow(
         title = "外部歌词",
+        modifier = settingsSearchAnchor("lyrics.external"),
         subtitle = "当前：${uiSettings.externalLyricsMode.settingsLabel}",
         onClick = onOpenExternalLyrics,
     )
@@ -257,6 +272,7 @@ internal fun LyricsSettingsPanel(
 
         SettingsChoiceRow(
             title = "逐字动画",
+            modifier = settingsSearchAnchor("lyrics.classic-word-animation"),
             subtitle = "仅作用于真实逐字歌词",
             choices = LyricsWordAnimationPresetChoices,
             selectedValue = uiSettings.lyricsWordAnimationPreset.ordinal,
@@ -267,6 +283,7 @@ internal fun LyricsSettingsPanel(
 
         SettingsToggleRow(
             title = "强制使用逐字歌词样式",
+            modifier = settingsSearchAnchor("lyrics.classic-line-fill"),
             subtitle = "无逐字时间轴时按播放进度填充当前句",
             checked = uiSettings.lyricLineFillEnabled,
             onCheckedChange = { uiSettings.updateLyricLineFillEnabled(it) },
@@ -274,6 +291,7 @@ internal fun LyricsSettingsPanel(
 
         SettingsChoiceRow(
             title = "歌词页对齐",
+            modifier = settingsSearchAnchor("lyrics.classic-alignment"),
             choices = LyricsPageAlignmentChoices,
             selectedValue = uiSettings.lyricsPageAlignment.ordinal,
             onSelect = { ordinal ->
@@ -283,6 +301,7 @@ internal fun LyricsSettingsPanel(
 
         SettingsSliderRow(
             title = "当前行位置",
+            modifier = settingsSearchAnchor("lyrics.classic-current-line-position"),
             subtitle = "数值越小越靠上",
             value = uiSettings.lyricsCurrentLinePositionPercent,
             valueRange = MIN_LYRICS_CURRENT_LINE_POSITION_PERCENT..MAX_LYRICS_CURRENT_LINE_POSITION_PERCENT,
@@ -292,6 +311,7 @@ internal fun LyricsSettingsPanel(
 
         SettingsSliderRow(
             title = "原歌词字号",
+            modifier = settingsSearchAnchor("lyrics.classic-font-size"),
             value = uiSettings.lyricsPageFontSizeSp,
             valueRange = MIN_LYRICS_PAGE_FONT_SIZE_SP..MAX_LYRICS_PAGE_FONT_SIZE_SP,
             suffix = " sp",
@@ -300,6 +320,7 @@ internal fun LyricsSettingsPanel(
 
         SettingsSliderRow(
             title = "翻译歌词字号",
+            modifier = settingsSearchAnchor("lyrics.classic-translation-size"),
             value = uiSettings.lyricsPageTranslationFontSizeSp,
             valueRange = MIN_LYRICS_PAGE_FONT_SIZE_SP..MAX_LYRICS_PAGE_FONT_SIZE_SP,
             suffix = " sp",
@@ -308,6 +329,7 @@ internal fun LyricsSettingsPanel(
 
         SettingsSliderRow(
             title = "行间距",
+            modifier = settingsSearchAnchor("lyrics.classic-line-spacing"),
             value = uiSettings.lyricsPageLineSpacingDp,
             valueRange = MIN_LYRICS_PAGE_LINE_SPACING_DP..MAX_LYRICS_PAGE_LINE_SPACING_DP,
             suffix = " dp",
@@ -316,6 +338,7 @@ internal fun LyricsSettingsPanel(
 
         SettingsToggleRow(
             title = "歌词页沉浸模式",
+            modifier = settingsSearchAnchor("lyrics.classic-immersive"),
             subtitle = "隐藏进度条与底部控件",
             checked = uiSettings.lyricsPageImmersive,
             onCheckedChange = { uiSettings.updateLyricsPageImmersive(it) },
@@ -328,6 +351,7 @@ internal fun LyricsSettingsPanel(
 
     SettingsChoiceRow(
         title = "歌词字体",
+        modifier = settingsSearchAnchor("lyrics.font"),
         subtitle = if (uiSettings.lyricFont.source == AppFontSource.IMPORTED) {
             "当前：${uiSettings.lyricFont.settingsLabel} · 支持 TTF / OTF"
         } else {

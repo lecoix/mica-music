@@ -24,6 +24,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.key
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -57,6 +59,7 @@ import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.MicaTheme
 import com.mica.music.ui.theme.micaAppBackground
+import com.mica.music.ui.components.SettingsTipRow
 import com.mica.music.util.openAppSettings
 import com.mica.music.util.DiagnosticLog
 import kotlinx.coroutines.launch
@@ -85,25 +88,21 @@ fun SettingsScreen(
     var scanState by remember { mutableStateOf(SettingsScanState.initial(context)) }
     var artistSplitConfig by remember { mutableStateOf(LibraryBrowseSettings.artistSplitConfig(context)) }
     var overlays by remember { mutableStateOf(SettingsOverlayState()) }
-    var selectedCategory by remember { mutableStateOf<SettingsCategory?>(null) }
+    var selectedCategory by rememberSaveable { mutableStateOf<SettingsCategory?>(null) }
     var showUsageTutorial by rememberSaveable { mutableStateOf(false) }
     if (showUsageTutorial) {
         UsageTutorialDialog(onDismiss = { showUsageTutorial = false })
     }
-    var usbHybridSubpageOpen by remember { mutableStateOf(false) }
-    var remoteMusicSubpageOpen by remember { mutableStateOf(false) }
-    var externalLyricsSubpageOpen by remember { mutableStateOf(false) }
-    var settingsSearchOpen by remember { mutableStateOf(false) }
-    var settingsSearchQuery by remember { mutableStateOf("") }
+    var detailPage by rememberSaveable { mutableStateOf<SettingsDetailPage?>(null) }
+    var searchEntryId by rememberSaveable { mutableStateOf<String?>(null) }
+    val searchEntry = SettingsSearchIndex.entries.firstOrNull { it.id == searchEntryId }
+    val searchFocus = remember(searchEntryId) { SettingsSearchFocus(searchEntryId) }
+    var settingsSearchOpen by rememberSaveable { mutableStateOf(false) }
+    var settingsSearchQuery by rememberSaveable { mutableStateOf("") }
     var audioOffloadState by remember { mutableStateOf(AudioOffloadPreferences.state(context)) }
     var detailedDiagnostics by remember { mutableStateOf(DetailedDiagnosticsPreferences.state(context)) }
-    val settingsSubpageBackEnabled =
-        (usbHybridSubpageOpen && !playerOverlayOpen) ||
-            (remoteMusicSubpageOpen && !playerOverlayOpen) ||
-            (externalLyricsSubpageOpen && !playerOverlayOpen) ||
-            canSettingsSubpageBack(selectedCategory, playerOverlayOpen)
-    val settingsSearchBackEnabled = selectedCategory == null && settingsSearchOpen
-    val settingsBackEnabled = settingsSubpageBackEnabled || settingsSearchBackEnabled
+    val settingsBackEnabled = !playerOverlayOpen &&
+        (selectedCategory != null || settingsSearchOpen)
     val settingsSearchFocusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
     val scope = rememberCoroutineScope()
@@ -115,8 +114,8 @@ fun SettingsScreen(
         onDispose(unregister)
     }
 
-    LaunchedEffect(settingsSearchOpen) {
-        if (settingsSearchOpen) {
+    LaunchedEffect(settingsSearchOpen, selectedCategory) {
+        if (settingsSearchOpen && selectedCategory == null) {
             settingsSearchFocusRequester.requestFocus()
             keyboardController?.show()
         }
@@ -126,24 +125,36 @@ fun SettingsScreen(
         settingsSearchOpen = false
         settingsSearchQuery = ""
     }
-    BackHandler(enabled = settingsBackEnabled) {
-        if (settingsSearchBackEnabled) {
-            closeSettingsSearch()
-            return@BackHandler
+    fun navigateBack() {
+        when {
+            searchEntryId != null -> {
+                searchEntryId = null
+                detailPage = null
+                selectedCategory = null
+            }
+            detailPage != null -> detailPage = null
+            selectedCategory != null -> selectedCategory = null
+            settingsSearchOpen -> closeSettingsSearch()
+            else -> onBack()
         }
-        if (usbHybridSubpageOpen) {
-            usbHybridSubpageOpen = false
-            return@BackHandler
+    }
+    BackHandler(enabled = settingsBackEnabled) { navigateBack() }
+
+    fun openSearchEntry(entry: SettingsIndexEntry) {
+        keyboardController?.hide()
+        when {
+            entry.id == "help.tutorial" -> showUsageTutorial = true
+            entry.target.surface == SettingsIndexSurface.EQUALIZER -> onOpenEqualizer()
+            entry.id == "audio.sound-fx" -> onOpenSoundFx()
+            else -> {
+                selectedCategory = entry.target.category
+                // Search must respect the same scan-time entry guard as the library panel.
+                detailPage = entry.detailPage().takeUnless {
+                    it == SettingsDetailPage.REMOTE && library.isUserVisibleScanning
+                }
+                searchEntryId = entry.id
+            }
         }
-        if (remoteMusicSubpageOpen) {
-            remoteMusicSubpageOpen = false
-            return@BackHandler
-        }
-        if (externalLyricsSubpageOpen) {
-            externalLyricsSubpageOpen = false
-            return@BackHandler
-        }
-        selectedCategory = consumeSettingsBack(selectedCategory)
     }
 
     val libraryAccess = rememberSettingsLibraryAccess(library, activity)
@@ -208,27 +219,7 @@ fun SettingsScreen(
                 .padding(horizontal = HifiSpacing.sm),
         ) {
             IconButton(
-                onClick = {
-                    if (selectedCategory == null && settingsSearchOpen) {
-                        closeSettingsSearch()
-                    } else if (usbHybridSubpageOpen) {
-                        usbHybridSubpageOpen = false
-                    } else if (remoteMusicSubpageOpen) {
-                        remoteMusicSubpageOpen = false
-                    } else if (externalLyricsSubpageOpen) {
-                        externalLyricsSubpageOpen = false
-                    } else {
-                        when (resolveSettingsTopBarBackAction(selectedCategory)) {
-                            SettingsTopBarBackAction.ExitSettings -> {
-                                onBack()
-                            }
-
-                            SettingsTopBarBackAction.PopCategory -> {
-                                selectedCategory = consumeSettingsBack(selectedCategory)
-                            }
-                        }
-                    }
-                },
+                onClick = ::navigateBack,
                 modifier = Modifier.size(HifiSize.touchTarget),
             ) {
                 Icon(
@@ -281,12 +272,7 @@ fun SettingsScreen(
                 )
             } else {
                 Text(
-                    text = settingsScreenTitle(
-                        selectedCategory = selectedCategory,
-                        usbHybridSubpageOpen = usbHybridSubpageOpen,
-                        remoteMusicSubpageOpen = remoteMusicSubpageOpen,
-                        externalLyricsSubpageOpen = externalLyricsSubpageOpen,
-                    ),
+                    text = detailPage?.title ?: settingsScreenTitle(selectedCategory),
                     style = MicaTheme.typography.bodyLg,
                     color = MicaTheme.colors.textPrimary,
                     modifier = Modifier.weight(1f),
@@ -306,137 +292,150 @@ fun SettingsScreen(
             }
         }
 
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .verticalScroll(rememberScrollState()),
-        ) {
-            if (selectedCategory == null) {
-                SettingsCategoryList(
-                    query = settingsSearchQuery,
-                    onOpenUsageTutorial = {
-                        closeSettingsSearch()
-                        showUsageTutorial = true
-                    },
-                    onOpenEqualizer = {
-                        closeSettingsSearch()
-                        onOpenEqualizer()
-                    },
-                    onSelectCategory = { category ->
-                        closeSettingsSearch()
-                        selectedCategory = category
-                    },
-                )
-            } else {
-                when (selectedCategory) {
-                    SettingsCategory.APPEARANCE -> {
-                        AppearanceSettingsPanel(
-                            uiSettings = uiSettings,
-                            onShowCustomAccentDialog = {
-                                overlays = overlays.copy(showCustomAccent = true)
+        key(selectedCategory, detailPage, searchEntryId) {
+            CompositionLocalProvider(LocalSettingsSearchFocus provides searchFocus) {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState()),
+                ) {
+                    val opensWholePage = detailPage == SettingsDetailPage.USB ||
+                        detailPage == SettingsDetailPage.REMOTE ||
+                        detailPage == SettingsDetailPage.EXTERNAL_LYRICS
+                    if (searchEntry != null && detailPage == searchEntry.detailPage() &&
+                        !opensWholePage && !searchFocus.present
+                    ) {
+                        SettingsTipRow(
+                            "${searchEntry.title}：${searchEntry.availability ?: "当前条件下不可用"}",
+                        )
+                    }
+                    if (selectedCategory == null) {
+                        SettingsCategoryList(
+                            query = settingsSearchQuery,
+                            onOpenSearchEntry = ::openSearchEntry,
+                            onOpenUsageTutorial = {
+                                closeSettingsSearch()
+                                showUsageTutorial = true
                             },
-                            onShowCustomMicaDialog = {
-                                overlays = overlays.copy(showCustomMica = true)
+                            onOpenEqualizer = {
+                                closeSettingsSearch()
+                                onOpenEqualizer()
                             },
-                            onShowCustomWallpaperCrop = {
+                            onSelectCategory = { category ->
+                                closeSettingsSearch()
+                                selectedCategory = category
+                            },
+                        )
+                    } else {
+                        when (detailPage) {
+                            SettingsDetailPage.WALLPAPER -> WallpaperSettingsPanel(uiSettings) {
                                 overlays = overlays.copy(showCustomWallpaperCrop = true)
-                            },
-                        )
-                    }
+                            }
+                            SettingsDetailPage.MINI_PLAYER -> MiniPlayerSettingsPanel(uiSettings)
+                            SettingsDetailPage.PLAYER_INFO -> PlayerInfoSettingsPanel(uiSettings)
+                            SettingsDetailPage.USB -> UsbHybridSettingsPanel(usbHybridDiagnosticsPort)
+                            SettingsDetailPage.REMOTE -> RemoteMusicSettingsPanel(onBrowseSmb)
+                            SettingsDetailPage.EXTERNAL_LYRICS -> ExternalLyricsSettingsPanel(uiSettings)
+                            null -> when (selectedCategory) {
+                                SettingsCategory.APPEARANCE -> {
+                                    AppearanceSettingsPanel(
+                                        uiSettings = uiSettings,
+                                        onShowCustomAccentDialog = {
+                                            overlays = overlays.copy(showCustomAccent = true)
+                                        },
+                                        onShowCustomMicaDialog = {
+                                            overlays = overlays.copy(showCustomMica = true)
+                                        },
+                                        onOpenWallpaper = { detailPage = SettingsDetailPage.WALLPAPER },
+                                        onOpenMiniPlayer = { detailPage = SettingsDetailPage.MINI_PLAYER },
+                                    )
+                                }
 
-                    SettingsCategory.PLAYBACK -> {
-                        PlaybackSettingsPanel(
-                            uiSettings = uiSettings,
-                            canOpenCustomPlayerLayoutEditor = canOpenCustomPlayerLayoutEditor,
-                            onOpenCustomPlayerLayoutEditor = onOpenCustomPlayerLayoutEditor,
-                        )
-                    }
+                                SettingsCategory.PLAYBACK -> {
+                                    PlaybackSettingsPanel(
+                                        uiSettings = uiSettings,
+                                        canOpenCustomPlayerLayoutEditor = canOpenCustomPlayerLayoutEditor,
+                                        onOpenCustomPlayerLayoutEditor = onOpenCustomPlayerLayoutEditor,
+                                        onOpenPlayerInfo = { detailPage = SettingsDetailPage.PLAYER_INFO },
+                                    )
+                                }
 
-                    SettingsCategory.LYRICS -> {
-                        if (externalLyricsSubpageOpen) {
-                            ExternalLyricsSettingsPanel(uiSettings = uiSettings)
-                        } else {
-                            LyricsSettingsPanel(
-                                uiSettings = uiSettings,
-                                onOpenExternalLyrics = { externalLyricsSubpageOpen = true },
-                            )
+                                SettingsCategory.LYRICS -> {
+                                    LyricsSettingsPanel(
+                                        uiSettings = uiSettings,
+                                        onOpenExternalLyrics = { detailPage = SettingsDetailPage.EXTERNAL_LYRICS },
+                                    )
+                                }
+
+                                SettingsCategory.LIBRARY -> {
+                                    LibraryScanSettingsPanel(
+                                        library = library,
+                                        excludedDirectories = scanState.excludedDirectories,
+                                        minDurationSec = scanState.minDurationSec,
+                                        deepProbe = scanState.deepProbe,
+                                        artistSplitConfig = artistSplitConfig,
+                                        remoteLibrarySidebarEnabled = uiSettings.remoteLibrarySidebarEnabled,
+                                        onChooseLibraryFolder = libraryAccess.onChooseLibraryFolder,
+                                        onRescan = libraryAccess.onRescan,
+                                        onScanAllMusic = libraryAccess.onScanAllMusic,
+                                        onDeepProbeChange = {
+                                            scanState = scanState.withDeepProbe(context, it)
+                                        },
+                                        onEditExcludedDirectories = {
+                                            overlays = overlays.copy(showExcludedDirectories = true)
+                                        },
+                                        onMinDurationSelected = { sec ->
+                                            scanState = scanState.withMinDurationSec(context, sec)
+                                        },
+                                        onEditArtistSplit = {
+                                            overlays = overlays.copy(showArtistSplit = true)
+                                        },
+                                        onRemoteLibrarySidebarEnabledChange =
+                                        uiSettings::updateRemoteLibrarySidebarEnabled,
+                                        onOpenRemoteMusic = { detailPage = SettingsDetailPage.REMOTE },
+                                    )
+                                }
+
+                                SettingsCategory.AUDIO -> {
+                                    AudioSettingsPanel(
+                                        uiSettings = uiSettings,
+                                        library = library,
+                                        loudnessScanPort = loudnessScanPort,
+                                        onOpenUsbExclusive = { detailPage = SettingsDetailPage.USB },
+                                        onOpenSoundFx = onOpenSoundFx,
+                                    )
+                                }
+
+                                SettingsCategory.DIAGNOSTICS -> {
+                                    DiagnosticsSettingsPanel(
+                                        hasSongs = library.songs.isNotEmpty(),
+                                        audioOffloadState = audioOffloadState,
+                                        onAudioOffloadChanged = { enabled ->
+                                            AudioOffloadPreferences.setEnabled(context, enabled)
+                                            audioOffloadState = AudioOffloadPreferences.state(context)
+                                        },
+                                        detailedDiagnostics = detailedDiagnostics,
+                                        onDetailedDiagnosticsChanged = { updated ->
+                                            detailedDiagnostics = updated
+                                            DetailedDiagnosticsPreferences.setState(context, updated)
+                                            DiagnosticLog.configureDetailedDiagnostics(updated)
+                                        },
+                                        onOpenMetadataDebug = onOpenMetadataDebug,
+                                        onOpenSpatialAudio = onOpenSpatialAudio,
+                                        onOpenAppSettings = { openAppSettings(context) },
+                                    )
+                                }
+
+                                else -> Unit
+                            }
                         }
                     }
 
-                    SettingsCategory.LIBRARY -> {
-                        if (remoteMusicSubpageOpen) {
-                            RemoteMusicSettingsPanel(onBrowseSmb)
-                        } else {
-                            LibraryScanSettingsPanel(
-                                library = library,
-                                excludedDirectories = scanState.excludedDirectories,
-                                minDurationSec = scanState.minDurationSec,
-                                deepProbe = scanState.deepProbe,
-                                artistSplitConfig = artistSplitConfig,
-                                remoteLibrarySidebarEnabled = uiSettings.remoteLibrarySidebarEnabled,
-                                onChooseLibraryFolder = libraryAccess.onChooseLibraryFolder,
-                                onRescan = libraryAccess.onRescan,
-                                onScanAllMusic = libraryAccess.onScanAllMusic,
-                                onDeepProbeChange = {
-                                    scanState = scanState.withDeepProbe(context, it)
-                                },
-                                onEditExcludedDirectories = {
-                                    overlays = overlays.copy(showExcludedDirectories = true)
-                                },
-                                onMinDurationSelected = { sec ->
-                                    scanState = scanState.withMinDurationSec(context, sec)
-                                },
-                                onEditArtistSplit = {
-                                    overlays = overlays.copy(showArtistSplit = true)
-                                },
-                                onRemoteLibrarySidebarEnabledChange =
-                                    uiSettings::updateRemoteLibrarySidebarEnabled,
-                                onOpenRemoteMusic = { remoteMusicSubpageOpen = true },
-                            )
-                        }
-                    }
+                    Spacer(Modifier.height(HifiSpacing.lg))
 
-                    SettingsCategory.AUDIO -> {
-                        if (usbHybridSubpageOpen) {
-                            UsbHybridSettingsPanel(usbHybridDiagnosticsPort)
-                        } else {
-                            AudioSettingsPanel(
-                                uiSettings = uiSettings,
-                                library = library,
-                                loudnessScanPort = loudnessScanPort,
-                                onOpenUsbExclusive = { usbHybridSubpageOpen = true },
-                                onOpenSoundFx = onOpenSoundFx,
-                            )
-                        }
-                    }
-
-                    SettingsCategory.DIAGNOSTICS -> {
-                        DiagnosticsSettingsPanel(
-                            hasSongs = library.songs.isNotEmpty(),
-                            audioOffloadState = audioOffloadState,
-                            onAudioOffloadChanged = { enabled ->
-                                AudioOffloadPreferences.setEnabled(context, enabled)
-                                audioOffloadState = AudioOffloadPreferences.state(context)
-                            },
-                            detailedDiagnostics = detailedDiagnostics,
-                            onDetailedDiagnosticsChanged = { updated ->
-                                detailedDiagnostics = updated
-                                DetailedDiagnosticsPreferences.setState(context, updated)
-                                DiagnosticLog.configureDetailedDiagnostics(updated)
-                            },
-                            onOpenMetadataDebug = onOpenMetadataDebug,
-                            onOpenSpatialAudio = onOpenSpatialAudio,
-                            onOpenAppSettings = { openAppSettings(context) },
-                        )
-                    }
-
-                    else -> Unit
+                    Spacer(Modifier.height(HifiSpacing.xxl + bottomContentClearance))
                 }
             }
-
-            Spacer(Modifier.height(HifiSpacing.lg))
-
-            Spacer(Modifier.height(HifiSpacing.xxl + bottomContentClearance))
         }
     }
 }
