@@ -45,7 +45,6 @@ internal class ParticleCoverRenderer(context: Context) {
     private var transitionStartedAtMs = 0L
     private var transitionStartDisintegration = 0f
     private var fullCoverHoldUntilMs = 0L
-    private var scatterDirection = 1f
     private var tuning = ParticleCoverTuning()
     private var previewOptions = ParticleCoverPreviewOptions()
     private var playbackDisintegrationProgress: Float? = null
@@ -103,7 +102,6 @@ internal class ParticleCoverRenderer(context: Context) {
         currentHasBitmap = hasBitmap
         currentBitmapGeneration = generation
         currentFallbackColor = fallbackColor
-        scatterDirection = if ((songId.hashCode() and 1) == 0) 1f else -1f
         transitionStartedAtMs = if (motionEnabled && previousTexture != 0) {
             transitionStartDisintegration = playbackDisintegrationProgress ?: 0f
             fullCoverHoldUntilMs = 0L
@@ -599,7 +597,6 @@ internal class ParticleCoverRenderer(context: Context) {
             feather.coerceIn(0.55f, 2.60f),
         )
         GLES20.glUniform1f(GLES20.glGetUniformLocation(particleProgram, "uTime"), SystemClock.uptimeMillis() / 1000f)
-        GLES20.glUniform1f(GLES20.glGetUniformLocation(particleProgram, "uDirection"), scatterDirection)
         GLES20.glUniform1f(GLES20.glGetUniformLocation(particleProgram, "uGridStrength"), gridStrength.coerceIn(0f, 1f))
         GLES20.glUniform1f(GLES20.glGetUniformLocation(particleProgram, "uSizeVariance"), sizeVariance.coerceIn(0f, 1f))
         GLES20.glUniform1f(GLES20.glGetUniformLocation(particleProgram, "uColorBoost"), colorBoost.coerceIn(0.5f, 3.0f))
@@ -1158,7 +1155,6 @@ uniform float uWobble;
 uniform float uPointScale;
 uniform float uFeather;
 uniform float uTime;
-uniform float uDirection;
 uniform mediump float uLyrics;
 uniform float uGridStrength;
 uniform mediump float uSizeVariance;
@@ -1184,7 +1180,8 @@ void main() {
     home.xy *= uCoverScale;
     scatter.xy *= uCoverScale;
     vec3 scatterDelta = scatter - home;
-    scatterDelta.x *= uDirection;
+    // Preserve the outward field on both axes; reversing only X squeezes some songs
+    // horizontally while Y still expands, turning a square cover into a rectangle.
     float featherTravel = 0.72 + (uFeather - 0.55) * 0.42;
     scatter = home + scatterDelta * featherTravel;
     float release = smoothstep(aDetach * 0.28, 0.48 + aDetach * 0.50, uTravel);
