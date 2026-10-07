@@ -69,6 +69,8 @@ internal fun RemoteLibraryPane(
     }
 
     Column(modifier.fillMaxSize()) {
+        val app = androidx.compose.ui.platform.LocalContext.current.applicationContext as com.mica.music.MicaApp
+        SmbFolderLoadingStatus(app.smbFolderLibraryLoader)
         Box(Modifier.weight(1f)) {
             when {
                 songs.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {

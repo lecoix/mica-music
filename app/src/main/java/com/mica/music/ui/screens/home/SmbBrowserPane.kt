@@ -19,7 +19,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.mica.music.MicaApp
 import com.mica.music.data.Song
-import com.mica.music.data.remote.AndroidTagLibRemoteTrackMetadataProbe
 import com.mica.music.data.remote.RemoteSourceType
 import com.mica.music.data.remote.toPlaybackSong
 import com.mica.music.data.remote.smb.*
@@ -42,13 +41,6 @@ internal fun SmbBrowserPane(
 ) {
     val app = LocalContext.current.applicationContext as MicaApp
     val browser = remember(app) { SmbDirectoryBrowser(app.remoteCatalogRepository, app.remoteCredentialStore) }
-    val indexer = remember(app) {
-        SmbFolderLibraryIndexer(
-            repository = app.remoteCatalogRepository,
-            credentials = app.remoteCredentialStore,
-            metadataProbe = AndroidTagLibRemoteTrackMetadataProbe(app),
-        )
-    }
     SmbBrowserContent(
         repo = app.remoteCatalogRepository,
         playlists = app.playlistStore,
@@ -59,7 +51,7 @@ internal fun SmbBrowserPane(
         modifier = modifier,
         initialSourceId = initialSourceId,
         playerOverlayOpen = playerOverlayOpen,
-        folderIndexer = indexer,
+        folderLoader = app.smbFolderLibraryLoader,
         backRequestKey = backRequestKey,
         refreshRequestKey = refreshRequestKey,
         onInfoActionsChange = onInfoActionsChange,
@@ -84,6 +76,7 @@ internal fun SmbBrowserContent(
     initialSourceId: String? = null,
     playerOverlayOpen: Boolean = false,
     folderIndexer: SmbFolderLibraryIndexer? = null,
+    folderLoader: SmbFolderLibraryLoader? = null,
     backRequestKey: Int = 0,
     refreshRequestKey: Int = 0,
     onInfoActionsChange: (SmbBrowserInfoActions) -> Unit = {},
@@ -95,7 +88,16 @@ internal fun SmbBrowserContent(
     var selected by remember(sourceId, path) { mutableStateOf(emptySet<String>()) }
     var choosing by remember { mutableStateOf(false) }
     var selectionRevision by remember { mutableIntStateOf(0) }
-    var busy by remember { mutableStateOf(false) }
+    var actionBusy by remember { mutableStateOf(false) }
+    val loading by (folderLoader?.state ?: remember { kotlinx.coroutines.flow.MutableStateFlow(SmbFolderLoadingState()) }).collectAsState()
+    val busy = actionBusy || (loading.active && !loading.entriesReady)
+    var pendingImport by rememberSaveable { mutableStateOf<Long?>(null) }
+    LaunchedEffect(loading.requestId, loading.entriesReady, pendingImport) {
+        if (pendingImport == loading.requestId && loading.entriesReady) {
+            pendingImport = null
+            onBack()
+        }
+    }
     var message by remember { mutableStateOf<String?>(null) }
     var newPlaylistName by remember { mutableStateOf("") }
     var folderScopes by remember { mutableStateOf(emptyList<SmbFolderScope>()) }
@@ -159,7 +161,7 @@ internal fun SmbBrowserContent(
         if (!owner.isCurrent(captured) || busy) return
         val tracks = captured.entries.mapNotNull { it.track }.filter { all || it.ref.opaqueTrackId == targetPath }
         if (tracks.isEmpty()) return
-        busy = true
+        actionBusy = true
         scope.launch {
             try {
                 var played = false
@@ -176,16 +178,32 @@ internal fun SmbBrowserContent(
             } catch (failure: Exception) {
                 if (failure is CancellationException) throw failure
                 message = "保存播放记录失败，请重试"
-            } finally { busy = false }
+            } finally { actionBusy = false }
         }
     }
 
     fun indexCurrentFolder(includeChildren: Boolean) {
         val activeSource = source ?: return
-        val indexer = folderIndexer ?: return
         if (busy || state.loading) return
+        if (folderLoader != null) {
+            val directory = path
+            actionBusy = true
+            scope.launch {
+                try {
+                    pendingImport = folderLoader.start(activeSource.id, directory, includeChildren)
+                } catch (failure: Exception) {
+                    if (failure is CancellationException) throw failure
+                    message = "目录建库失败，请检查连接后重试"
+                } finally {
+                    actionBusy = false
+                    choosingLibraryMode = false
+                }
+            }
+            return
+        }
+        val indexer = folderIndexer ?: return
         val refreshing = currentFolderScope?.includeSubdirectories == includeChildren
-        busy = true
+        actionBusy = true
         scope.launch {
             try {
                 val result = indexer.index(
@@ -204,7 +222,7 @@ internal fun SmbBrowserContent(
                 if (failure is CancellationException) throw failure
                 message = "目录建库失败，请检查连接后重试"
             } finally {
-                busy = false
+                actionBusy = false
                 choosingLibraryMode = false
             }
         }
@@ -214,7 +232,7 @@ internal fun SmbBrowserContent(
         val activeSource = source ?: return
         val managed = currentFolderScope ?: return
         if (busy) return
-        busy = true
+        actionBusy = true
         scope.launch {
             try {
                 val removed = repo.removeSmbFolderScope(activeSource.id, managed.id)
@@ -224,7 +242,7 @@ internal fun SmbBrowserContent(
                 if (failure is CancellationException) throw failure
                 message = "移除失败，请重试"
             } finally {
-                busy = false
+                actionBusy = false
             }
         }
     }
@@ -234,7 +252,7 @@ internal fun SmbBrowserContent(
         if (!owner.isCurrent(captured)) return
         val tracks = captured.entries.mapNotNull { it.track }.filter { it.ref.opaqueTrackId in selected }
         if (tracks.isEmpty()) return
-        busy = true
+        actionBusy = true
         try {
             val success = playlists.addRemoteSongsToPlaylist(id, tracks, captured.token, repo, revision)
             message = if (success) "已添加 ${tracks.size} 首歌曲" else "歌单或连接已改变，请重新选择"
@@ -242,10 +260,11 @@ internal fun SmbBrowserContent(
         } catch (failure: Exception) {
             if (failure is CancellationException) throw failure
             message = "添加失败，原歌单已保留"
-        } finally { busy = false }
+        } finally { actionBusy = false }
     }
 
     Column(modifier.fillMaxSize()) {
+        if (folderLoader != null) SmbFolderLoadingStatus(folderLoader)
         if (sourceId == null) {
             Text("SMB 连接", style = MicaTheme.typography.titleMd, modifier = Modifier.padding(16.dp))
             Text("打开哪一层，就读取哪一层。已有歌曲信息保留；SMB 不再后台扫描整库。",
@@ -275,7 +294,7 @@ internal fun SmbBrowserContent(
                 TextButton(onClick = { selected = snapshot?.entries?.mapNotNull { it.track?.ref?.opaqueTrackId }?.toSet().orEmpty() },
                     enabled = snapshot?.complete == true && !state.loading && !busy) { Text("全选本层") }
             }
-            if (folderIndexer != null) {
+            if (folderIndexer != null || folderLoader != null) {
                 if (currentFolderScope == null) {
                     TextButton(
                         onClick = {
@@ -345,14 +364,14 @@ internal fun SmbBrowserContent(
         },
         confirmButton = { TextButton(enabled = !busy && newPlaylistName.isNotBlank(), onClick = {
             scope.launch {
-                busy = true
+                actionBusy = true
                 try {
                     val playlist = playlists.createPlaylist(newPlaylistName)
                     addToPlaylist(playlist.id, playlists.revision)
                 } catch (failure: Exception) {
                     if (failure is CancellationException) throw failure
                     message = "创建歌单失败，请重试"
-                } finally { busy = false }
+                } finally { actionBusy = false }
             }
         }) { Text("创建并添加") } },
         dismissButton = { TextButton(enabled = !busy, onClick = { choosing = false }) { Text("取消") } },

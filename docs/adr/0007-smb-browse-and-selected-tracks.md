@@ -111,3 +111,44 @@ measure 10k startup/playlist loading, very large single-directory behavior and p
 memory on the 8 GB target device/router class. Targeted regression evidence is still distinct
 from claiming that the entire `micaCheck` screenshot matrix or the full 10k hardware capacity
 suite has run.
+
+
+## 2026-10-05: staged explicit folder imports
+
+The explicit SMB folder action now publishes the completely discovered scope before probing
+missing tags, then publishes one enriched snapshot. It returns the UI to the remote song list
+once the first transaction has completed. Filename entries can be selected for direct playback;
+valid revision/size/probe-revision-matched tags survive the first publication. Incomplete discovery
+still publishes nothing. Failed tag probes retain retryable descriptors and are reported separately.
+Metadata completion may cause one ordinary list re-sort; there is no per-song publication loop.
+
+`RemoteCatalogRepository` owns a separate per-source folder request identity. Creating a newer
+folder request, cancelling, deleting a source, or removing a managed scope invalidates it under
+the repository mutex. This identity does not advance the playback/browse source token. Both
+scope transactions and loader success-state publication require the folder identity plus the
+existing source token. The repository mutex remains held through the non-cancellable Room
+transaction, membership replacement, unscoped deletion and commit. Source configuration changes
+remain fenced by the source owner token.
+
+`SmbFolderLibraryLoader` owns one process-lifetime import and a small status flow, without an
+Activity callback or retained song list. Its mutex serializes start/cancel/status and always
+acquires the repository mutex in that order; the indexer calls back only after releasing the
+repository mutex. Checks follow session/directory I/O, prior-metadata lookup, each probe chunk,
+entry publication/callback and final publication. Old probes may physically finish after cancel,
+but their results cannot reach Room or replace a newer status. Stop preserves already committed
+entries. Process death also preserves entries; reopening does not automatically restart network
+work, and refreshing the same folder retries missing tags. This is not a foreground-service or
+background-completion guarantee.
+
+Deterministic Room interleaving tests hold an old metadata probe while removal, cancellation,
+source deletion or a new request completes, then release it and inspect persisted rows. Loader
+tests additionally check late completion after cancel and independence from the initiating caller.
+
+Capacity remains bounded by existing discovery budgets (50k tracks, 100k visited entries,
+64 MiB estimated descriptor budget) and four metadata probes per request. The tag read-ahead allocation
+per request remains four times 64 KiB. Cancelled native/SMB calls may overlap a later request
+until their blocking I/O returns, so this is not a global four-worker or heap-peak guarantee. Staging adds a second bounded Room publication and a transient old/new
+UI snapshot; it adds no full lyric parsing, audio disk cache or per-song resident worker. These
+bounds describe the implementation, not a measured full-process heap bound: the required 10k
+songs with complete word-timed lyrics on an 8 GB phone still needs dedicated peak-memory/soak
+validation, particularly while playing and importing concurrently.

@@ -63,6 +63,16 @@ class MicaApp : Application() {
     val remoteCredentialStore: AndroidKeystoreRemoteCredentialStore by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         AndroidKeystoreRemoteCredentialStore(this)
     }
+    internal val smbFolderLibraryLoader by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        com.mica.music.data.remote.smb.SmbFolderLibraryLoader(
+            remoteCatalogRepository,
+            com.mica.music.data.remote.smb.SmbFolderLibraryIndexer(
+                remoteCatalogRepository, remoteCredentialStore,
+                metadataProbe = AndroidTagLibRemoteTrackMetadataProbe(this),
+            ),
+            processScope,
+        )
+    }
     internal val remoteSourceManager: RemoteSourceManager by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         RemoteSourceManager(
             remoteCatalogRepository,

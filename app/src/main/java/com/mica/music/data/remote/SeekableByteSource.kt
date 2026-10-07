@@ -159,7 +159,8 @@ internal class AndroidTagLibRemoteTrackMetadataProbe(
     private val appContext = context.applicationContext
 
     override fun probe(fileName: String, source: SeekableByteSource): RemoteTrackMetadata? {
-        val bufferedSource = ReadAheadSeekableByteSource(source)
+        // Tag-only probes benefit from smaller windows; artwork and lyrics retain their default.
+        val bufferedSource = ReadAheadSeekableByteSource(source, readAheadBytes = 64 * 1024)
         val proxy = RemoteProxyFileDescriptor.open(appContext, bufferedSource)
         val result = proxy.descriptor.use { descriptor ->
             TagLibReader.read(descriptor, readPictures = false)

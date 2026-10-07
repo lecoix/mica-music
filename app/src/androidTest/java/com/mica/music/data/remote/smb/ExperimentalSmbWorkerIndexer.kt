@@ -31,38 +31,13 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
-/** Validity is mutated only by RemoteCatalogRepository under its publication mutex. */
-internal class SmbFolderIndexRequest(val operation: RemoteOperationSnapshot, val id: Long) {
-    @Volatile var valid: Boolean = true
-        internal set
-}
-
-internal data class SmbFolderIndexResult(
-    val complete: Boolean,
-    val trackCount: Int,
-    val published: Boolean,
-    val metadataProbedCount: Int = 0,
-    val metadataReusedCount: Int = 0,
-    val metadataFailedCount: Int = 0,
-)
-
-internal data class SmbFolderScope(
-    val id: String,
-    val sourceInstanceId: String,
-    val relativeDirectory: String,
-    val includeSubdirectories: Boolean,
-    val legacySnapshot: Boolean,
-    val observedConfigRevision: Long,
-    val lastCompletedAtMs: Long,
-)
-
 /**
  * Explicit folder-to-library indexing. Directory discovery stays lightweight; only after the
  * selected scope has been completely discovered may its audio files be opened for metadata.
  * An incomplete traversal is never probed or published, so a timeout/budget stop cannot become
  * deletion evidence or unexpected payload I/O.
  */
-internal class SmbFolderLibraryIndexer(
+internal class ExperimentalSmbWorkerIndexer(
     private val repository: RemoteCatalogRepository,
     private val credentials: SecureRemoteCredentialStore,
     private val sessions: SmbSessionFactory = SmbjSessionFactory(),
@@ -73,24 +48,9 @@ internal class SmbFolderLibraryIndexer(
         directory: String,
         includeSubdirectories: Boolean,
     ): SmbFolderIndexResult {
-        val request = repository.beginSmbFolderIndex(sourceId)
-            ?: throw SmbException(SmbFailureKind.STALE_OPERATION, "SMB source unavailable")
-        return index(request, directory, includeSubdirectories)
-    }
-
-    suspend fun indexStaged(sourceId: String, directory: String, includeSubdirectories: Boolean,
-        onEntriesPublished: suspend (Int) -> Unit): SmbFolderIndexResult {
-        val request = repository.beginSmbFolderIndex(sourceId)
-            ?: throw SmbException(SmbFailureKind.STALE_OPERATION, "SMB source unavailable")
-        return index(request, directory, includeSubdirectories, onEntriesPublished)
-    }
-
-    internal suspend fun index(request: SmbFolderIndexRequest, directory: String,
-        includeSubdirectories: Boolean, onEntriesPublished: (suspend (Int) -> Unit)? = null): SmbFolderIndexResult {
-        val operation = request.operation
-        val sourceId = operation.token.sourceInstanceId
         val owner = repository.sourceOwner(sourceId)
-            ?: throw SmbException(SmbFailureKind.STALE_OPERATION, "SMB source unavailable")
+            ?: throw SmbException(SmbFailureKind.PROTOCOL, "Unknown SMB source")
+        val operation = owner.beginOperationSnapshot()
         val source = operation.source.instance
         require(source.type == RemoteSourceType.SMB && source.enabled)
         val root = SmbPathCodec.normalizeRelativePath(directory)
@@ -100,15 +60,13 @@ internal class SmbFolderLibraryIndexer(
         val login = SmbLogin.from(credential.material)
             ?: throw SmbException(SmbFailureKind.AUTH, "Invalid credential")
 
-        suspend fun ensureCurrent() {
-            currentCoroutineContext().ensureActive()
-            if (!request.valid || !owner.isCurrent(operation.token)) {
+        fun ensureCurrent() {
+            if (!owner.isCurrent(operation.token)) {
                 throw SmbException(SmbFailureKind.STALE_OPERATION, "Source changed during folder index")
             }
         }
 
         ensureCurrent()
-        var entriesPublished = false
         val discovery = withContext(Dispatchers.IO) {
             discover(
                 owner = owner,
@@ -117,15 +75,6 @@ internal class SmbFolderLibraryIndexer(
                 login = login,
                 root = root,
                 includeSubdirectories = includeSubdirectories,
-                request = request,
-                publishEntries = if (onEntriesPublished == null) null else { tracks ->
-                    ensureCurrent()
-                    check(repository.replaceSmbFolderScopeIfCurrent(operation.token, root, includeSubdirectories, tracks, request)) { "Stale folder entries" }
-                    entriesPublished = true
-                    ensureCurrent()
-                    onEntriesPublished(tracks.size)
-                    ensureCurrent()
-                },
             )
         }
         ensureCurrent()
@@ -143,17 +92,13 @@ internal class SmbFolderLibraryIndexer(
             relativeDirectory = root,
             includeSubdirectories = includeSubdirectories,
             tracks = discovery.tracks,
-            request = request,
         )
-        ensureCurrent()
-        if (published && !entriesPublished) onEntriesPublished?.invoke(discovery.tracks.size)
         return SmbFolderIndexResult(
             complete = discovery.complete,
             trackCount = discovery.tracks.size,
             published = published,
             metadataProbedCount = discovery.metadataProbedCount,
             metadataReusedCount = discovery.metadataReusedCount,
-            metadataFailedCount = discovery.metadataFailedCount,
         )
     }
 
@@ -164,8 +109,6 @@ internal class SmbFolderLibraryIndexer(
         login: SmbLogin,
         root: String,
         includeSubdirectories: Boolean,
-        request: SmbFolderIndexRequest,
-        publishEntries: (suspend (List<RemoteTrackSummary>) -> Unit)?,
     ): Discovery {
         val context = currentCoroutineContext()
         val startedNanos = System.nanoTime()
@@ -188,7 +131,7 @@ internal class SmbFolderLibraryIndexer(
         ) { session ->
             while (pending.isNotEmpty() && complete) {
                 context.ensureActive()
-                ensureCurrent(owner, operation, request)
+                ensureCurrent(owner, operation)
                 val directory = pending.removeFirst()
                 if (!visitedDirectories.add(directory)) continue
                 val localTracks = ArrayList<RemoteTrackSummary>()
@@ -196,7 +139,7 @@ internal class SmbFolderLibraryIndexer(
                 val lyrics = ArrayList<RemoteLyricsSidecarCandidate>()
                 session.visit(endpoint.serverPath(directory)) { entry ->
                     context.ensureActive()
-                    ensureCurrent(owner, operation, request)
+                    ensureCurrent(owner, operation)
                     if (System.nanoTime() - startedNanos >= MAX_INDEX_NANOS) {
                         complete = false
                         return@visit false
@@ -287,43 +230,40 @@ internal class SmbFolderLibraryIndexer(
                         probeCandidates += IndexedValue(index, base)
                     }
                 }
-                context.ensureActive()
-                ensureCurrent(owner, operation, request)
-                publishEntries?.invoke(tracks)
-                context.ensureActive()
-                ensureCurrent(owner, operation, request)
-                probeCandidates.chunked(REMOTE_METADATA_IO_CONCURRENCY).forEach { chunk ->
-                    context.ensureActive()
-                    ensureCurrent(owner, operation, request)
-                    val enriched = coroutineScope {
-                        chunk.map { indexed ->
-                            async(Dispatchers.IO) {
-                                indexed.index to enrichMetadata(
-                                    session = session,
-                                    endpoint = endpoint,
-                                    relativePath = indexed.value.ref.opaqueTrackId,
-                                    base = indexed.value,
-                                )
+                val cursor = java.util.concurrent.atomic.AtomicInteger()
+                val enriched = coroutineScope {
+                    List(REMOTE_METADATA_IO_CONCURRENCY) {
+                        async(Dispatchers.IO) {
+                            val local = ArrayList<Pair<Int, RemoteTrackSummary>>()
+                            while (true) {
+                                context.ensureActive()
+                                ensureCurrent(owner, operation)
+                                val next = cursor.getAndIncrement()
+                                if (next >= probeCandidates.size) break
+                                val indexed = probeCandidates[next]
+                                val track = enrichMetadata(session, endpoint, indexed.value.ref.opaqueTrackId, indexed.value)
+                                context.ensureActive()
+                                ensureCurrent(owner, operation)
+                                local += indexed.index to track
                             }
-                        }.awaitAll()
-                    }
-                    context.ensureActive()
-                    ensureCurrent(owner, operation, request)
-                    enriched.forEach { (index, track) -> tracks[index] = track }
+                            local
+                        }
+                    }.awaitAll()
                 }
-                val failedCount = probeCandidates.count { tracks[it.index].metadataProbeRevision != REMOTE_METADATA_PROBE_REVISION }
+                context.ensureActive()
+                ensureCurrent(owner, operation)
+                enriched.forEach { batch -> batch.forEach { (index, track) -> tracks[index] = track } }
                 tracks.sortWith(compareBy<RemoteTrackSummary>({ it.ref.opaqueTrackId.lowercase(Locale.ROOT) }, { it.ref.opaqueTrackId }))
                 return Discovery(
                     tracks = tracks,
                     complete = true,
                     metadataProbedCount = probeCandidates.size,
                     metadataReusedCount = reusedCount,
-                    metadataFailedCount = failedCount,
                 )
             }
         }
         context.ensureActive()
-        ensureCurrent(owner, operation, request)
+        ensureCurrent(owner, operation)
         tracks.sortWith(compareBy<RemoteTrackSummary>({ it.ref.opaqueTrackId.lowercase(Locale.ROOT) }, { it.ref.opaqueTrackId }))
         return Discovery(tracks, complete, metadataProbedCount = 0, metadataReusedCount = 0)
     }
@@ -394,8 +334,8 @@ internal class SmbFolderLibraryIndexer(
         } ?: base
     }
 
-    private fun ensureCurrent(owner: RemoteSourceOwner, operation: RemoteOperationSnapshot, request: SmbFolderIndexRequest) {
-        if (!request.valid || !owner.isCurrent(operation.token)) {
+    private fun ensureCurrent(owner: RemoteSourceOwner, operation: RemoteOperationSnapshot) {
+        if (!owner.isCurrent(operation.token)) {
             throw SmbException(SmbFailureKind.STALE_OPERATION, "Source changed during folder index")
         }
     }
@@ -405,7 +345,6 @@ internal class SmbFolderLibraryIndexer(
         val complete: Boolean,
         val metadataProbedCount: Int,
         val metadataReusedCount: Int,
-        val metadataFailedCount: Int = 0,
     )
 
     companion object {

@@ -11,6 +11,7 @@ import com.mica.music.data.local.toEntity
 import com.mica.music.data.local.toRemoteSourceInstance
 import com.mica.music.data.local.toRemoteTrackSummary
 import com.mica.music.data.remote.smb.SmbFolderScope
+import com.mica.music.data.remote.smb.SmbFolderIndexRequest
 import java.util.UUID
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -40,6 +41,8 @@ class RemoteCatalogRepository internal constructor(
     private val mutex = Mutex()
     private val owners = LinkedHashMap<String, RemoteSourceOwner>()
     private var metadataRequest = 0L
+    private var folderRequestSequence = 0L
+    private val folderRequests = mutableMapOf<String, SmbFolderIndexRequest>()
 
     fun observeSources(): Flow<List<RemoteSourceInstance>> = sourceDao.observe().map { rows ->
         rows.map { it.toRemoteSourceInstance() }
@@ -120,6 +123,7 @@ class RemoteCatalogRepository internal constructor(
             return@withLock false
         }
         ownerForEntityLocked(persisted).invalidateOperations()
+        folderRequests.remove(sourceInstanceId)?.valid = false
         val deleted = database.withTransaction {
             sourceDao.deleteById(sourceInstanceId)
         }
@@ -129,6 +133,29 @@ class RemoteCatalogRepository internal constructor(
     }
     suspend fun beginOperation(sourceInstanceId: String): RemoteOperationSnapshot? = mutex.withLock {
         ownerForLocked(sourceInstanceId)?.beginOperationSnapshot()
+    }
+
+    /** Folder requests have their own generation; browsing/playback source tokens are unaffected. */
+    internal suspend fun beginSmbFolderIndex(sourceInstanceId: String): SmbFolderIndexRequest? = mutex.withLock {
+        val owner = ownerForLocked(sourceInstanceId) ?: return@withLock null
+        val operation = owner.beginOperationSnapshot()
+        if (!operation.source.instance.enabled || operation.source.instance.type != RemoteSourceType.SMB) return@withLock null
+        folderRequests.remove(sourceInstanceId)?.valid = false
+        SmbFolderIndexRequest(operation, ++folderRequestSequence).also { folderRequests[sourceInstanceId] = it }
+    }
+
+    internal suspend fun cancelSmbFolderIndex(request: SmbFolderIndexRequest) = mutex.withLock {
+        val id = request.operation.token.sourceInstanceId
+        if (folderRequests[id] === request) folderRequests.remove(id)
+        request.valid = false
+    }
+
+    internal suspend fun publishSmbFolderIndexState(request: SmbFolderIndexRequest, publish: () -> Unit): Boolean = mutex.withLock {
+        val token = request.operation.token
+        val owner = ownerForLocked(token.sourceInstanceId) ?: return@withLock false
+        if (!request.valid || folderRequests[token.sourceInstanceId] !== request || !owner.isCurrent(token)) return@withLock false
+        publish()
+        true
     }
 
     internal suspend fun sourceOwner(sourceInstanceId: String): RemoteSourceOwner? = mutex.withLock {
@@ -240,7 +267,9 @@ class RemoteCatalogRepository internal constructor(
         relativeDirectory: String,
         includeSubdirectories: Boolean,
         tracks: List<RemoteTrackSummary>,
+        request: SmbFolderIndexRequest? = null,
     ): Boolean = mutex.withLock {
+        if (request != null && (!request.valid || folderRequests[token.sourceInstanceId] !== request || request.operation.token != token)) return@withLock false
         val owner = ownerForLocked(token.sourceInstanceId) ?: return@withLock false
         val snapshot = owner.snapshot()
         if (!owner.isCurrent(token) || !snapshot.instance.enabled || snapshot.instance.type != RemoteSourceType.SMB) {
@@ -380,6 +409,8 @@ class RemoteCatalogRepository internal constructor(
                 }
                 val deleted = smbScopeDao.deleteManaged(scopeId, sourceInstanceId)
                 if (deleted != 1) return@withTransaction false
+                // Removal and invalidation share the publication mutex: an old fill cannot recreate membership.
+                folderRequests.remove(sourceInstanceId)?.valid = false
                 trackDao.deleteUnscopedSmbTracks(sourceInstanceId)
                 check(owner.isCurrent(operation.token)) { "Source changed before SMB folder-scope removal commit" }
                 true
