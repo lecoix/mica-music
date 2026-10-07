@@ -9,6 +9,7 @@ import com.mica.music.media.SongMediaItemCodec
 
 internal data class QueueOrderSignature(
     val mediaIds: List<String>,
+    val remoteDescriptions: List<ServiceRemoteSongSnapshot?>,
 )
 
 internal data class QueueMirrorBuild(
@@ -29,7 +30,11 @@ internal object PlaybackQueueMirror {
     }
 
     fun orderSignature(items: List<MediaItem>): QueueOrderSignature =
-        QueueOrderSignature(items.map { it.mediaId })
+        QueueOrderSignature(
+            items.map { it.mediaId },
+            // Descriptions contain no artwork bytes or lyric payloads.
+            items.map { ServiceRemoteSongSnapshot.fromMediaItem(it) },
+        )
 
     fun rebuildSongs(
         items: List<MediaItem>,
@@ -48,32 +53,44 @@ internal object PlaybackQueueMirror {
         fallbackResolver: ((String) -> Song?)?,
     ): QueueMirrorBuild {
         val signature = orderSignature(items)
+        if (signature == previousSignature) return QueueMirrorBuild(signature, null)
         val localSongsById = localQueue.associateBy { it.id }
         val resolver: (String) -> Song? = { id ->
             localSongsById[id] ?: fallbackResolver?.invoke(id)
         }
         return QueueMirrorBuild(
             signature = signature,
-            songs = if (signature == previousSignature) {
-                null
-            } else {
-                rebuildSongs(items, resolver)
-            },
+            songs = rebuildSongs(items, resolver),
         )
     }
 }
 
 /**
- * MediaItem 只承载播放/会话所需的轻量字段；曲库中的完整 Song（例如歌词）优先。
+ * 本地完整 Song 优先；远程描述以可信会话为准，保留本地已加载的歌词、统计和播放策略。
  */
 internal fun resolveMirroredSong(
     item: MediaItem,
     resolver: ((String) -> Song?)?,
 ): Song? {
     val mediaId = item.mediaId.takeIf { it.isNotBlank() } ?: return null
-    resolver?.invoke(mediaId)?.let { return it }
+    val local = resolver?.invoke(mediaId)
     if (RemoteMediaIdCodec.isRemoteId(mediaId)) {
-        return ServiceRemoteSongSnapshot.fromMediaItem(item)?.toSong()
+        val description = ServiceRemoteSongSnapshot.fromMediaItem(item) ?: return local
+        if (local == null) return description.toSong()
+        return local.copy(
+            title = description.title,
+            artist = description.artist,
+            album = description.album,
+            albumArtist = description.albumArtist,
+            durationSec = description.durationSec,
+            albumArtUri = description.albumArtUri,
+            coverColorArgb = if (local.albumArtUri == description.albumArtUri) local.coverColorArgb else 0,
+            fileName = description.fileName,
+            sizeBytes = description.sizeBytes,
+            year = description.year,
+            trackNumber = description.trackNumber,
+            discNumber = description.discNumber,
+        )
     }
-    return SongMediaItemCodec.decode(item)
+    return local ?: SongMediaItemCodec.decode(item)
 }

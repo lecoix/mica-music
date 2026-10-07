@@ -54,6 +54,109 @@ import org.robolectric.Shadows.shadowOf
 class PlayerControllerBoundaryTest {
 
     @Test
+    fun selectingSameRemoteQueueRefreshesItsDescription() {
+        val connector = FakeConnector()
+        val player = mockk<MediaController>(relaxed = true)
+        val track = com.mica.music.data.remote.RemoteTrackSummary(
+            com.mica.music.data.remote.RemoteTrackRef("smb-test", "song.flac"), "song",
+        )
+        val item = com.mica.music.media.RemoteMediaItemCodec.encode(track)
+        val old = com.mica.music.media.RemoteMediaItemCodec.decode(item)!!
+        val latest = com.mica.music.media.RemoteMediaItemCodec.decode(
+            com.mica.music.media.RemoteMediaItemCodec.encode(track.copy(artist = "Artist", artworkOpaqueId = "cover")),
+        )!!
+        every { player.getMediaItemAt(0) } returns item
+        every { player.currentMediaItem } returns item
+        every { player.currentMediaItemIndex } returns 0
+        every { player.mediaItemCount } returns 1
+        val controller = controller(connector = connector)
+        controller.setQueue(listOf(old))
+        controller.connectIfNeeded()
+        connector.requests.single().onConnected(player)
+
+        controller.playQueueSong(listOf(latest), latest.id)
+
+        assertEquals(latest.artist, controller.playbackSurfaceState.currentSong?.artist)
+        assertEquals(latest.albumArtUri, controller.playbackSurfaceState.currentSong?.albumArtUri)
+        controller.release()
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun sameIdRemoteTimelineRefreshPublishesArtworkToPlaybackSurface() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val connector = FakeConnector()
+        val player = mockk<MediaController>(relaxed = true)
+        val listener = slot<Player.Listener>()
+        val old = com.mica.music.data.remote.RemoteTrackSummary(
+            com.mica.music.data.remote.RemoteTrackRef("smb-test", "song.flac"), "song",
+        )
+        var item = com.mica.music.media.RemoteMediaItemCodec.encode(old)
+        every { player.addListener(capture(listener)) } returns Unit
+        every { player.getMediaItemAt(0) } answers { item }
+        every { player.currentMediaItem } answers { item }
+        every { player.currentMediaItemIndex } returns 0
+        every { player.mediaItemCount } returns 1
+        val controller = controller(connector = connector, dispatcher = dispatcher)
+        controller.setQueue(listOf(com.mica.music.media.RemoteMediaItemCodec.decode(item)!!))
+        controller.connectIfNeeded()
+        connector.requests.single().onConnected(player)
+        listener.captured.onTimelineChanged(Timeline.EMPTY, Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED)
+        advanceTimeBy(100)
+        runCurrent()
+
+        item = com.mica.music.media.RemoteMediaItemCodec.encode(
+            old.copy(artist = "Artist", artworkOpaqueId = "cover"),
+        )
+        listener.captured.onTimelineChanged(Timeline.EMPTY, Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED)
+        advanceTimeBy(100)
+        runCurrent()
+
+        assertEquals("Artist", controller.playbackSurfaceState.currentSong?.artist)
+        assertTrue(controller.playbackSurfaceState.currentSong?.albumArtUri != null)
+        controller.release()
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun completedOldRemoteMirrorCannotOverwriteNewSameIdMetadata() = runTest {
+        val mainDispatcher = StandardTestDispatcher(testScheduler)
+        val workerScheduler = TestCoroutineScheduler()
+        val connector = FakeConnector()
+        val player = mockk<MediaController>(relaxed = true)
+        val listener = slot<Player.Listener>()
+        val track = com.mica.music.data.remote.RemoteTrackSummary(
+            com.mica.music.data.remote.RemoteTrackRef("smb-test", "song.flac"), "song",
+        )
+        val item = com.mica.music.media.RemoteMediaItemCodec.encode(track)
+        val old = com.mica.music.media.RemoteMediaItemCodec.decode(item)!!
+        every { player.addListener(capture(listener)) } returns Unit
+        every { player.getMediaItemAt(0) } returns item
+        every { player.currentMediaItem } returns item
+        every { player.currentMediaItemIndex } returns 0
+        every { player.mediaItemCount } returns 1
+        val controller = controller(
+            connector = connector, dispatcher = mainDispatcher,
+            queueMirrorDispatcher = StandardTestDispatcher(workerScheduler),
+        )
+        controller.setQueue(listOf(old))
+        controller.connectIfNeeded()
+        connector.requests.single().onConnected(player)
+        listener.captured.onTimelineChanged(Timeline.EMPTY, Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED)
+        advanceTimeBy(100)
+        runCurrent()
+        workerScheduler.runCurrent() // Build completed; its publication is still queued on main.
+        val latest = com.mica.music.media.RemoteMediaItemCodec.decode(
+            com.mica.music.media.RemoteMediaItemCodec.encode(track.copy(artist = "Newest", artworkOpaqueId = "new-cover")),
+        )!!
+        controller.refreshQueueMetadata(listOf(latest))
+        runCurrent()
+        assertEquals(latest, controller.playbackSurfaceState.currentSong)
+        assertEquals(listOf(latest), controller.playbackQueueState.queue)
+        controller.release()
+    }
+
+    @Test
     fun playSingleSongWaitsForColdControllerConnectionThenStartsPlayback() {
         val connector = FakeConnector()
         val controller = controller(connector = connector)

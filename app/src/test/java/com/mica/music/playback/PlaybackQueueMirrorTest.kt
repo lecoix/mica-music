@@ -16,6 +16,7 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -23,6 +24,53 @@ import org.robolectric.RobolectricTestRunner
 
 @RunWith(RobolectricTestRunner::class)
 class PlaybackQueueMirrorTest {
+    @Test
+    fun tenThousandRemoteDescriptionsReuseLoadedLyricsAndStatistics() {
+        val local = List(10_000) { index ->
+            val track = RemoteTrackSummary(RemoteTrackRef("smb-test", "$index.flac"), "song-$index")
+            RemoteMediaItemCodec.decode(RemoteMediaItemCodec.encode(track))!!.copy(
+                lyricsDocument = SongFixtures.song().lyricsDocument,
+                lyricsLoaded = true,
+                playCount = 7,
+            )
+        }
+        val items = local.map { RemoteMediaItemCodec.encode(it.copy(artist = "Updated")) }
+        val songs = PlaybackQueueMirror.buildIfChanged(items, null, local, null).songs!!
+        assertEquals(10_000, songs.size)
+        songs.forEachIndexed { index, song ->
+            assertSame(local[index].lyricsDocument, song.lyricsDocument)
+            assertTrue(song.lyricsLoaded)
+            assertEquals(7, song.playCount)
+            assertEquals("Updated", song.artist)
+        }
+    }
+
+    @Test
+    fun remoteMetadataChangeWithSameIdsRefreshesStaleLocalMirror() {
+        val old = RemoteTrackSummary(RemoteTrackRef("smb-test", "song.flac"), "song")
+        val updated = old.copy(artist = "Artist", artworkOpaqueId = "embedded-cover")
+        val oldItem = RemoteMediaItemCodec.encode(old)
+        val stale = PlaybackQueueMirror.rebuildSongs(listOf(oldItem), null).single()
+        val build = PlaybackQueueMirror.buildIfChanged(
+            listOf(RemoteMediaItemCodec.encode(updated)),
+            PlaybackQueueMirror.orderSignature(listOf(oldItem)), listOf(stale), null,
+        )
+        assertEquals("Artist", build.songs?.single()?.artist)
+        assertTrue(build.songs?.single()?.albumArtUri != null)
+    }
+
+    @Test
+    fun rebuildingRemoteMirrorDoesNotPreferOldLocalDescriptionOverService() {
+        val old = RemoteTrackSummary(RemoteTrackRef("smb-test", "song.flac"), "song")
+        val stale = PlaybackQueueMirror.rebuildSongs(listOf(RemoteMediaItemCodec.encode(old)), null).single()
+        val updated = old.copy(artist = "Artist", artworkOpaqueId = "embedded-cover")
+        val build = PlaybackQueueMirror.buildIfChanged(
+            listOf(RemoteMediaItemCodec.encode(updated)), null, listOf(stale), null,
+        )
+        assertEquals("Artist", build.songs?.single()?.artist)
+        assertTrue(build.songs?.single()?.albumArtUri != null)
+    }
+
     @Test
     fun snapshotItemsReadsAvailablePlayerItemsInOrder() {
         val items = listOf(item("a"), item("b"))

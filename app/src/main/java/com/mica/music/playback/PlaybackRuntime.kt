@@ -1199,6 +1199,7 @@ internal class PlaybackRuntime(
         if (activeController != null && sameSourceQueue) {
             val targetIndex = songQueue.indexOfFirst { it.id == songId }
             if (targetIndex >= 0) {
+                refreshQueueMetadata(newQueue)
                 pendingQueue = null
                 pendingQueuePlaySongId = null
                 playSong(targetIndex)
