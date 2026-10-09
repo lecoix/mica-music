@@ -1,9 +1,17 @@
 # 远程音乐源调研记录
 
 > 状态：**MVP 已实现并合并；本文后半保留原调研/provenance 与兼容性记录**
-> 最近更新：2026-09-21
+> 最近更新：2026-10-09（已提交 `b332de4a`；历史 2026-08/09 的递归 SMB catalog 测试保留原始背景）
 > 当前范围：Navidrome / WebDAV / SMB  
 > 本文同时承担当前远程曲库实现状态、历史调研/provenance 与兼容边界记录。2026-08-29 之前的“候选/预期”文字按历史语境阅读；当前实现以本页实施状态、代码与 `CURRENT_FEATURE_STATUS.md` 为准。USB 输出与 DSD 的交叉约束同步参考 [`USB_EXCLUSIVE_AUDIO_STATUS.md`](USB_EXCLUSIVE_AUDIO_STATUS.md)。
+
+## 2026-10-08 SMB 选定范围入库（当前实现）
+
+普通 SMB 浏览只读取当前目录列表，不自动递归遍历服务器、不逐首提取标签，也不读取封面或歌词。用户**明确选择**添加当前文件夹（可选子目录）后，才在安全预算内完全发现该范围；不完整发现不提交或清除已发布成员。
+
+已完成发现首先在 Room 发布 filename 即可播放的条目与 scope，然后至多四路 metadata probe / revision reuse，最后一次批量发布标签；不逐首向 UI 发布更新。`SmbFolderLibraryLoader` 是进程级单次导入 owner，`RemoteCatalogRepository` 另持 source token 与独立 folder request identity，取消、来源删除、删除 scope 或新的导入请求可禁止旧 I/O 结果回写。停止与进程死亡不撤销已提交条目，也不承诺网络后台完成；重新刷新同范围可补齐失败标签。用户可直接看到第一阶段的音乐列表。
+
+TagLib metadata 读取采用 **64 KiB read-ahead**，这是选定范围标签读取的窗口，不是音频 `SmbDataSource` 播放 seek 的读取窗口。封面和歌词仍以可见/JIT 需求为触发并使用相应缓存，不等于全库预载媒体 payload。限额为 50k tracks / 100k visited entries / 64 MiB 估计 descriptor；四路 × 64 KiB 不是进程峰值保证，旧阻塞 I/O 取消后可能短暂与新请求重叠。10k 完整逐字歌词 + 8GB / 低性能路由器场景仍需独立 soak。所有权与测试边界见 [ADR-0007](adr/0007-smb-browse-and-selected-tracks.md)。
 
 ## 2026-09-21 SMB 浏览与普通歌单
 

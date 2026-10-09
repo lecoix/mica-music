@@ -1,22 +1,31 @@
 # 当前功能状态
 
-> 最后更新：2026-09-14。本文是“当前实现 + 已取得证据 + 未完成验收”的 living status；代码/JVM/单机 smoke 不能外推为所有 OEM、DAC、ABI、签名包或音质均通过。
-> 当前 App 基线文档曾记 **0.4.0 / versionCode 54**；Room schema 工作树为 **v32**（含 SAF mass-deletion 累计确认字段）。minSdk 26 / targetSdk 34 / compileSdk 36。发布结论仍以正式签名包与矩阵证据为准。
+> 最后更新：**2026-10-09**。已提交代码基线 `codex/enable-r8` HEAD **`57f3b989`**；未提交工作树改动不视为实现事实。`app/build.gradle.kts` 为 **0.4.3 / versionCode 58**、Room **v35**，minSdk 26 / targetSdk 34 / compileSdk 36。
+> 发布 tag `v0.4.3` 位于 `cb15dca5`，不包含其后的四个已提交变更。代码/JVM/单机 smoke 不能外推为所有 OEM、DAC、ABI、正式签名包或音质通过。
+
+## 2026-10-07—09 已提交增量（不等于已进入 v0.4.3 tag）
+
+- **播放队列有效顺序**（`57f3b989`）：服务接受完整排列并持有 effective/source order、逻辑 shuffle 标志、游标与请求 token；插播、拖动、删除、追加、自然切歌、失败跳曲及冷恢复走统一顺序。成员变化仍对 Media3 物理索引增量操作；旧 seed-only 快照无法无损重建编辑史。详见 [ADR-0008](adr/0008-playback-effective-order.md)。
+- **SMB 显式文件夹导入**（`b332de4a`）：当前目录浏览只列名字；仅显式选择范围才完整发现并先发布可播放条目，再最多四路 TagLib probe、一次补齐元数据。probe read-ahead 为 **64 KiB**，与音频播放窗口不同；取消/退出保留已提交数据，同范围刷新可重试，不完整发现不提交。详见 [ADR-0007](adr/0007-smb-browse-and-selected-tracks.md)。
+- **远端封面队列镜像**（`82f5374a`）：按稳定歌曲 ID 更新远端 artwork，不以过期下标错配。
+- **正方形粒子封面**（`77386225`）：修正随 songId 奇偶变化的单轴散射；新增两种 parity × 四个播放进度的 GLES 像素回归，在 Xiaomi Android 12 / Adreno 730 获得定向验证，不外推全部 GPU。
+- **9 月已提交功能**：紧凑比例布局、拍立得 seek 热区、歌词读音/翻译定时轨、应用图标预设与壁纸/迷你栏/信息行设置子页均进入代码。发布与多设备验收仍独立。
+- **验证限定**：`57f3b989` 提交说明记录了 270 项相关 JVM 与 9 项 Xiaomi Android 12 设备测试；不是本次全量质量门或正式 Release 验收声明。
 
 ## 已接入的主链
 
 - 播放统一由前台 `MicaMediaService` 管理 Media3/ExoPlayer 单链路；普通格式与 ALAC/DSF/APE 扩展解码进入同一 Service/MediaSession。最近的队列修复避免列表选歌与非当前 metadata refresh 无意义重建整条 timeline；同曲单曲循环由 Service 确认回卷时同步把 UI 进度重置到 0。
 - `PlayerController` 是 UI facade；`PlaybackRuntime` 与 queue/timeline/tuning/statistics/connection coordinator 持有长期状态。队列列表写路径（`setQueue` / `appendSongs` / `removeSongById` 等）约定主线程；基于 live 队列的读改写走 owner API，禁止跨 await 快照后再整表 `setQueue`。
-- 本地曲库以 `MusicLibraryBacking -> LibraryOperationExecutor -> LibraryStore` 为扫描/AUTO/封面修复执行入口（`LibraryScanOrchestrator` 已退役）。Full Scan、cache hydrate、clear 与 AUTO publication 共享 generation/revision/publication fencing；Room **v32** 持有本地曲库、歌词 staging、自动同步 checkpoint/retry/outbox/exclusion、browse 派生状态、歌单及远端 catalog。
+- 本地曲库以 `MusicLibraryBacking -> LibraryOperationExecutor -> LibraryStore` 为扫描/AUTO/封面修复执行入口（`LibraryScanOrchestrator` 已退役）。Full Scan、cache hydrate、clear 与 AUTO publication 共享 generation/revision/publication fencing；Room **v35** 持有本地曲库、歌词 staging、自动同步 checkpoint/retry/outbox/exclusion、browse 派生状态、歌单及远端 catalog。
 - DEVICE 与 SAF/FOLDER **durable automatic sync 已进入 ordinary scheduler real-auto**。dirty signal 只触发调度；任何 PARTIAL/UNAVAILABLE、provider transient、mass-deletion quarantine、playback defer 或 stale token 都 fail-closed。SAF 大量删除开闸需跨批**累计**对象级 missing 证明盖住隔离全集（cursor 只是 resume）。global / DEVICE / FOLDER 内部 kill switch 可停 AUTO 而不影响 Manual Full Scan；SAF provider 不可用有 30s/60s 有界重试，之后要求用户重选来源而不热循环。
 - AUTO `CONFIRMED_MISSING` 的歌单清理经 followup outbox 异步消费；手动 `deleteSongEverywhere` 即时清歌单并报告 `playlistCleanupSucceeded`，**不**走该 outbox 补偿。
 - 播放统计由进程级 `PlaybackStatisticsRepository` 经 FIFO `Channel` 单消费者写入 `PlayHistoryStore`。
-- 远程曲库 MVP 已合并：Navidrome/OpenSubsonic、WebDAV、SMB2/SMB3；支持来源隔离、原始音频播放/JIT 解析、文件型 Range/random-access、自动 catalog sync、独立排序、全局搜索、Artists/Albums/Recent 联合浏览、安全多选、歌单/封面解析、当前曲定位、JIT 封面与歌词。同一来源 catalog sync 在 `RemoteSourceManager` 单飞串行。SMB1 不启用，凭据不进入稳定 media id/歌单导出。
+- 远程曲库 MVP 已合并：Navidrome/OpenSubsonic、WebDAV、SMB2/SMB3；支持来源隔离、原始音频播放/JIT 解析、文件型 Range/random-access、自动 catalog sync、独立排序、全局搜索、Artists/Albums/Recent 联合浏览、安全多选、歌单/封面解析、当前曲定位、JIT 封面与歌词。同一来源 catalog sync 在 `RemoteSourceManager` 单飞串行。SMB1 不启用，凭据不进入稳定 media id/歌单导出。SMB 新工作流是**当前目录浏览 + 显式 selected-folder scope**；旧版 catalog 的递归同步路径不可再描述为普通 SMB 默认行为。
 
 ## UI / 歌词 / 系统集成
 
 - 播放页有六种封面行为：标准、自定义标准、粒子封面、平行封面带、复古立体、拍立得回忆。自定义标准已扩展歌词/标题/进度条/控制组件编辑、隐藏后重排、封面滑动与阴影等低层配置。
-- 播放页背景当前枚举为主题色、封面渐变、封面模糊、动态烟云（设置 UI 暂隐藏）、流光溢彩、**星图**。星图已取代实验 aurora/固定 constellation，现为连续球面星图、季节天空、星座及太阳/月亮/行星的程序化位置。
+- 播放页背景当前有七种枚举：主题色、封面渐变、封面模糊、动态烟云（设置 UI 暂隐藏）、流光溢彩、**星图**、**雨幕玻璃**。星图已取代实验 aurora/固定 constellation，为连续球面星图与太阳系天体；雨幕玻璃使用静态街景 + Mica 自有雨滴、湿痕、折射与模糊着色器，Mali/HyperOS 等跨 GPU 兼容性仍单独验收。
 - 标准主题横屏封面已改为向背景交接处渐隐；歌曲列表可选 `HQ / SQ / HR` 副行音质标志；迷你播放器可关闭左右滑切歌；可选“启动时自动播放”默认关闭。
 - 搜索结果已有数量统计与多选加入歌单，进入歌曲会收起键盘。桌面 Glance 小组件已有 **自适应 / 四宫格 / 大封面** 三类。
 - 歌词支持 LRC/逐字/TTML/内嵌与多角色结构；LDDC 行尾翻译已兼容。桌面/状态栏歌词同步延迟已修；Lyricon provider 可选接入。车机歌词不再创建第二个 active MediaSession，而通过单 Session 的 `MicaSessionPresentationPlayer` 做 presentation，避免上一曲/下一曲控制冲突；仍需更多 OEM/车机矩阵。
@@ -30,7 +39,7 @@
 - `.dsf` 在 Shared PCM 路径仍可经 Media3 FFmpeg + DSD processor 播放；`.dff` / DSDIFF 仍拒绝播放。
 - EQ、ReplayGain、频谱 tap、offload 偏好/熔断、音效实验室均走当前 `AudioPipelineCoordinator` 约束。任何可能降低音质的改动继续受 `CONTEXT.md` 的 Audio quality consent 规则约束。
 
-## 当前工作树中的 staged / 未合入发布基线项
+## 已提交但 tag 未包含 / 工作树未提交的边界
 
 - **Spectrum stall**：频谱从“processor wall-clock 发布”迁到 sink media clock + `SpectrumPcmTimeline` + `SpectrumAnalysisEngine` 的工作若仍未合入正式发布包，不能写成已发布行为；详见 `SPECTRUM_STALL_BUG.md`。
 - **Managed artwork recovery / ANR**：启动/health/scan-reuse/provider-open 的封面健康检查限制为 metadata-level、强 SHA 仅 lazy recovery 的改动若未提交/未进发布包，同理不得外推。

@@ -1,5 +1,7 @@
 # HiFi 本地音乐播放器 · 设计规范 v1.3
 
+> **2026-10-09 适用性复核**：保留本文历史设计与原型章节。紧凑显示比例/拍立得触控几何、正方形粒子散射、SMB 指定文件夹入库和队列随机编辑现以已提交布局代码、`docs/COVER_FLOW_IMPLEMENTATION.md`、`docs/PARTICLE_COVER_OPENGL_MIGRATION.md`、ADR-0007 与 ADR-0008 为准。旧 mockup 和日期化方案不自动等同当前实现。
+
 > 现状复核：2026-09-11。§2.7 / §十五已按当前枚举复核；实验 `aurora` / 固定 constellation 已迁移为 `STAR_MAP`，历史云母预设名“极光”不受影响。
 
 > Android Jetpack Compose · 云母材质（浮岛 blur）+ 氛围渐变 + 极简尖角 · 发烧友定位

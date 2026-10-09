@@ -1,6 +1,6 @@
 # Mica Music — 播放
 
-> 2026-09-14 复核：领域词汇按当前工作树校准；Room 为 **v32**（含 SAF mass-deletion 累计确认字段）；DEVICE + SAF/FOLDER AUTO 与远端曲库已在生产代码。扫描/封面修复执行 owner 为 `LibraryOperationExecutor`（`LibraryScanOrchestrator` 已退役）。频谱时钟与 managed artwork lazy recovery 等若仍仅在工作树、未合入发布基线，不得写成已发布行为。
+> 2026-10-09 已提交基线复核：`codex/enable-r8` HEAD `57f3b989`、Room **v35**（v32 的 SAF mass-deletion 累计确认仍有效，后续 v33–v35 承载 SMB selected tracks/scopes 与迁移）。DEVICE + SAF/FOLDER AUTO 已在生产代码。扫描/封面修复 owner 为 `LibraryOperationExecutor`（`LibraryScanOrchestrator` 已退役）。未提交 R8/Vivo 诊断与播放页 UI 修改不视为已提交功能；正式 APK 状态以 tag/构建证据为准。
 
 Mica 本地音乐播放器的领域语言：曲目与队列、出声路径、播放页 UI 与布局。本文只定义**叫什么**、**指什么**。
 
@@ -44,7 +44,7 @@ _Avoid_: 静态地按相邻歌词开始时间插入间奏
 _Avoid_: 从普通 LRC 的相邻开始时间推断歌词云间奏；让光团拦截歌词点击
 
 **Playlist（歌单）**：
-用户保存的静态曲目集合；选中后**装入**播放队列，本身不驱动出声。`MicaApp.playlistStore` 是进程内唯一 `PlaylistStore` owner；主页与播放页由装配层接收同一实例。持久化由 Room `playlists` / `playlist_songs`（当前 schema **v32**）承载；首次启动把旧 `mica_playlists` JSON 一次性迁入，之后所有增删改先写 Room 成功再更新内存，写失败不发布内存变更。AUTO `CONFIRMED_MISSING` 的歌单清理经 `library_followup_outbox`（`PLAYLIST_REMOVE_CONFIRMED_MISSING`）异步消费；**手动**删歌走即时 `removeSongFromAllPlaylists`，成功与否进入 `DeleteSongResult.playlistCleanupSucceeded`，**不**经该 outbox 补偿。
+用户保存的静态曲目集合；选中后**装入**播放队列，本身不驱动出声。`MicaApp.playlistStore` 是进程内唯一 `PlaylistStore` owner；主页与播放页由装配层接收同一实例。持久化由 Room `playlists` / `playlist_songs`（当前 schema **v35**）承载；首次启动把旧 `mica_playlists` JSON 一次性迁入，之后所有增删改先写 Room 成功再更新内存，写失败不发布内存变更。AUTO `CONFIRMED_MISSING` 的歌单清理经 `library_followup_outbox`（`PLAYLIST_REMOVE_CONFIRMED_MISSING`）异步消费；**手动**删歌走即时 `removeSongFromAllPlaylists`，成功与否进入 `DeleteSongResult.playlistCleanupSucceeded`，**不**经该 outbox 补偿。
 _Avoid_: 与「播放队列」混用；在 Composable 内自行构造 `PlaylistStore`；假定手动删除失败会自动入 followup outbox
 
 **Library scan settings（曲库扫描设置）**：
@@ -378,6 +378,16 @@ _Avoid_: normal progress bar（契约外简称）
 **Chrome progress alpha（控制区进度透明度）**：
 标准进度与封面底边进度交叉淡化用的统一 alpha；切换期间标准进度条保持挂载。
 _Avoid_: 用条件挂载 / 卸载切换两套进度
+
+## 2026-10-09 新增领域协议
+
+**Effective playback order（有效播放顺序）**：
+服务端已接受的明确 permutation，不等于 Media3 物理队列下标，也不能仅凭 seed + 当前曲推算。由 `PlaybackOrderState` 形成，`ServicePlaybackOrderOwner` 校验并接受；插播、拖动、删除、追加必须更新有效顺序与源顺序。自然切歌/失败跳曲与 UI 镜像使用同一 accepted order；持久化保存逻辑随机标志与游标，旧 seed-only 快照只能降级兼容。跨进程重构不能直接沿用当前同进程 AtomicLong token。参见 ADR-0008。
+_Avoid_: 编辑后重新掷 shuffle seed；跨 await 使用过期队列完整覆写；把 native shuffle flag 当作唯一逻辑播放模式
+
+**SMB selected folder publication（SMB 选定范围发布）**：
+普通目录浏览只读目录项、不逐首打开音频。用户显式选择文件夹才启动范围完整发现；完成后先原子提交可播放的文件名条目，再按 source token + 独立 folder request identity 有界加载/复用 metadata，第二阶段一次提交标签。取消或进程退出保留已提交条目，刷新同目录可重试；不完整发现和旧请求不能删除或污染已发布曲库。详见 ADR-0007。
+_Avoid_: 把浏览写成后台全库扫描；以半成品发现作 missing 证明；把旧阻塞网络调用结果写入新请求；预读全部图片或歌词
 
 ## 频谱与视觉设置
 

@@ -2,6 +2,8 @@
 
 > 极简直角 · 多种主题 · 自定义
 
+> **代码基线（2026-10-09）**：当前工作树分支 `codex/enable-r8` 已提交 HEAD `57f3b989`。应用版本 **0.4.3 / code 58**，Room **v35**。`v0.4.3` tag 位于 `cb15dca5`，其后 4 个提交不等于该 tag 已发布内容；未提交的 R8/诊断/UI 改动不算已完成。
+
 一款以本地曲库为核心的 **HiFi 播放器**，支持多种播放页主题与自定义、内嵌/外挂/结构化歌词、ALAC/DSF/APE、USB 独占，并可选接入 Navidrome/OpenSubsonic、WebDAV 与 SMB 远程曲库。
 
 ---
@@ -63,15 +65,17 @@ Windows PowerShell 5.1 若看到中文乱码，先在当前会话启用 UTF-8：
 | 模块 | 说明 |
 |------|------|
 | **播放页主题** | 标准 / 自定义 / 粒子封面/ 平行封面带 / 复古立体 / 拍立得回忆 |
-| **播放页背景** | 主题色、封面渐变、封面模糊、流光溢彩、星图 |
+| **播放页背景** | 主题色、封面渐变、封面模糊、动态烟云（设置 UI 暂隐藏）、流光溢彩、星图、雨幕玻璃（`RAIN_GLASS`） |
 | **播放页其他行为** | 沉浸模式、频谱条、共享封面转场、自定义主题拖动缩放显隐播放页组件 |
 | **播放** | Media3/Exo 单链路；Jellyfin FFmpeg 扩展解码 ALAC/DSF/APE；USB Exclusive Hybrid（默认“关闭独占”/Shared PCM，Exact PCM / DoP / Native DSD 按设备能力 fail-closed）；音频管线协调 + offload 失速熔断；10 段软件 EQ；可选音效实验室 |
+| **播放顺序** | 服务持有已接受的有效播放顺序与源顺序；随机、插播、拖动、删除、恢复及自然切歌遵守 ADR-0008，不能只凭随机 seed 推导编辑后的队列。 |
 | **曲库扫描** | 自托管 TagLib、封面缓存与取色、MediaStore/SAF Full Scan；DEVICE 与 SAF/FOLDER durable automatic sync 已接 ordinary scheduler，并带 completeness/capability gate、重试与 kill switch |
 | **持久化** | Room 曲库与歌单；`ServicePlaybackStateStore` 冷启动恢复队列与进度（外部队列仅在权限可存续时恢复） |
 | **歌词** | 内嵌 + 外挂 `.lrc` / TTML / 逐字歌词；三行/展开歌词、双语与偏移；桌面/状态栏歌词、车机 presentation 与可选 Lyricon provider 共用结构化歌词事实 |
+| **远程曲库** | Navidrome/OpenSubsonic、WebDAV、SMB2/3；SMB 默认仅浏览当前目录，显式添加文件夹才索引选定范围：完整发现后先发布可播放条目，再有界补齐元数据；封面、歌词按需获取并缓存。 |
 | **浏览** | 本地 + 远程统一搜索；歌曲 / 歌手 / 专辑 / 最近播放 / 歌单 / 远程曲库 / 音乐库分析 |
 | **迷你栏** | 浮岛毛玻璃（BlurView）/ 极简 Hi‑Fi 底栏、迷你播放栏歌词 |
-| **界面** | 可自定义强调色/背景、自定义背景图片、五种播放页背景、六种封面行为、横屏；Glance 提供“自适应 / 四宫格 / 大封面”三类桌面小组件 |
+| **界面** | 可自定义强调色/背景、自定义背景图片、七种播放页背景枚举（动态烟云在设置 UI 暂隐藏）、六种封面行为、横屏；Glance 提供“自适应 / 四宫格 / 大封面”三类桌面小组件 |
 
 ---
 
@@ -127,6 +131,8 @@ USB 的逐函数来源/适配分类见
 
 ---
 
+
+SMB 范围导入协议见 [`ADR-0007`](docs/adr/0007-smb-browse-and-selected-tracks.md)，队列有效顺序协议见 [`ADR-0008`](docs/adr/0008-playback-effective-order.md)。测试角色分为 Behavior Contract / Architecture Contract / Implementation Verification 三层，OBSOLETE 为退役标记，见 [`docs/testing/README.md`](docs/testing/README.md)。
 
 ## 相关文件
 

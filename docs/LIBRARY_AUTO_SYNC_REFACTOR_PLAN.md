@@ -2,6 +2,8 @@
 
 > Date: 2026-09-11
 > Scope: structural refactor only. Preserve the accepted behavior of ADR-0006 and the current production auto-sync algorithms.
+>
+> **2026-10-09 适用性注记**：本文原始问题描述写于 9 月 11 日；其中 `LibraryScanOrchestrator` 是当时的 owner，现已退役。当前扫描/封面修复执行入口为 `MusicLibraryBacking → LibraryOperationExecutor → LibraryStore`，Room v35；本文件保留重构动机与被冻结的 Behavior/Architecture Contract，不能将未完成阶段描述为现行类图。
 
 ## 1. Goal
 

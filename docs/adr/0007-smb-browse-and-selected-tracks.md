@@ -113,7 +113,9 @@ from claiming that the entire `micaCheck` screenshot matrix or the full 10k hard
 suite has run.
 
 
-## 2026-10-05: staged explicit folder imports
+## 2026-10-08 已提交实现：staged explicit folder imports
+
+> 本节方案在 2026-10-05 阶段形成，最终以已提交 `b332de4a`（2026-10-08）与 HEAD `57f3b989` 为代码基线；该实现晚于 `v0.4.3` tag。
 
 The explicit SMB folder action now publishes the completely discovered scope before probing
 missing tags, then publishes one enriched snapshot. It returns the UI to the remote song list

@@ -1,6 +1,17 @@
 # Mica 测试指南
 
-> 现状复核：2026-09-11。Device Flow harness / `androidTest` compile gate 已接入；当天发布前真机 smoke 取得大量证据但**未完成完整发布验收**，不能把单机 Android 12 结果写成 Gate D 全绿。
+> 现状复核：2026-10-09。Device Flow harness / `androidTest` compile gate 已接入。9 月单机 smoke 及 10 月队列/SMB/GLES 定向回归均有证据，但**未完成完整发布验收**；不能把单机 Android 12 结果写成多 OEM、签名 R8 包或 Gate D 全绿。
+
+## 测试角色（2026-10-09）
+
+测试分类与测试运行环境是正交的：**Behavior Contract** 保障用户/数据安全、持久化、并发边界；**Architecture Contract** 保障依赖方向、owner/authority 与 commit 边界；**Implementation Verification** 验证可替换的 planner、scheduler、UI geometry、回调和 Robolectric 机制。`OBSOLETE` 是待退役标记，不是第四个验收合同。参见 [`testing/README.md`](testing/README.md)。
+
+```powershell
+python scripts/generate-test-classification.py
+.\scripts\check-test-classification.ps1
+```
+
+2026-09-29 的测试数量是历史快照；10 月新增的有效播放顺序/SMB staged scope/GLES 像素测试必须重新分类并重新校验 manifest。新增定向重点：队列随机编辑后的真实自然遍历与冷恢复；SMB 取消/来源删除与 late completion 的 Room 交错；粒子正方形的 2 个 songId parity × 4 个播放进度像素验证。
 
 ## Windows 终端编码
 

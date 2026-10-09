@@ -1,6 +1,6 @@
 # Mica — Reasonix Code Context
 
-> 现状复核：2026-09-11。当前 App 基线 **0.4.0 / code 54 / Room v29**；这里是代码导航速览，发布验收结论见 `docs/CURRENT_FEATURE_STATUS.md`。
+> 现状复核：2026-10-09。已提交 HEAD `57f3b989` 为 **0.4.3 / code 58 / Room v35**；`v0.4.3` tag 早于 HEAD 最近 4 个提交，不能据此声称它们已发布。正式发布验收见 `docs/CURRENT_FEATURE_STATUS.md`。
 
 > AI / 工具用速览。**版本与依赖以 `gradle/libs.versions.toml` 为准**；领域词汇见 `CONTEXT.md`；动效与文档索引见 `docs/DOC_INDEX.md`。
 
@@ -17,7 +17,7 @@
 ## Layout
 
 - `app/src/main/java/com/mica/music/`
-  - `data/` — `Song`, Room v29（本地曲库/歌词/自动同步状态/歌单/远端 catalog）, scanner, preferences 与 shared domain；`data/remote/` 持有 Navidrome/OpenSubsonic、WebDAV、SMB 与远端自动同步；`data/playback/` 持有 `ServicePlaybackStateStore`。`data/` 不得 import 顶层 `media/` / `playback/` implementation package
+  - `data/` — `Song`, Room v35（本地曲库/歌词/自动同步状态/歌单/远端 catalog）, scanner, preferences 与 shared domain；`data/remote/` 持有 Navidrome/OpenSubsonic、WebDAV、SMB 与远端自动同步；`data/playback/` 持有 `ServicePlaybackStateStore`。`data/` 不得 import 顶层 `media/` / `playback/` implementation package
   - `playback/` — `PlayerController`（Compose/UI facade）、`PlaybackRuntime`（非 Compose application runtime）、connection、queue/timeline/tuning/statistics coordinator、MediaController queue sync 与睡眠定时器
   - `media/` — Exo 播放管线、`MicaMediaService`、`AudioPipelineCoordinator`、`AudioOffloadCircuitBreaker`、`MicaCompositePlayer`、`ServicePlaybackEngineCoordinator`、DSF、EQ implementation（`media/eq/`）
   - `audio/` / `usb/` — 跨 data/media/playback 共享的 neutral contract/value：`AudioQualityMode`、`EqBandConstants`、`UsbStableIdentity`
@@ -30,6 +30,12 @@
   - `widget/` — Glance 桌面播放小组件（自适应 / 大封面 / 四宫格）
 - `app/src/test/java/.../player/` — `CoverFlowRailsTest`, `PlayerPageLayoutEngineTest`, …
 - `MicaMainActivity.kt` — **双 `ComposeView`**：`BlurTarget` 包裹主内容 + 底部 overlay（迷你栏 BlurView）
+
+## 2026-10 已提交架构增量
+
+- 队列有效顺序：`PlaybackOrderState` / `ServicePlaybackOrderOwner` / `ServicePlaybackStateCoordinator` 负责 accepted permutation、源顺序、逻辑随机标志、游标与串行快照；成员增删以物理下标做 Media3 增量操作。详见 ADR-0008。
+- SMB：`SmbBrowserPane` 只浏览当前层；`SmbFolderLibraryLoader` 是进程级显式导入 owner；`SmbFolderLibraryIndexer` 先完整发现并提交可播条目，再至多四路 64 KiB tag read-ahead 补齐元数据。原始音频播放 DataSource 的预读策略独立。详见 ADR-0007。
+- 测试：Behavior / Architecture / Implementation 三类角色，OBSOLETE 是退役标签。分类校验见 `docs/testing/README.md`，数量以 manifest 的重新校验结果为准。
 
 ## Playback UI boundaries
 

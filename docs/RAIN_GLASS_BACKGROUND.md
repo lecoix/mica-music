@@ -1,7 +1,7 @@
 # Rain Glass Background
 
-> Status: **static backdrop is the current implementation path** (2026-09-21).  
-> Procedural city scenes are retained as research/prototype material only; they are not part of the active Android rendering path.
+> Status: **static backdrop is the current implementation path** (rechecked against committed HEAD `57f3b989` on 2026-10-09).
+> Procedural city scenes are retained as research/prototype material only; they are not part of the active Android rendering path. GPU compatibility and diagnostic guards landed separately on 2026-09-26; see [`GLSL_COMPATIBILITY.md`](GLSL_COMPATIBILITY.md). This is not a blanket HyperOS/Mali device-matrix PASS.
 
 ## Current implementation
 

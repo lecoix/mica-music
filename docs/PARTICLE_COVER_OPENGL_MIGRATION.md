@@ -1,5 +1,7 @@
 # 粒子封面手册（产品 §0 + GLES 迁移施工）
 
+> **当前修订（2026-10-07）**：提交 `77386225` 去掉基于 songId 奇偶的 X-only 散射反转，修复正方形封面粒子水平/垂直膨胀不对称。`ParticleCoverGeometryDeviceTest` 在 Xiaomi Android 12 / Adreno 730 验证两种 parity × 四个播放进度的真实 GLES 像素，8 组横纵比约 1.01。此证据不外推 Mali/其他 GPU；后续章节的迁移计划保留历史语境。
+
 > 现状复核：2026-09-11。播放页生产路径仍为 native GLES；Three.js/WebView 只作为 legacy fallback，退役前须保留 parity/性能/低端机验收与开源 notice。
 
 > **状态**：2026-07 — 播放页现网已走 **GLES**（`UseNativeParticleCoverInPlayer = true`）；本文 §0 为产品说明，§1+ 为 WebView 退役与视觉 parity 施工。  
@@ -45,11 +47,11 @@
 | 渲染 | [`ParticleCoverView.kt`](../app/src/main/java/com/mica/music/ui/screens/player/view/ParticleCoverView.kt) / [`ParticleCoverRenderer.kt`](../app/src/main/java/com/mica/music/ui/screens/player/view/ParticleCoverRenderer.kt) | 稳态边缘粒子 + 切歌过渡 |
 | 布局 | [`ParticleCoverPageLayout.kt`](../app/src/main/java/com/mica/music/ui/screens/player/ParticleCoverPageLayout.kt) | `ParticleCoverFrame`、紧凑歌词 alpha |
 | 策略 | [`ParticleCoverThemePolicy.kt`](../app/src/main/java/com/mica/music/ui/screens/player/ParticleCoverThemePolicy.kt) | 与封面流 stage 互斥 |
-| **回退** | [`ThreeParticleCoverHost.kt`](../app/src/main/java/com/mica/music/ui/screens/player/view/ThreeParticleCoverHost.kt) | WebView + Three.js；仅当 `UseNativeParticleCoverInPlayer = false` |
+| **回退** | `ThreeParticleCoverHost.kt`（已退役历史文件） | WebView + Three.js；仅当 `UseNativeParticleCoverInPlayer = false` |
 
 ### 0.5 与迁移文档的关系
 
-§1 及以下描述 **从 WebView 迁到 GLES 的 parity 施工**；播放页主路径已完成切换。剩余工作：删除 WebView 资产路径、真机 parity 验收、性能与温控复验（见 [`TODO.md`](TODO.md)）。
+§1 及以下描述 **从 WebView 迁到 GLES 的 parity 施工**；播放页主路径已完成切换。WebView 资产路径已不在当前仓库；历史 GLES parity 任务不能作为现行发布结论。真机跨 GPU 兼容与性能、温控仍需独立复验（见 [`TODO.md`](TODO.md)）。
 
 ---
 
@@ -114,8 +116,8 @@ Source of truth today:
 
 **Legacy WebView 回退**（`UseNativeParticleCoverInPlayer = false` 或预览对比）：
 
-- [`NowPlayingCoverSection.kt`](../app/src/main/java/com/mica/music/ui/screens/NowPlayingCoverSection.kt) → [`ThreeParticleCoverHost.kt`](../app/src/main/java/com/mica/music/ui/screens/player/view/ThreeParticleCoverHost.kt)
-- [`app/src/main/assets/particle_cover/`](../app/src/main/assets/particle_cover/) — `index.html` + `mica-particle-cover.js`
+- [`NowPlayingCoverSection.kt`](../app/src/main/java/com/mica/music/ui/screens/NowPlayingCoverSection.kt) → `ThreeParticleCoverHost.kt`（已退役历史文件）
+- `app/src/main/assets/particle_cover/`（已移除的历史资源目录） — `index.html` + `mica-particle-cover.js`
 
 WebView path properties (legacy):
 
@@ -218,7 +220,7 @@ First add a gated A/B host switch so parity can be checked safely.
 
 ---
 
-## 6.2 [`ThreeParticleCoverHost.kt`](../app/src/main/java/com/mica/music/ui/screens/player/view/ThreeParticleCoverHost.kt)
+## 6.2 `ThreeParticleCoverHost.kt`（已退役历史文件）
 
 ### Current role
 
@@ -414,7 +416,7 @@ Parity with the shipped "shader-like" motion model and lower CPU cost.
 
 ---
 
-## 6.5 [`ParticleCoverPreviewScreen.kt`](../app/src/main/java/com/mica/music/ui/screens/ParticleCoverPreviewScreen.kt)
+## 6.5 `ParticleCoverPreviewScreen.kt`（历史预览文件）
 
 ### Current role
 
@@ -462,7 +464,7 @@ Changing names here would create avoidable churn across settings, preview, persi
 
 ---
 
-## 6.7 [`app/src/main/assets/particle_cover/mica-particle-cover.js`](../app/src/main/assets/particle_cover/mica-particle-cover.js)
+## 6.7 `app/src/main/assets/particle_cover/mica-particle-cover.js`（历史 JS 资源）
 
 ### Current role
 

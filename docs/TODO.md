@@ -1,10 +1,20 @@
 # Mica 功能清单
 
-> 最后整理：2026-09-11。以当前代码为准。领域词汇见 `[CONTEXT.md](../CONTEXT.md)`；近期功能状态见 `[CURRENT_FEATURE_STATUS.md](CURRENT_FEATURE_STATUS.md)`；文档索引见 `[DOC_INDEX.md](DOC_INDEX.md)`。
+> 最后整理：2026-10-09。以 `codex/enable-r8` 已提交 HEAD `57f3b989` 为准（0.4.3 / code 58 / Room v35）；正式 `v0.4.3` tag 早于最近四个提交。领域词汇见 [CONTEXT.md](../CONTEXT.md)；近期功能状态见 [CURRENT_FEATURE_STATUS.md](CURRENT_FEATURE_STATUS.md)；文档索引见 [DOC_INDEX.md](DOC_INDEX.md)。
 
 ---
 
 ## 已实现
+
+### 2026-10-09 已提交状态同步
+
+- [x] **服务端有效队列顺序**：随机、插播、拖动、删除、自然切歌、持久化及恢复共用 accepted order，参见 ADR-0008。
+- [x] **SMB 按目录浏览和选定文件夹入库**：显式完整发现后先发布可播条目，再分阶段补齐标签；取消与刷新重试遵守 ADR-0007。
+- [x] **远端封面队列镜像**：按稳定 ID 更新，避免过期下标错配。
+- [x] **正方形粒子封面 GLES 几何修复**：覆盖 songId parity × 播放进度回归。
+- [x] **近期 UI/歌词/设置**：紧凑比例、拍立得 seek 热区、定时读音及译文轨、图标预设、设置子页重组。
+- [x] **测试角色分类**：Behavior / Architecture / Implementation 三层；OBSOLETE 是退役标记，当前数量需以重新生成的 manifest 为准。
+- [ ] **正式发布门禁**：最近四个提交未包含于 `v0.4.3` tag，8GB/10k 完整逐字歌词、多 OEM/USB/32 位/R8 正式签名验收仍未全绿。
 
 ### 2026-09-11 已落地主线增量
 
@@ -29,7 +39,7 @@
 - [x] 播放次数记录（`PlayHistoryStore`，供「最近播放」等）
 - [x] **播放会话恢复**：`ServicePlaybackStateStore` 持久化完整队列与进度；冷启动 `PlayerController.bootstrapQueue()` 恢复当前曲与位置（默认不自动续播；`auto_play_on_launch` 可让打开应用后请求一次播放）。`PlaybackSessionStore` 仍写入 shuffle 等 App 偏好
 - [x] 文件夹浏览模式：层级浏览与**扁平浏览**均已持久化；扁平模式只列出直接包含歌曲的目录，不把仅包含子目录的父目录重复列出
-- [x] **歌单持久化迁移到 Room**：`playlists` / `playlist_songs`（当前 schema v29）；旧 `mica_playlists` JSON 首次启动一次性迁移，写库成功后才更新内存
+- [x] **歌单持久化迁移到 Room**：`playlists` / `playlist_songs`（当前 schema v35）；旧 `mica_playlists` JSON 首次启动一次性迁移，写库成功后才更新内存
 
 
 
@@ -66,13 +76,14 @@
 ### 播放页 UI
 
 - [x] 封面、歌名/歌手/专辑、Hi‑Fi 信息行、Hi‑Res 标记
-- [x] 六种**播放页背景**（设置 → 播放页背景；与封面行为并列可选）：
+- [x] 七种**播放页背景枚举**（设置 → 播放页背景；动态烟云在设置 UI 暂隐藏；与封面行为并列）：
   - **主题色**（`THEME`）：云母背景渐变
   - **封面渐变**（`ARTWORK_GRADIENT`）：取色 + 下半屏保持专辑色
   - **封面模糊**（`COVER_GLOW`）：Android 12+ 全屏模糊封面 + 取色叠层；低版本取色渐变兜底；下半屏控件 **白色**（Hi‑Fi 标签仍用主题色）
   - **动态烟云**（`DYNAMIC_LIGHT`）：低分辨率封面纹理 + GLES 动态渲染
   - **流光溢彩**（`DYNAMIC_ARTWORK`）：多层封面纹理、blur shader 与切歌 crossfade
   - **星图**（`STAR_MAP`）：连续球面星图、季节天空、星座与太阳系天体；旧 `aurora` / `constellation` storage value 自动迁移
+  - **雨幕玻璃**（`RAIN_GLASS`）：静态街景 + 自有 GLES 水滴/湿痕/折射/模糊链；跨 GPU 兼容规则见 `GLSL_COMPATIBILITY.md`
 - [x] 六种**播放页封面行为**（设置 → 播放页封面行为；见 `[COVER_FLOW_IMPLEMENTATION.md](COVER_FLOW_IMPLEMENTATION.md)` §0 与 `[CONTEXT.md](../CONTEXT.md)`）：
   - **标准**（`STANDARD`）：大封面 + 横向轻扫切歌
   - **自定义标准**（`CUSTOM_STANDARD`）：标准封面布局的可配置歌词页/横屏契约
@@ -80,7 +91,7 @@
   - **平行封面带**（`PAUSE_FOLD`）、**复古立体封面**（`RETRO_3D`）：七轨 View 岛封面流
   - **拍立得回忆**（`PHOTO_STACK`）：拍立得叠放转场；沉浸白边可选播放中显示当前歌词（默认关；过长走马灯，有逐字时间轴时填充）
 - [x] 根据背景自动/固定调整文字对比度
-- [x] **封面底边进度**（设置开关；仅「主题色」「封面模糊」：封面下缘屏宽细进度条，隐藏常规进度条与时间）
+- [x] **封面底边进度**（设置开关；资格由 `PlayerLowerBackgroundMode.supportsStandardCoverEdgeProgress` 与布局引擎统一决定，包含主题色、模糊/动态纹理、星图和雨幕玻璃；与常规进度区互斥）
 - [x] **下半屏沉浸**（设置或长按歌名/歌手：下半屏仅居中歌名+歌手，点击播放/暂停，长按退出）
 - [x] **歌曲详情**（标题/艺术家/专辑/专辑艺术家/媒体来源/播放统计/音质/路径/版权/时间等；列表菜单「歌曲信息」或播放页 ℹ 进入）
 - [x] **歌曲长按菜单**（封面信息头、下一首播放、分享、标签编辑、删除等；添加到歌单、删除前确认）
@@ -181,7 +192,7 @@
 
 - [x] **主题色**：设置 → 外观「强调色」（紫韵 / 鎏金 / 青釉 / 珊瑚 / 动态取色）与「云母背景」（晨曦 / 暮色 / 午夜 / 极光 / 雾霭）；晨曦浅色独立暖雾→天光蓝、深色海军→琥珀；`MicaTheme` + `micaAppBackground()` 全应用生效
 - [x] **浅色/深色切换动画**（见「全局 · 界面动效」）
-- [x] **流光溢彩**播放页样式：`PlayerLowerBackgroundMode.DYNAMIC_ARTWORK`（见上「六种播放页背景」）
+- [x] **流光溢彩**播放页样式：`PlayerLowerBackgroundMode.DYNAMIC_ARTWORK`（见上「七种播放页背景枚举」）
 - [ ] **信笺歌词物理平行光带（可能还有救，低优先级）**
   - 独立 Three.js 原型已经能用 `DirectionalLight` 与两块真实遮挡平面形成边界平行的光带；不要再退回手绘灰影或艺术阴影蒙版。
   - 当前从正式主题撤下：固定烘焙图无法同时适配 19.5:9、20:9 等长屏裁剪、圆角安全区、歌词列位置与朱印构图，光带还会抢过文字成为视觉主体。
@@ -247,7 +258,7 @@
   - **治本**：View + Canvas 七轨（`[COVER_FLOW_IMPLEMENTATION.md](COVER_FLOW_IMPLEMENTATION.md)`）——无 Compose 槽位重建、Coil 缓存位图直绘、`railOffset` 单轨末帧连续。
   - **仍保留的通用优化**：模糊背景 `.size(384)` 降采样；`SongCover` `stableMemoryCacheKey`；`[MicaImageLoaders](../app/src/main/java/com/mica/music/imaging/MicaImageLoaders.kt)` 预载。
   - **验收**：平行 / 复古 × 各播放页背景下连续切歌与拖动；无闪帧、无松手跳变。
-- [x] **歌单功能正式化**：歌单已有侧栏列表 / 新建 / 详情 / 播放 / 删除、重命名、导入导出 JSON、歌曲封面与自定义封面管理；持久化已迁至 Room（当前 schema v29）。尚未实现智能歌单条件
+- [x] **歌单功能正式化**：歌单已有侧栏列表 / 新建 / 详情 / 播放 / 删除、重命名、导入导出 JSON、歌曲封面与自定义封面管理；持久化已迁至 Room（当前 schema v35）。尚未实现智能歌单条件
 - [ ] **歌曲年份信息**
   - **月日信息**
 ---

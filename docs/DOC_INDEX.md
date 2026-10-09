@@ -1,6 +1,6 @@
 # Mica 项目文档索引
 
-> 最后整理：2026-09-21
+> 最后整理：2026-10-09（`codex/enable-r8` HEAD `57f3b989`、0.4.3/code58、Room v35；未提交实验不计入）
 > 范围：本仓库 **Mica Android** 主工作树文档；`.scratch/` 内工作树、历史副本与外部参考不作为本索引的现行事实来源。
 
 ---
@@ -43,8 +43,9 @@
 |------|------|
 | [`EXTERNAL_EVENT_CONTRACT_TESTING.md`](EXTERNAL_EVENT_CONTRACT_TESTING.md) | 外部事件源、框架回调与状态机之间的契约测试原则；防止 mock 输入模型与生产事件流脱节 |
 | [`AUTOMATED_FLOW_TESTING.md`](AUTOMATED_FLOW_TESTING.md) | 自动化流程测试分层、QA 设备隔离、首批 Device Flow 矩阵与 CI 晋级规则 |
-| [`TESTING.md`](TESTING.md) | 质量门、测试分层、播放/队列/数据库契约与真机验收清单 |
+| [`TESTING.md`](TESTING.md) | 质量门、测试角色、播放/队列/数据库契约与真机验收清单 |
 | [`TARGET_SDK_36_MIGRATION.md`](TARGET_SDK_36_MIGRATION.md) | Android 16 target 适配范围、构建与 native 对齐证据、未完成的真机验收 |
+| [`testing/README.md`](testing/README.md) | 三层角色分类及 manifest：Behavior / Architecture / Implementation；OBSOLETE 为退役标记 |
 | [`SETTINGS_AUDIT_MATRIX.md`](SETTINGS_AUDIT_MATRIX.md) | 设置入口 → 持久化 owner/key → 运行时消费点的静态审计矩阵 |
 | [`APP_UPDATE.md`](APP_UPDATE.md) | 更新清单、发布 workflow 与国内镜像接入说明 |
 | [`HUAWEI_LOCKSCREEN_ARTWORK_COMPATIBILITY.md`](HUAWEI_LOCKSCREEN_ARTWORK_COMPATIBILITY.md) | OXF-AN10 MediaSession 封面触发锁屏的真机证据、现行兼容边界与未来替代方案 |
@@ -53,7 +54,10 @@
 | [`LIBRARY_SCAN.md`](LIBRARY_SCAN.md) | 曲库 Full Scan + AUTO 共用 authority、TagLib fork、增量复用、provider safety、性能与 10k 边界 |
 | [`LIBRARY_AUTO_SYNC_P_AND_P_EXECUTION_PLAN.md`](LIBRARY_AUTO_SYNC_P_AND_P_EXECUTION_PLAN.md) | 曲库自动同步完整执行计划：P&P 增量发现 + Mica snapshot authority；ADR 契约、S0–S5 Gate、删除/队列/歌单/SAF/DEVICE/10k 性能门槛 |
 | [`REMOTE_MUSIC_SOURCE_RESEARCH.md`](REMOTE_MUSIC_SOURCE_RESEARCH.md) | 远程曲库现行实现状态 + 原始调研/provenance：Navidrome/OpenSubsonic、WebDAV、SMB、JIT metadata/artwork/lyrics 与后台同步 |
-| [`adr/0007-smb-browse-and-selected-tracks.md`](adr/0007-smb-browse-and-selected-tracks.md) | SMB 按目录浏览、普通歌单描述持久化、异步所有权与 10k 容量边界 |
+| [`adr/0007-smb-browse-and-selected-tracks.md`](adr/0007-smb-browse-and-selected-tracks.md) | SMB 目录浏览、selected tracks、显式范围入库、阶段提交与 64 KiB 标签 read-ahead |
+| [`adr/0008-playback-effective-order.md`](adr/0008-playback-effective-order.md) | 服务 accepted 有效顺序、源顺序、shuffle/edit/恢复与 Media3 物理成员的权威协议 |
+| [`LIBRARY_AUTO_SYNC_REFACTOR_PLAN.md`](LIBRARY_AUTO_SYNC_REFACTOR_PLAN.md) | 2026-09 结构重构计划历史稿；`LibraryScanOrchestrator` 已退役，当前 owner 以 `LibraryOperationExecutor`/ADR-0006 为准 |
+| [`SCANNER_DISCOVERY_VALIDATION.md`](SCANNER_DISCOVERY_VALIDATION.md) | 2026-09-13 文件夹独立发现专项验证，属于时间戳证据而非当前扫描全量指标 |
 | [`DSD_EXO_PLAYBACK.md`](DSD_EXO_PLAYBACK.md) | DSD `.dsf` 的 Exo 扩展实现、降采样链路与系统音效说明 |
 | [`USB_EXCLUSIVE_HYBRID_STATUS.md`](USB_EXCLUSIVE_HYBRID_STATUS.md) | Hybrid 已实现软件范围、验证证据、实机/长测门禁与已知风险 |
 | [`USB_REFERENCE_FUNCTION_AUDIT.md`](USB_REFERENCE_FUNCTION_AUDIT.md) | USB 独占对 SylvaKru 参考实现的逐函数映射、EXACT/EQUIVALENT/Mica 改写分类，以及 Apache-2.0 provenance/归属边界 |
@@ -148,6 +152,7 @@
 
 | 日期 | 说明 |
 |------|------|
+| 2026-10-09 | 对齐 HEAD `57f3b989` / 0.4.3(code58) / Room v35；增补 ADR-0008、SMB staged import、粒子正方形几何、雨幕玻璃、测试分类与 tag/工作树边界 |
 | 2026-06 | 初版三类归档 |
 | 2026-06 | 执行清单：合并 COVER_FLOW/REVIEW_NOTES；修 README/DESIGN_SPEC/REASONIX/OPEN_SOURCE/MOTION |
 | 2026-06-16 | 新增 `reviews/REFACTOR_PLAYBACK_ARCHITECTURE.md` 播放架构重构分支审查 |
