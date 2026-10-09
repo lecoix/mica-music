@@ -119,6 +119,7 @@ _Avoid_: 在多个 Composable 内复制删除链路；跨 suspend 持有 `curren
 
 **Playback queue（播放队列）**：
 当前会话中待播与在播的 `Song` 有序列表，含 `currentIndex`；上一曲 / 下一曲、队列 Sheet、封面流邻槽均以此为准。
+服务的物理 MediaItem 列表可与有效顺序不同；`ServicePlaybackOrderOwner` 接受明确排列，App 镜像、服务导航与新格式恢复按同一有效顺序投影。seed 只生成首次随机顺序，编辑、游标移动和恢复不得重新以当前曲洗牌。追加保留原顺序，拖动后的排列作为新的源顺序；完整协议与验证边界见 [ADR-0008](docs/adr/0008-playback-effective-order.md)。
 _Avoid_: playlist、播放列表（指歌单时）
 
 **Playback queue mutation ownership（队列列表写路径）**：

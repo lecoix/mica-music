@@ -430,7 +430,9 @@ internal class ServicePlaybackEngineCoordinator(
     ): Int? {
         if (queue.items.size <= 1) return null
         val current = queue.currentIndex.coerceIn(0, queue.items.lastIndex)
-        val next = if (current < queue.items.lastIndex) {
+        val next = if (player.shuffleModeEnabled) {
+            player.nextMediaItemIndex.takeIf { it != C.INDEX_UNSET } ?: current
+        } else if (current < queue.items.lastIndex) {
             current + 1
         } else if (queueMode() == PlaybackQueueMode.REPEAT_ALL) {
             0

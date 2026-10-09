@@ -72,7 +72,11 @@ internal object MediaControllerQueueSync {
                 ),
             )
         }
-        val identityAligned = queueIdentityAligned(player, queue)
+        val physicalById = (0 until player.mediaItemCount).associateBy {
+            player.getMediaItemAt(it).mediaId
+        }
+        val identityAligned = physicalById.size == queue.size &&
+            queue.all { it.id in physicalById }
         if (!identityAligned || !player.isCommandAvailable(Player.COMMAND_CHANGE_MEDIA_ITEMS)) {
             return PlaybackQueueSyncPlan.Skip(
                 QueueSyncResult(
@@ -87,7 +91,7 @@ internal object MediaControllerQueueSync {
         }
         return PlaybackQueueSyncPlan.ReplaceMediaItems(
             replacements = validIndices.map { index ->
-                IndexedValue(index, mediaItemFactory(queue[index]))
+                IndexedValue(physicalById.getValue(queue[index].id), mediaItemFactory(queue[index]))
             },
             result = QueueSyncResult(
                 itemsCount = queue.size,

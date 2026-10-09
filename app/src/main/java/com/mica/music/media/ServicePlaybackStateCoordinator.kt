@@ -33,6 +33,8 @@ internal class ServicePlaybackStateCoordinator(
     private val handler: Handler,
     initialQualityMode: AudioQualityMode,
     private val externalSongResolver: (String) -> Song? = { null },
+    private val orderProvider: (List<String>) -> AcceptedPlaybackOrder? = { null },
+    private val restoreOrder: (com.mica.music.data.playback.ServicePlaybackSnapshot) -> Unit = {},
 ) {
     private var pendingRestore = store.load()
     private var qualityMode = initialQualityMode
@@ -119,6 +121,14 @@ internal class ServicePlaybackStateCoordinator(
         persistCursor(force = true)
     }
 
+    fun onOrderChanged() {
+        if (released) return
+        pendingRestore = null
+        queueRevision++
+        persistQueue()
+        persistCursor(force = true)
+    }
+
     fun release() {
         released = true
         handler.removeCallbacks(periodicPersist)
@@ -136,12 +146,13 @@ internal class ServicePlaybackStateCoordinator(
         pendingRestore = null
         val restore = ServicePlaybackRestoreResolver.resolve(snapshot, songIds)
         if (restore == null) {
-            store.clear()
+            submit(sync = false) { store.clear() }
             DiagnosticLog.important("PlaybackRestore", "saved song missing; discarded service snapshot")
             return false
         }
         player.repeatMode = restore.repeatMode
         player.shuffleModeEnabled = false
+        restoreOrder(snapshot)
         if (player is MicaCompositePlayer) {
             player.pauseExoDirect()
         } else {
@@ -179,17 +190,18 @@ internal class ServicePlaybackStateCoordinator(
             submit(sync) { store.clear(sync) }
             return
         }
-        submit(sync) {
-            store.saveQueue(
-                ServiceQueueSnapshot(
-                    songIds = songIds,
-                    revision = queueRevision,
-                    externalSongs = externalSongs,
-                    remoteSongs = remoteSongs,
-                ),
-                sync,
-            )
-        }
+        val order = orderProvider(songIds)
+        val snapshot = ServiceQueueSnapshot(
+            songIds = songIds,
+            revision = queueRevision,
+            externalSongs = externalSongs,
+            remoteSongs = remoteSongs,
+            playbackOrderIds = order?.playbackIds.orEmpty(),
+            sourceOrderIds = order?.sourceIds.orEmpty(),
+            appShuffleEnabled = order?.shuffleEnabled,
+            orderCurrentSongId = player.currentMediaItem?.mediaId,
+        )
+        submit(sync) { store.saveQueue(snapshot, sync) }
     }
 
     private fun persistCursor(force: Boolean = false, sync: Boolean = false) {
@@ -205,7 +217,7 @@ internal class ServicePlaybackStateCoordinator(
             currentSongId = currentId,
             positionMs = position,
             repeatMode = player.repeatMode,
-            shuffleEnabled = false,
+            shuffleEnabled = orderProvider(currentSongIds())?.shuffleEnabled ?: false,
             playWhenReady = player.playWhenReady,
             qualityMode = qualityMode,
             playbackTuning = PlaybackTuning.fromPlaybackParameters(player.playbackParameters),

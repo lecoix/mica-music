@@ -279,6 +279,8 @@ data class ServicePlaybackSnapshot(
     val currentSongId: String = queueSongIds.getOrNull(currentIndex).orEmpty(),
     val externalSongs: List<ServiceExternalSongSnapshot> = emptyList(),
     val remoteSongs: List<ServiceRemoteSongSnapshot> = emptyList(),
+    val playbackOrderIds: List<String> = emptyList(),
+    val sourceOrderIds: List<String> = emptyList(),
 )
 
 internal data class ServiceQueueSnapshot(
@@ -286,6 +288,10 @@ internal data class ServiceQueueSnapshot(
     val revision: Long,
     val externalSongs: List<ServiceExternalSongSnapshot> = emptyList(),
     val remoteSongs: List<ServiceRemoteSongSnapshot> = emptyList(),
+    val playbackOrderIds: List<String> = emptyList(),
+    val sourceOrderIds: List<String> = emptyList(),
+    val appShuffleEnabled: Boolean? = null,
+    val orderCurrentSongId: String? = null,
 )
 
 internal data class ServicePlaybackCursor(
@@ -346,6 +352,10 @@ class ServicePlaybackStateStore(context: Context) {
                 revision = snapshot.queueRevision,
                 externalSongs = snapshot.externalSongs,
                 remoteSongs = snapshot.remoteSongs,
+                playbackOrderIds = snapshot.playbackOrderIds,
+                sourceOrderIds = snapshot.sourceOrderIds,
+                appShuffleEnabled = snapshot.shuffleEnabled.takeIf { snapshot.playbackOrderIds.isNotEmpty() },
+                orderCurrentSongId = snapshot.currentSongId.takeIf { snapshot.playbackOrderIds.isNotEmpty() },
             ),
             sync,
         )
@@ -371,6 +381,11 @@ class ServicePlaybackStateStore(context: Context) {
         snapshot.songIds.filter(String::isNotBlank).forEach(queue::put)
         val json = JSONObject()
             .put(KEY_QUEUE, queue)
+            .put("playback_order", JSONArray(snapshot.playbackOrderIds))
+            .put("source_order", JSONArray(snapshot.sourceOrderIds))
+        snapshot.appShuffleEnabled?.let { json.put("app_shuffle", it) }
+        snapshot.orderCurrentSongId?.let { json.put("order_current_id", it) }
+        json
             .put(KEY_QUEUE_REVISION, snapshot.revision)
             .put(
                 KEY_EXTERNAL_SONGS,
@@ -416,8 +431,9 @@ class ServicePlaybackStateStore(context: Context) {
     }
 
     fun load(): ServicePlaybackSnapshot? {
-        val queueRaw = prefs.getString(KEY_QUEUE_SNAPSHOT, null)
-        val cursorRaw = prefs.getString(KEY_CURSOR_SNAPSHOT, null)
+        val persisted = prefs.all
+        val queueRaw = persisted[KEY_QUEUE_SNAPSHOT] as? String
+        val cursorRaw = persisted[KEY_CURSOR_SNAPSHOT] as? String
         if (queueRaw == null || cursorRaw == null) {
             return loadCombinedSnapshot() ?: loadLegacySnapshot()
         }
@@ -435,7 +451,12 @@ class ServicePlaybackStateStore(context: Context) {
             val remoteSongs = parseRemoteSongs(queueJsonObject.optJSONArray(KEY_REMOTE_SONGS))
             val queueRevision = queueJsonObject.optLong(KEY_QUEUE_REVISION, 0L)
             val cursorRevision = cursorJson.optLong(KEY_QUEUE_REVISION, -1L)
-            val currentSongId = cursorJson.optString(KEY_CURRENT_SONG_ID)
+            val acceptedOrder = readOrder(queueJsonObject, "playback_order", queue)
+            val hasAcceptedOrder = acceptedOrder.isNotEmpty()
+            val cursorMatches = queueRevision == cursorRevision
+            val currentSongId = if (hasAcceptedOrder && !cursorMatches) {
+                queueJsonObject.optString("order_current_id", queue.first())
+            } else cursorJson.optString(KEY_CURRENT_SONG_ID)
             val currentIndex = currentSongId
                 .takeIf(String::isNotBlank)
                 ?.let(queue::indexOf)
@@ -444,9 +465,11 @@ class ServicePlaybackStateStore(context: Context) {
             ServicePlaybackSnapshot(
                 queueSongIds = queue,
                 currentIndex = currentIndex,
-                positionMs = cursorJson.optLong(KEY_POSITION_MS, 0L).coerceAtLeast(0L),
+                positionMs = if (hasAcceptedOrder && !cursorMatches) 0L
+                    else cursorJson.optLong(KEY_POSITION_MS, 0L).coerceAtLeast(0L),
                 repeatMode = cursorJson.optInt(KEY_REPEAT_MODE, Player.REPEAT_MODE_OFF),
-                shuffleEnabled = cursorJson.optBoolean(KEY_SHUFFLE_ENABLED, false),
+                shuffleEnabled = queueJsonObject.optBoolean("app_shuffle",
+                    cursorJson.optBoolean(KEY_SHUFFLE_ENABLED, false)),
                 playWhenReady = cursorJson.optBoolean(KEY_PLAY_WHEN_READY, false),
                 qualityMode = runCatching {
                     AudioQualityMode.valueOf(
@@ -467,9 +490,18 @@ class ServicePlaybackStateStore(context: Context) {
                 currentSongId = currentSongId,
                 externalSongs = externalSongs,
                 remoteSongs = remoteSongs,
+                playbackOrderIds = acceptedOrder,
+                sourceOrderIds = readOrder(queueJsonObject, "source_order", queue),
             )
                 .takeIf { queueRevision == cursorRevision || currentSongId in queue }
         }.getOrNull()
+    }
+
+    private fun readOrder(json: JSONObject, key: String, physical: List<String>): List<String> {
+        val array = json.optJSONArray(key) ?: return emptyList()
+        val order = List(array.length()) { array.optString(it) }
+        return order.takeIf { it.size == physical.size && it.toSet() == physical.toSet() }
+            ?: emptyList()
     }
 
     private fun loadCombinedSnapshot(): ServicePlaybackSnapshot? {
@@ -563,6 +595,8 @@ class ServicePlaybackStateStore(context: Context) {
             snapshot.copy(
                 queueSongIds = queue,
                 currentSongId = current,
+                playbackOrderIds = snapshot.playbackOrderIds.map { mapping[it] ?: it },
+                sourceOrderIds = snapshot.sourceOrderIds.map { mapping[it] ?: it },
             ),
             sync = true,
         )

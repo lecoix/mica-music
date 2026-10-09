@@ -101,7 +101,7 @@ internal class PlaybackRuntime(
     private val sessionStorage: PlaybackSessionStorage,
     private val songResolver: PlaybackSongResolver,
     outputStatusFlow: StateFlow<PlaybackOutputStatus>,
-    dispatcher: CoroutineDispatcher,
+    private val dispatcher: CoroutineDispatcher,
     private val queueMirrorDispatcher: CoroutineDispatcher,
     private val restoreDispatcher: CoroutineDispatcher,
     monotonicNowMs: () -> Long,
@@ -141,6 +141,27 @@ internal class PlaybackRuntime(
 
     private val currentIndex: Int
         get() = queueCoordinator.currentIndex
+
+    private var queueIntentRevision = 0L
+    private var released = false
+    private var confirmedServiceOrder = false
+    private var pendingOrderRequestId: Long? = null
+    private fun invalidateQueueIntent(invalidateOrderCommand: Boolean = true) {
+        queueIntentRevision++
+        queueCoordinator.clearMirror()
+        if (invalidateOrderCommand) PlaybackShuffleSessionCommand.invalidateRequests()
+    }
+
+    private fun clearPendingQueueIntent() {
+        pendingOrderRequestId = null
+        pendingQueue = null
+        pendingQueuePlaySongId = null
+        pendingSingleSongId = null
+        clearPendingMediaSelection()
+        PendingPlaybackNavigation.clear()
+        timelineCoordinator.resetForQueueClear()
+        sessionStorage.clear()
+    }
 
     private var trackSkipDirection: TrackSkipDirection? = null
 
@@ -306,7 +327,7 @@ internal class PlaybackRuntime(
         c: MediaController,
         session: PlaybackSession,
     ) {
-        if (c.mediaItemCount <= 0) return
+        if (confirmedServiceOrder || c.mediaItemCount <= 0) return
         if (!session.shuffleEnabled || session.shuffleSourceIds.isEmpty()) return
         val physicalIds = List(c.mediaItemCount) { index -> c.getMediaItemAt(index).mediaId }
         val sourceIds = restoredShuffleSourceIds(session, physicalIds) ?: return
@@ -331,21 +352,27 @@ internal class PlaybackRuntime(
         } else {
             applyPlaybackOrderState(order, songQueue)
         }
-        session.shuffleSeed?.let { seed -> sendAppShuffleCommand(c, enabled = true, seed = seed) }
+        sendPlaybackOrder(c, enabled = true)
     }
 
     private fun schedulePersistedShuffleRestoreOnConnect(c: MediaController) {
         if (c.mediaItemCount <= 0) return
-        val orderAtSchedule = playbackOrderState
-        val queueIdsAtSchedule = songQueue.map { it.id }
+        val revisionAtSchedule = queueIntentRevision
         scope.launch {
-            val session = withContext(restoreDispatcher) { sessionStorage.load() } ?: return@launch
+            val (session, snapshot) = withContext(restoreDispatcher) {
+                sessionStorage.load() to ServicePlaybackStateStore(appCtx).load()
+            }
             if (controller !== c) return@launch
-            if (playbackOrderState != orderAtSchedule || songQueue.map { it.id } != queueIdsAtSchedule) {
+            if (released || queueIntentRevision != revisionAtSchedule) {
                 // A bootstrap or user queue-mode mutation won the race while persistence loaded.
                 // Never let an older startup snapshot overwrite newer in-memory intent.
                 return@launch
             }
+            if (snapshot?.playbackOrderIds?.isNotEmpty() == true) {
+                queryServiceOrder(c)
+                return@launch
+            }
+            session ?: return@launch
             restorePersistedShuffleStateOnConnect(c, session)
             syncPlaybackQueueModeFromPlayer(c)
             syncIndexFromPlayer(c)
@@ -354,6 +381,7 @@ internal class PlaybackRuntime(
     }
 
     internal fun restoreSession(session: PlaybackSession) {
+        invalidateQueueIntent()
         if (songQueue.isEmpty()) return
         val index = songQueue.indexOfFirst { it.id == session.songId }
         if (index < 0) {
@@ -564,6 +592,7 @@ internal class PlaybackRuntime(
     private fun onPlaybackStackRebuilt() {
         val c = controller ?: return
         musicVideoOutputCoordinator.reattachForPlaybackStack(c, c.currentMediaItem?.mediaId)
+        queryServiceOrder(c)
     }
 
     private fun createPlayerListener(c: MediaController, isCurrentConnection: () -> Boolean): Player.Listener =
@@ -815,6 +844,7 @@ internal class PlaybackRuntime(
             timelineCoordinator.updatePlayerDuration(c.duration)
             syncPosition()
             publishPlaybackStates()
+            queryServiceOrder(c)
             schedulePersistedShuffleRestoreOnConnect(c)
             maybeAutoPlayOnLaunch()
         } finally {
@@ -977,26 +1007,47 @@ internal class PlaybackRuntime(
 
     suspend fun bootstrapQueue(resolveSong: (String) -> Song?): Boolean {
         checkQueueWriteThread()
-        val initialController = controller
-        if (initialController != null && initialController.mediaItemCount > 0) {
-            val session = withContext(restoreDispatcher) { sessionStorage.load() }
-            checkQueueWriteThread()
-            val c = controller
-            if (c !== initialController || c.mediaItemCount <= 0) {
-                return bootstrapQueueFromPersistedSnapshot(resolveSong)
-            }
-            return bootstrapQueueFromLiveController(c, session, resolveSong)
+        val restoreRevision = ++queueIntentRevision
+        // Explicit owner dispatcher: UI/test continuation interceptors must not publish on IO.
+        return withContext(dispatcher) {
+            if (released || queueIntentRevision != restoreRevision) return@withContext true
+            val initialController = controller
+            if (initialController != null && initialController.mediaItemCount > 0) {
+                val (session, snapshot) = withContext(restoreDispatcher) {
+                    sessionStorage.load() to ServicePlaybackStateStore(appCtx).load()
+                }
+                checkQueueWriteThread()
+                if (released || queueIntentRevision != restoreRevision) return@withContext true
+                val c = controller
+                if (c !== initialController || c.mediaItemCount <= 0) {
+                    return@withContext bootstrapQueueFromPersistedSnapshot(resolveSong, restoreRevision)
+                }
+                bootstrapQueueFromLiveController(c, session, resolveSong, snapshot)
+            } else bootstrapQueueFromPersistedSnapshot(resolveSong, restoreRevision)
         }
-        return bootstrapQueueFromPersistedSnapshot(resolveSong)
     }
 
     private fun bootstrapQueueFromLiveController(
         c: MediaController,
         session: PlaybackSession?,
         resolveSong: (String) -> Song?,
+        snapshot: com.mica.music.data.playback.ServicePlaybackSnapshot? = null,
     ): Boolean {
         if (c.mediaItemCount <= 0) return false
         syncQueueMirrorFromPlayer(c, resolver = resolveSong)
+        queryServiceOrder(c)
+        if (confirmedServiceOrder) return true
+        if (snapshot?.playbackOrderIds?.isNotEmpty() == true) {
+            val physical = songQueue.map { it.id }.toHashSet()
+            if (physical == snapshot.playbackOrderIds.toSet()) {
+                applyPlaybackOrderState(PlaybackOrderState(snapshot.sourceOrderIds.ifEmpty { snapshot.playbackOrderIds },
+                    snapshot.playbackOrderIds, c.currentMediaItem?.mediaId, snapshot.shuffleEnabled), songQueue)
+                syncPlaybackQueueModeFromPlayer(c)
+                publishPlaybackStates()
+            }
+            // A live accepted order is authoritative; never replay a legacy seed over it.
+            return true
+        }
         val physicalIds = songQueue.map { it.id }
         restoredShuffleSourceIds(session, physicalIds)?.let { sourceIds ->
             val currentId = currentSong?.id
@@ -1016,7 +1067,7 @@ internal class PlaybackRuntime(
                 shuffleSeed = null,
             )
             applyPlaybackOrderState(order, songQueue)
-            seed?.let { sendAppShuffleCommand(c, enabled = true, seed = it) }
+            sendPlaybackOrder(c, enabled = true)
             syncPlaybackQueueModeFromPlayer(c)
             publishPlaybackStates()
         }
@@ -1025,16 +1076,19 @@ internal class PlaybackRuntime(
 
     private suspend fun bootstrapQueueFromPersistedSnapshot(
         resolveSong: (String) -> Song?,
+        restoreRevision: Long,
     ): Boolean {
         val (snapshot, session) = withContext(restoreDispatcher) {
             ServicePlaybackStateStore(appCtx).load() to sessionStorage.load()
         }
         checkQueueWriteThread()
+        // Expired means handled: the caller must not replace the winning user queue with fallback.
+        if (released || queueIntentRevision != restoreRevision) return true
 
         // The service may have connected while persistence was being read. Prefer the live queue
         // over an older snapshot, but reuse the already-loaded session so no main-thread read occurs.
         val liveController = controller
-        if (liveController != null && bootstrapQueueFromLiveController(liveController, session, resolveSong)) {
+        if (liveController != null && bootstrapQueueFromLiveController(liveController, session, resolveSong, snapshot)) {
             return true
         }
 
@@ -1047,13 +1101,26 @@ internal class PlaybackRuntime(
                 persistedExternalSongs[id]?.toSong() ?:
                 persistedRemoteSongs[id]?.toSong()
         }
+        if (released || queueIntentRevision != restoreRevision) return true
         if (hydrated.isEmpty()) return false
         val preserveId = snapshot.currentSongId.ifBlank {
             snapshot.queueSongIds.getOrNull(snapshot.currentIndex).orEmpty()
         }
         val playbackIds = hydrated.map { it.id }
         val restoredSourceIds = restoredShuffleSourceIds(session, playbackIds)
-        if (restoredSourceIds != null) {
+        if (snapshot.playbackOrderIds.isNotEmpty()) {
+            val members = playbackIds.toHashSet()
+            val restoredIds = snapshot.playbackOrderIds.filter { it in members }
+            val sourceIds = snapshot.sourceOrderIds.filter { it in members }.ifEmpty { restoredIds }
+            applyPlaybackOrderState(PlaybackOrderState(sourceIds, restoredIds,
+                preserveId.takeIf { it in members }, snapshot.shuffleEnabled), hydrated)
+            if (controller == null) pendingQueue = songQueue
+            playbackQueueMode = if (snapshot.shuffleEnabled) PlaybackQueueMode.SHUFFLE else when (snapshot.repeatMode) {
+                Player.REPEAT_MODE_ALL -> PlaybackQueueMode.REPEAT_ALL
+                Player.REPEAT_MODE_ONE -> PlaybackQueueMode.REPEAT_ONE
+                else -> PlaybackQueueMode.OFF
+            }
+        } else if (restoredSourceIds != null) {
             val currentId = preserveId.takeIf { id -> hydrated.any { it.id == id } }
             val seed = session?.shuffleSeed
             val order = seed?.let {
@@ -1095,7 +1162,8 @@ internal class PlaybackRuntime(
         publishPlaybackStates()
         controller?.let { active ->
             syncQueueToService(active, index, snapshot.positionMs, preserveCurrentPlayback = false)
-            active.seekTo(index, snapshot.positionMs)
+            val physicalIndex = resolveControllerIndexForSongId(active, songQueue[index].id) ?: index
+            active.seekTo(physicalIndex, snapshot.positionMs)
         }
         maybeAutoPlayOnLaunch()
         return true
@@ -1122,7 +1190,17 @@ internal class PlaybackRuntime(
 
     fun setQueue(newQueue: List<Song>) {
         checkQueueWriteThread()
-        if (newQueue.isEmpty() && songQueue.isEmpty()) return
+        if (newQueue.isEmpty()) {
+            invalidateQueueIntent()
+            clearPendingQueueIntent()
+            installQueueModel(queueModel().linearQueue(emptyList(), 0))
+            isPlaying = false
+            playbackError = null
+            autoPlayOnLaunchConsumed = true
+            controller?.clearMediaItems() ?: run { pendingQueue = emptyList() }
+            publishPlaybackStates()
+            return
+        }
         pendingQueuePlaySongId = null
         pendingSingleSongId?.let { pendingId -> if (newQueue.none { it.id == pendingId }) pendingSingleSongId = null }
         val preserveId = preserveSongIdForQueue()
@@ -1134,6 +1212,7 @@ internal class PlaybackRuntime(
             old.mediaUri == neu.mediaUri && old.playbackUri == neu.playbackUri &&
                 old.metadata.playbackMimeType == neu.metadata.playbackMimeType
         }
+        if (newQueue.isNotEmpty()) invalidateQueueIntent(invalidateOrderCommand = !playbackUnchanged)
         if (playbackUnchanged) {
             val changedIndices = MediaControllerQueueSync.metadataChangedIndices(songQueue, newQueue)
             if (songQueue != newQueue) {
@@ -1181,13 +1260,18 @@ internal class PlaybackRuntime(
             setQueue(songs)
             return
         }
-        setQueue(songQueue + songs)
+        invalidateQueueIntent()
+        installQueueModel(queueModel().append(songs))
+        controller?.let { syncQueueToService(it, currentIndex, it.currentPosition, true) }
+            ?: run { pendingQueue = songQueue }
+        publishPlaybackStates()
     }
 
     fun playQueueSong(newQueue: List<Song>, songId: String) {
         checkQueueWriteThread()
         if (newQueue.isEmpty()) return
         if (newQueue.none { it.id == songId }) return
+        invalidateQueueIntent()
         pendingSingleSongId = null
 
         val activeController = controller
@@ -1281,6 +1365,7 @@ internal class PlaybackRuntime(
         } else if (c.mediaItemCount == 0) {
             c.setMediaItems(newQueue.map { it.toMediaItem(appCtx) }, currentIndex, initialPositionMs)
         } else syncExoQueuePreservingPlayback()
+        sendPlaybackOrder(c, playbackOrderState.shuffleEnabled)
     }
 
     fun syncPosition() {
@@ -1350,6 +1435,7 @@ internal class PlaybackRuntime(
 
     fun togglePlay() {
         if (songQueue.isEmpty()) return
+        invalidateQueueIntent(invalidateOrderCommand = false)
         val c = controller
         if (c == null) {
             connectIfNeeded()
@@ -1402,10 +1488,10 @@ internal class PlaybackRuntime(
             postUserMessage("正在播放该歌曲")
             return
         }
+        invalidateQueueIntent()
         installQueueModel(queueModel().insertPlayNext(song))
         val updatedList = songQueue
         val updatedIndex = currentIndex
-        val insertedAt = updatedList.indexOfFirst { it.id == song.id }
         val active = controller
         if (active == null) pendingQueue = updatedList
         else syncQueueToService(active, updatedIndex, active.currentPosition.coerceAtLeast(0L), true)
@@ -1416,39 +1502,36 @@ internal class PlaybackRuntime(
     fun moveInQueue(fromIndex: Int, toIndex: Int) {
         checkQueueWriteThread()
         if (fromIndex !in songQueue.indices || toIndex !in songQueue.indices || fromIndex == toIndex) return
-        val queueBeforeMove = songQueue
-        val activeController = controller
-        val canMoveIncrementally = activeController?.let { c ->
-            MediaControllerQueueSync.canMoveItemIncrementally(c, queueBeforeMove, fromIndex, toIndex)
-        } == true
+        invalidateQueueIntent()
         installQueueModel(queueModel().move(fromIndex, toIndex))
-        val list = songQueue
-        val newCurrent = currentIndex
-        activeController?.let { c ->
-            if (canMoveIncrementally) {
-                c.moveMediaItem(fromIndex, toIndex)
-            } else syncQueueToService(c, newCurrent, c.currentPosition.coerceAtLeast(0L), true)
-        } ?: run { pendingQueue = list }
+        controller?.let { syncQueueToService(it, currentIndex, it.currentPosition, true) }
+            ?: run { pendingQueue = songQueue }
         publishPlaybackStates()
     }
 
     fun removeFromQueue(index: Int) {
         checkQueueWriteThread()
         if (index !in songQueue.indices) return
+        invalidateQueueIntent()
         val removingCurrent = index == currentIndex
         val wasPlaying = isPlaying
         val updated = queueModel().removeAt(index)
         val list = updated.queue
         if (list.isEmpty()) {
+            clearPendingQueueIntent()
             installQueueModel(updated)
             isPlaying = false
             playbackError = null
-            controller?.clearMediaItems()
+            autoPlayOnLaunchConsumed = true
+            controller?.clearMediaItems() ?: run { pendingQueue = emptyList() }
             publishPlaybackStates()
             return
         }
         val newIndex = updated.currentIndex
-        applyQueueOrder(list, newIndex)
+        installQueueModel(updated)
+        controller?.let { syncQueueToService(it, newIndex, 0L, true) }
+            ?: run { pendingQueue = list }
+        publishPlaybackStates()
         if (removingCurrent) {
             if (wasPlaying) playSong(newIndex)
             else {
@@ -1473,20 +1556,11 @@ internal class PlaybackRuntime(
         }
     }
 
-    private fun applyQueueOrder(list: List<Song>, newIndex: Int) {
-        installQueueModel(queueModel().linearQueue(list, newIndex))
-        publishPlaybackStates()
-        if (controller == null) {
-            pendingQueue = list
-            return
-        }
-        syncExoQueuePreservingPlayback()
-    }
-
     fun playSong(index: Int) = playSong(index, forceQueuePayload = false)
 
     private fun playSong(index: Int, forceQueuePayload: Boolean) {
         if (songQueue.isEmpty()) return
+        invalidateQueueIntent(invalidateOrderCommand = false)
         val c = controller ?: run {
             connectIfNeeded()
             postUserMessage("播放服务未就绪")
@@ -1673,6 +1747,30 @@ internal class PlaybackRuntime(
         preserveCurrentPlayback: Boolean,
         prebuiltItems: List<MediaItem>? = null,
     ) {
+        // Membership edits are incremental; effective order travels as one O(n) permutation.
+        // Do not encode existing songs (and their loaded lyrics) just to change traversal order.
+        if (preserveCurrentPlayback && c is MediaController && c.mediaItemCount > 0) {
+            val physicalItems = List(c.mediaItemCount) { c.getMediaItemAt(it) }
+            val desired = songQueue.associateBy { it.id }
+            val existing = physicalItems.associateBy { it.mediaId }
+            val playbackCompatible = physicalItems.all { item ->
+                val song = desired[item.mediaId]
+                song == null || item.localConfiguration?.uri?.toString() == (song.playbackUri ?: song.mediaUri)
+            }
+            if (existing.size == physicalItems.size && playbackCompatible) {
+                val removedCurrent = c.currentMediaItem?.mediaId !in desired
+                physicalItems.indices.reversed().filter { physicalItems[it].mediaId !in desired }
+                    .forEach(c::removeMediaItem)
+                val additions = songQueue.filter { it.id !in existing }.map { it.toMediaItem(appCtx) }
+                if (additions.isNotEmpty()) c.addMediaItems(additions)
+                if (removedCurrent) {
+                    val target = songQueue.getOrNull(targetIndex)?.id
+                    target?.let { resolveControllerIndexForSongId(c, it) }?.let { c.seekTo(it, 0L) }
+                }
+                sendPlaybackOrder(c, playbackOrderState.shuffleEnabled)
+                return
+            }
+        }
         val plan = MediaControllerQueueSync.planSync(
             player = c,
             queue = songQueue,
@@ -1682,11 +1780,8 @@ internal class PlaybackRuntime(
             prebuiltItems = prebuiltItems,
             mediaItemFactory = { song -> song.toMediaItem(appCtx) },
         ) ?: return
-        val result = plan.result
-        if (plan is PlaybackQueueSyncPlan.Skip) {
-            return
-        }
         MediaControllerQueueSync.executeSyncPlan(c, plan)
+        if (c is MediaController) sendPlaybackOrder(c, playbackOrderState.shuffleEnabled)
     }
 
     private fun logQueueSyncMs(action: String, startedNs: Long, details: String) {
@@ -1730,60 +1825,66 @@ internal class PlaybackRuntime(
     }
 
     private fun setAppShuffleEnabled(enabled: Boolean, c: MediaController) {
+        invalidateQueueIntent()
+        if (songQueue.isEmpty() && !enabled) c.shuffleModeEnabled = false
         if (songQueue.isNotEmpty() && playbackOrderState.shuffleEnabled != enabled) {
-            val serviceIds = List(c.mediaItemCount) { index -> c.getMediaItemAt(index).mediaId }
-            val order = if (enabled) {
-                playbackOrderState
-                    .withQueue(songQueue.map { it.id }, preserveSongIdForQueue())
-                    .setShuffleEnabled(true)
-            } else {
-                playbackOrderState.setShuffleEnabled(false)
-            }
-            applyPlaybackOrderState(order, songQueue)
-
-            val desiredSet = order.playbackIds.toSet()
-            val sameServiceSet = serviceIds.size == order.playbackIds.size &&
-                serviceIds.size == serviceIds.distinct().size &&
-                desiredSet.size == order.playbackIds.size &&
-                serviceIds.toSet() == desiredSet
-            if (enabled && sameServiceSet) {
-                sendAppShuffleCommand(c, enabled = true, seed = order.shuffleSeed)
-            } else {
-                c.shuffleModeEnabled = false
-                if (serviceIds != order.playbackIds) {
-                    syncQueueToService(
-                        c,
-                        currentIndex,
-                        runCatching { c.currentPosition }.getOrDefault(0L),
-                        preserveCurrentPlayback = true,
-                    )
-                }
-            }
-        } else {
-            queueCoordinator.replaceOrder(playbackOrderState.copy(shuffleEnabled = enabled))
-            if (!enabled) c.shuffleModeEnabled = false
-        }
-        if (!enabled) sendAppShuffleCommand(c, enabled = false, seed = null)
+            applyPlaybackOrderState(playbackOrderState.setShuffleEnabled(enabled), songQueue)
+        } else queueCoordinator.replaceOrder(playbackOrderState.copy(shuffleEnabled = enabled))
+        sendPlaybackOrder(c, enabled)
         playbackQueueMode = if (enabled) PlaybackQueueMode.SHUFFLE
         else if (playbackQueueMode == PlaybackQueueMode.SHUFFLE) PlaybackQueueMode.OFF else playbackQueueMode
         maybePersistPlaybackSession(force = true)
         publishPlaybackStates()
     }
 
-    private fun sendAppShuffleCommand(c: MediaController, enabled: Boolean, seed: Long?) {
-        if (!enabled) {
-            c.sendCustomCommand(
-                PlaybackShuffleSessionCommand.command,
-                PlaybackShuffleSessionCommand.encode(enabled = false, seed = null),
-            )
-            c.shuffleModeEnabled = false
-            return
-        }
-        val safeSeed = seed ?: return
-        c.sendCustomCommand(
-            PlaybackShuffleSessionCommand.command,
-            PlaybackShuffleSessionCommand.encode(enabled = true, seed = safeSeed),
-        )
+    private fun sendPlaybackOrder(c: MediaController, enabled: Boolean, attempt: Int = 0) {
+        val physical = List(c.mediaItemCount) { c.getMediaItemAt(it).mediaId }
+        val requestId = PlaybackShuffleSessionCommand.invalidateRequests()
+        val args = PlaybackShuffleSessionCommand.encodeOrder(physical, playbackOrderState.playbackIds,
+            playbackOrderState.sourceIds, enabled, requestId) ?: return
+        val future = c.sendCustomCommand(PlaybackShuffleSessionCommand.command, args) ?: return
+        pendingOrderRequestId = requestId
+        future.addListener({
+            if (pendingOrderRequestId == requestId) pendingOrderRequestId = null
+            if (released || controller !== c) return@addListener
+            if (!PlaybackShuffleSessionCommand.isCurrent(requestId)) return@addListener
+            val result = runCatching { future.get() }.getOrNull() ?: return@addListener
+            if (result.resultCode != androidx.media3.session.SessionResult.RESULT_SUCCESS) {
+                DiagnosticLog.important("QueueSync", "service rejected stale/mismatched order")
+                if (attempt == 0) sendPlaybackOrder(c, enabled, attempt = 1)
+                else queryServiceOrder(c)
+                return@addListener
+            }
+            adoptServiceOrder(c, result.extras)
+        }, java.util.concurrent.Executor { mainHandler.post(it) })
+    }
+
+    private fun queryServiceOrder(c: MediaController) {
+        if (pendingOrderRequestId != null) return
+        val revision = queueIntentRevision
+        val args = android.os.Bundle().apply { putBoolean(PlaybackShuffleSessionCommand.KEY_QUERY, true) }
+        val future = c.sendCustomCommand(PlaybackShuffleSessionCommand.command, args) ?: return
+        future.addListener({
+            if (released || controller !== c || queueIntentRevision != revision) return@addListener
+            runCatching { future.get() }.getOrNull()?.let { adoptServiceOrder(c, it.extras) }
+        }, java.util.concurrent.Executor { mainHandler.post(it) })
+    }
+
+    private fun adoptServiceOrder(c: MediaController, args: android.os.Bundle): Boolean {
+        val request = PlaybackShuffleSessionCommand.decode(PlaybackShuffleSessionCommand.command, args) ?: return false
+        val indices = request.playbackIndices ?: return false
+        val physical = List(c.mediaItemCount) { c.getMediaItemAt(it).mediaId }
+        if (request.physicalFingerprint != PlaybackShuffleSessionCommand.fingerprint(physical)) return false
+        val order = PlaybackOrderState(requireNotNull(request.sourceIndices).map(physical::get),
+            indices.map(physical::get), c.currentMediaItem?.mediaId, request.enabled)
+        if (songQueue.map { it.id }.toSet() != physical.toSet()) return false
+        confirmedServiceOrder = true
+        queueIntentRevision++
+        queueCoordinator.clearMirror()
+        applyPlaybackOrderState(order, songQueue)
+        syncPlaybackQueueModeFromPlayer(c)
+        publishPlaybackStates()
+        return true
     }
 
     private fun syncPlaybackQueueModeFromPlayer(c: Player) {
@@ -1854,6 +1955,7 @@ internal class PlaybackRuntime(
             syncPosition()
             return
         }
+        invalidateQueueIntent(invalidateOrderCommand = false)
         releasePendingRestorePosition(currentSong?.id)
         armPendingSeek(safe)
         setPositionMsClamped(safe)
@@ -1880,6 +1982,11 @@ internal class PlaybackRuntime(
     }
 
     fun release() {
+        released = true
+        invalidateQueueIntent()
+        pendingQueue = null
+        pendingQueuePlaySongId = null
+        pendingSingleSongId = null
         musicVideoOutputCoordinator.release()
         playbackStatistics.observePlayback(controller?.currentMediaItem?.mediaId, false)
         queueCoordinator.clearMirror()

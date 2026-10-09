@@ -397,6 +397,47 @@ class ServicePlaybackEngineCoordinatorTest {
     }
 
     @Test
+    fun decodeFailureUsesEffectiveShuffleSuccessorInsteadOfPhysicalNeighbor() {
+        val songs = listOf(
+            SongFixtures.song("first", container = "FLAC", mime = "audio/flac"),
+            SongFixtures.song("second", container = "FLAC", mime = "audio/flac"),
+            SongFixtures.song("third", container = "FLAC", mime = "audio/flac"),
+        )
+        val items = songs.map(SongMediaItemCodec::encode)
+        val error = ExoPlaybackException.createForRenderer(
+            IllegalStateException("Decoder failed"),
+            "AudioRenderer",
+            0,
+            Format.Builder().setSampleMimeType("audio/flac").build(),
+            C.FORMAT_HANDLED,
+            false,
+            ExoPlaybackException.ERROR_CODE_DECODING_FAILED,
+        )
+        val exo = mockExoWithQueue(items, currentIndex = 0)
+        every { exo.playerError } returns error
+        every { exo.shuffleModeEnabled } returns true
+        every { exo.nextMediaItemIndex } returns 2
+        val player = MicaCompositePlayer(exo)
+        var failure: PlaybackFailure? = null
+        val coordinator = ServicePlaybackEngineCoordinator(
+            player = player,
+            context = RuntimeEnvironment.getApplication(),
+        )
+        coordinator.onPlaybackFailure = { failure = it }
+        coordinator.start()
+        coordinator.onSelectMediaItem(0, 0L)
+
+        coordinator.onPlayerError(error)
+
+        assertNotNull(failure)
+        assertEquals(PlaybackFailureKind.DECODE_FAILED, failure?.kind)
+        verify(atLeast = 1) {
+            exo.setMediaItems(any<List<MediaItem>>(), 2, any())
+        }
+        coordinator.release()
+    }
+
+    @Test
     fun usbOutputFailureStopsOnCurrentItemInsteadOfAutoSkipping() {
         val songs = listOf(
             SongFixtures.song("first", container = "DSD", mime = "audio/x-dsf").copy(fileName = "first.dsf"),

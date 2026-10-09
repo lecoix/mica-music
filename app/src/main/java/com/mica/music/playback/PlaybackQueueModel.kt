@@ -70,23 +70,24 @@ internal data class PlaybackQueueModel(
     ): PlaybackQueueModel {
         val safeIndex = playerIndex.coerceIn(0, (mirrored.size - 1).coerceAtLeast(0))
         val mirroredIds = mirrored.map { it.id }
-        val sourceIds = if (preserveShuffleEnabled && order.sourceIds.isNotEmpty()) {
+        val sourceIds = if (order.sourceIds.isNotEmpty()) {
             val mirroredSet = mirroredIds.toHashSet()
             val preserved = order.sourceIds.filter { it in mirroredSet }.distinct()
             preserved + mirroredIds.filterNot(preserved.toHashSet()::contains)
         } else {
             mirroredIds
         }
-        return copy(
-            queue = mirrored,
-            currentIndex = if (mirrored.isEmpty()) 0 else safeIndex,
-            order = PlaybackOrderState(
+        val mirroredSet = mirroredIds.toHashSet()
+        val preservedPlayback = order.playbackIds.filter { it in mirroredSet }
+        val preservedSet = preservedPlayback.toHashSet()
+        return applyOrder(
+            PlaybackOrderState(
                 sourceIds = sourceIds,
-                playbackIds = mirroredIds,
+                playbackIds = preservedPlayback + mirroredIds.filterNot(preservedSet::contains),
                 currentId = mirrored.getOrNull(safeIndex)?.id,
                 shuffleEnabled = preserveShuffleEnabled,
                 shuffleSeed = order.shuffleSeed.takeIf { preserveShuffleEnabled },
-            ),
+            ), mirrored,
         )
     }
 
@@ -121,6 +122,15 @@ internal data class PlaybackQueueModel(
 
     fun insertPlayNext(song: Song): PlaybackQueueModel =
         applyOrder(order.insertPlayNext(song.id), queue + song)
+
+    fun append(songs: List<Song>): PlaybackQueueModel {
+        val existing = order.playbackIds.toHashSet()
+        val added = songs.distinctBy { it.id }.filter { it.id.isNotBlank() && it.id !in existing }
+        return applyOrder(order.copy(
+            sourceIds = order.sourceIds + added.map { it.id },
+            playbackIds = order.playbackIds + added.map { it.id },
+        ), added)
+    }
 
     fun move(fromIndex: Int, toIndex: Int): PlaybackQueueModel {
         if (fromIndex !in queue.indices || toIndex !in queue.indices || fromIndex == toIndex) {
@@ -160,7 +170,7 @@ internal data class PlaybackQueueModel(
             queue = nextQueue,
             currentIndex = nextIndex,
             order = PlaybackOrderState(
-                sourceIds = nextQueue.map { it.id },
+                sourceIds = order.sourceIds.filterNot { it == queue[index].id },
                 playbackIds = nextQueue.map { it.id },
                 currentId = nextQueue.getOrNull(nextIndex)?.id,
                 shuffleEnabled = order.shuffleEnabled,

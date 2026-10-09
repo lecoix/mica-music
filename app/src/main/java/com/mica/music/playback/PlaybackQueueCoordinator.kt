@@ -34,7 +34,7 @@ internal class PlaybackQueueCoordinator(
 
     fun commit(next: PlaybackQueueModel) {
         if (next == model) return
-        if (next.queue != model.queue || next.currentIndex != model.currentIndex) {
+        if (next.queue != model.queue || next.currentIndex != model.currentIndex || next.order != model.order) {
             revision += 1
         }
         model = next

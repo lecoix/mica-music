@@ -86,7 +86,7 @@ class MicaMediaService : MediaSessionService() {
     private var notificationLyricsCoordinator: NotificationLyricsCoordinator? = null
     private var lyriconLyricsSink: LyriconLyricsSink? = null
     private var playbackEngineCoordinator: ServicePlaybackEngineCoordinator? = null
-    private var activeAppShuffleRequest: PlaybackShuffleRequest? = null
+    private val playbackOrderOwner = ServicePlaybackOrderOwner()
     private val mainHandler = Handler(Looper.getMainLooper())
     private var sessionScope: CoroutineScope? = null
     private var trustedMediaItemResolver: TrustedMediaItemResolver? = null
@@ -540,6 +540,11 @@ class MicaMediaService : MediaSessionService() {
         handoff: PlaybackStackHandoff?,
     ) {
         musicVideoPreferenceOwner.attach(stack.compositePlayer)
+        stack.exoPlayer.addListener(object : Player.Listener {
+            override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) {
+                if (playbackStackLifecycle.isActive(stack)) applyAcceptedPlaybackOrder()
+            }
+        })
 
         if (handoff != null) {
             stack.compositePlayer.selectWithoutPlayback(
@@ -600,12 +605,18 @@ class MicaMediaService : MediaSessionService() {
                 AudioQualityMode.HIFI
             },
             externalSongResolver = micaApp.transientPlaybackCatalog::songForPersistence,
+            orderProvider = playbackOrderOwner::project,
+            restoreOrder = { snapshot ->
+                playbackOrderOwner.restore(currentPhysicalIds(), snapshot.playbackOrderIds,
+                    snapshot.sourceOrderIds, snapshot.shuffleEnabled)
+                applyAcceptedPlaybackOrder()
+            },
         ).also { coordinator ->
             coordinator.onRestoreCompleted = {
                 restoredFromStore = true
                 mainHandler.post {
                     if (!playbackStackLifecycle.isActive(stack)) return@post
-                    activeAppShuffleRequest?.let(::applyAppShuffleRequest)
+                    applyAcceptedPlaybackOrder()
                     logRestoredSongDiagnostics(stack.compositePlayer)
                     if (handoff?.playWhenReady == true) {
                         stack.compositePlayer.playWhenReady = true
@@ -625,7 +636,7 @@ class MicaMediaService : MediaSessionService() {
             stack.compositePlayer.prepare()
             stack.compositePlayer.playWhenReady = handoff.playWhenReady
         }
-        activeAppShuffleRequest?.let(::applyAppShuffleRequest)
+        applyAcceptedPlaybackOrder()
 
         stack.compositePlayer.onUserPlayIntentChanged = { playWhenReady ->
             if (playbackStackLifecycle.isActive(stack)) {
@@ -771,26 +782,44 @@ class MicaMediaService : MediaSessionService() {
             decorateResolvedSong = ::decorateResolvedSong,
             applyAppShuffleRequest = ::applyAppShuffleRequest,
             updateMediaButtonPreferences = ::updateMediaButtonPreferences,
+            playbackOrderSnapshot = {
+                playbackOrderOwner.snapshot(currentPhysicalIds())
+            },
         )
 
-    private fun applyAppShuffleRequest(request: PlaybackShuffleRequest) {
+    private fun currentPhysicalIds(): List<String> = exoPlayer?.let { exo ->
+        List(exo.mediaItemCount) { exo.getMediaItemAt(it).mediaId }
+    }.orEmpty()
+
+    private fun applyAppShuffleRequest(request: PlaybackShuffleRequest): Boolean {
+        val exo = exoPlayer ?: return false
+        playbackOrderOwner.accept(request, currentPhysicalIds(), exo.currentMediaItem?.mediaId)
+            ?: return false
+        applyAcceptedPlaybackOrder()
+        playbackStateCoordinator?.onOrderChanged()
+        return true
+    }
+
+    private fun applyAcceptedPlaybackOrder() {
         val exo = exoPlayer ?: return
-        if (!request.enabled) {
-            activeAppShuffleRequest = null
-            exo.shuffleModeEnabled = false
-            return
+        val physicalIds = currentPhysicalIds()
+        val order = playbackOrderOwner.project(physicalIds) ?: return
+        val indices = physicalIds.withIndex().associate { it.value to it.index }
+        val permutation = order.playbackIds.map(indices::getValue).toIntArray()
+        val timeline = exo.currentTimeline
+        var actual = timeline.getFirstWindowIndex(true)
+        val aligned = permutation.all { expected ->
+            val matches = actual == expected
+            if (actual != androidx.media3.common.C.INDEX_UNSET) {
+                actual = timeline.getNextWindowIndex(actual, Player.REPEAT_MODE_OFF, true)
+            }
+            matches
         }
-        val seed = request.seed ?: return
-        activeAppShuffleRequest = request
-        val physicalIds = List(exo.mediaItemCount) { index -> exo.getMediaItemAt(index).mediaId }
-        val indices = PlaybackShuffleOrder.physicalIndices(
-            physicalIds = physicalIds,
-            currentId = exo.currentMediaItem?.mediaId,
-            seed = seed,
-        )
-        if (indices.size != physicalIds.size) return
-        exo.setShuffleOrder(ShuffleOrder.DefaultShuffleOrder(indices, seed))
-        exo.shuffleModeEnabled = true
+        if (!aligned) exo.setShuffleOrder(ShuffleOrder.DefaultShuffleOrder(permutation, 0L))
+        // Native traversal is also used for a manually edited source order. Logical queue mode
+        // remains independent and is persisted by the order owner.
+        val nativeEnabled = order.shuffleEnabled || order.playbackIds != physicalIds
+        if (exo.shuffleModeEnabled != nativeEnabled) exo.shuffleModeEnabled = nativeEnabled
     }
 
     private fun updateMediaButtonPreferences() {

@@ -147,6 +147,13 @@ internal class PlaybackTimelineCoordinator(
         pendingRestorePositionMs = positionMs
     }
 
+    fun resetForQueueClear() {
+        clearPendingRestore()
+        clearPendingSeek()
+        resetDurationForSongChange(0)
+        setPositionClamped(0, 0)
+    }
+
     fun releasePendingRestore(songId: String?) {
         if (pendingRestoreSongId == songId) clearPendingRestore()
     }

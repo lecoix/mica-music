@@ -31,8 +31,9 @@ internal class MicaMediaSessionCallback(
     private val sessionScopeProvider: () -> CoroutineScope?,
     private val trustedMediaItemResolverProvider: () -> TrustedMediaItemResolver?,
     private val decorateResolvedSong: (com.mica.music.data.Song, MediaItem) -> MediaItem,
-    private val applyAppShuffleRequest: (PlaybackShuffleRequest) -> Unit,
+    private val applyAppShuffleRequest: (PlaybackShuffleRequest) -> Boolean,
     private val updateMediaButtonPreferences: () -> Unit,
+    private val playbackOrderSnapshot: () -> Bundle = { Bundle.EMPTY },
 ) : MediaSession.Callback {
 
     private val ownPackageName: String
@@ -94,12 +95,24 @@ internal class MicaMediaSessionCallback(
         args: Bundle,
     ): ListenableFuture<SessionResult> {
         val identity = controllerIdentity(controller)
+        if (customCommand.customAction == PlaybackShuffleSessionCommand.ACTION &&
+            args.getBoolean(PlaybackShuffleSessionCommand.KEY_QUERY)) {
+            if (identity.packageName != ownPackageName) {
+                return Futures.immediateFuture(SessionResult(SessionError.ERROR_NOT_SUPPORTED))
+            }
+            return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS, playbackOrderSnapshot()))
+        }
         PlaybackShuffleSessionCommand.decode(customCommand, args)?.let { request ->
             if (identity.packageName != ownPackageName) {
                 return Futures.immediateFuture(SessionResult(SessionError.ERROR_NOT_SUPPORTED))
             }
-            mainHandler.post { applyAppShuffleRequest(request) }
-            return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+            val result = SettableFuture.create<SessionResult>()
+            mainHandler.post {
+                val applied = applyAppShuffleRequest(request)
+                result.set(SessionResult(if (applied) SessionResult.RESULT_SUCCESS
+                    else SessionError.ERROR_BAD_VALUE, if (applied) playbackOrderSnapshot() else Bundle.EMPTY))
+            }
+            return result
         }
         if (
             customCommand.customAction == ExternalLyricsSessionCommands.TOGGLE_DESKTOP_LYRICS_ACTION &&

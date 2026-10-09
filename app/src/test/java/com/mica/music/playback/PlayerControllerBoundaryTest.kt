@@ -447,13 +447,13 @@ class PlayerControllerBoundaryTest {
     }
 
     @Test
-    fun alignedLargeQueueReorderUsesSingleIncrementalMove() {
+    fun alignedLargeQueueReorderUsesOnePermutationWithoutPhysicalMoves() {
         val connector = FakeConnector()
         val controller = controller(connector = connector)
         val mediaController = mockk<MediaController>(relaxed = true)
         val queue = List(4_500) { index -> SongFixtures.song("song-$index") }
         every { mediaController.getMediaItemAt(any()) } answers {
-            MediaItem.Builder().setMediaId(queue[firstArg()].id).build()
+            SongMediaItemCodec.encode(queue[firstArg()])
         }
         every { mediaController.currentMediaItem } returns MediaItem.Builder()
             .setMediaId(queue[2_000].id)
@@ -470,7 +470,13 @@ class PlayerControllerBoundaryTest {
 
         controller.moveInQueue(fromIndex = 4_000, toIndex = 10)
 
-        verify(exactly = 1) { mediaController.moveMediaItem(4_000, 10) }
+        verify(exactly = 0) { mediaController.moveMediaItem(any(), any()) }
+        verify(exactly = 1) { mediaController.sendCustomCommand(
+            com.mica.music.media.PlaybackShuffleSessionCommand.command,
+            match { args -> com.mica.music.media.PlaybackShuffleSessionCommand.decode(
+                com.mica.music.media.PlaybackShuffleSessionCommand.command, args
+            )?.playbackIndices?.get(10) == 4_000 },
+        ) }
         verify(exactly = 0) { mediaController.setMediaItems(any<List<MediaItem>>(), any(), any()) }
         assertEquals("song-2000", controller.playbackSurfaceState.currentSong?.id)
         controller.release()
@@ -828,6 +834,7 @@ class PlayerControllerBoundaryTest {
         val queue = SongFixtures.queue(2)
         val connector = FakeConnector()
         val controller = controller(
+            dispatcher = StandardTestDispatcher(testScheduler),
             connector = connector,
             songResolver = PlaybackSongResolver { id -> queue.firstOrNull { it.id == id } },
         )
@@ -877,6 +884,7 @@ class PlayerControllerBoundaryTest {
         val queue = SongFixtures.queue(2)
         val connector = FakeConnector()
         val controller = controller(
+            dispatcher = StandardTestDispatcher(testScheduler),
             connector = connector,
             songResolver = PlaybackSongResolver { id -> queue.firstOrNull { it.id == id } },
         )
@@ -918,6 +926,7 @@ class PlayerControllerBoundaryTest {
         val queue = SongFixtures.queue(2)
         val connector = FakeConnector()
         val controller = controller(
+            dispatcher = StandardTestDispatcher(testScheduler),
             connector = connector,
             songResolver = PlaybackSongResolver { id -> queue.firstOrNull { it.id == id } },
         )
@@ -1002,7 +1011,7 @@ class PlayerControllerBoundaryTest {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val store = ServicePlaybackStateStore(context)
         val external = SongFixtures.song("external_test").copy(source = SongSource.TRANSIENT_EXTERNAL)
-        val controller = controller()
+        val controller = controller(dispatcher = StandardTestDispatcher(testScheduler))
         store.clear(sync = true)
         store.save(
             ServicePlaybackSnapshot(
@@ -1041,6 +1050,7 @@ class PlayerControllerBoundaryTest {
         val connector = FakeConnector()
         val song = SongFixtures.song("restore-thread")
         val controller = controller(
+            dispatcher = StandardTestDispatcher(testScheduler),
             connector = connector,
             storage = storage,
             songResolver = PlaybackSongResolver { id -> song.takeIf { it.id == id } },
@@ -1864,7 +1874,7 @@ class PlayerControllerBoundaryTest {
     }
 
     @Test
-    fun shuffleModeBuildsAppPlaybackOrderWithoutEnablingMedia3Shuffle() {
+    fun shuffleModeSendsExplicitAppPlaybackOrderToService() {
         val connector = FakeConnector()
         val storage = FakeSessionStorage()
         val controller = controller(connector = connector, storage = storage)
@@ -1901,7 +1911,10 @@ class PlayerControllerBoundaryTest {
         listener.captured.onRepeatModeChanged(Player.REPEAT_MODE_ONE)
         controller.cyclePlaybackQueueMode()
 
-        verify { mediaController.shuffleModeEnabled = false }
+        verify { mediaController.sendCustomCommand(
+            com.mica.music.media.PlaybackShuffleSessionCommand.command,
+            match { it.getIntArray("order") != null },
+        ) }
         verify { mediaController.repeatMode = Player.REPEAT_MODE_OFF }
         assertEquals(PlaybackQueueMode.SHUFFLE, controller.playbackSurfaceState.playbackQueueMode)
         assertEquals(true, storage.saved?.shuffleEnabled)
@@ -2069,7 +2082,10 @@ class PlayerControllerBoundaryTest {
         assertEquals(false, storage.saved?.shuffleEnabled)
         assertTrue(storage.saved?.shuffleSourceIds.isNullOrEmpty())
         assertEquals(queue.map { it.id }, controller.playbackQueueState.queue.map { it.id })
-        verify(atLeast = 1) { mediaController.shuffleModeEnabled = false }
+        verify(atLeast = 1) { mediaController.sendCustomCommand(
+            com.mica.music.media.PlaybackShuffleSessionCommand.command,
+            match { !it.getBoolean("enabled") && it.getIntArray("order") != null },
+        ) }
         controller.release()
     }
 
@@ -2133,6 +2149,7 @@ class PlayerControllerBoundaryTest {
         }
         val connector = FakeConnector()
         val controller = controller(
+            dispatcher = StandardTestDispatcher(testScheduler),
             connector = connector,
             storage = storage,
             songResolver = PlaybackSongResolver { id -> sourceQueue.firstOrNull { it.id == id } },
@@ -2187,6 +2204,7 @@ class PlayerControllerBoundaryTest {
             )
         }
         val controller = controller(
+            dispatcher = StandardTestDispatcher(testScheduler),
             storage = storage,
             songResolver = PlaybackSongResolver { id -> sourceQueue.firstOrNull { it.id == id } },
         )
