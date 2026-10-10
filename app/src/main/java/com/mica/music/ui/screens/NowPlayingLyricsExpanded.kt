@@ -26,12 +26,17 @@ import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import kotlinx.coroutines.delay
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.withFrameNanos
@@ -39,6 +44,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
@@ -69,6 +75,7 @@ import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.LocalLyricSplitEnabled
 import com.mica.music.ui.theme.PlayerContentColors
 import kotlin.math.roundToInt
+import kotlinx.coroutines.flow.collect
 
 @Composable
 internal fun ExpandedLyricsPanel(
@@ -118,15 +125,52 @@ internal fun ExpandedLyricsPanel(
         return
     }
 
-    val displayItems = remember(lyrics, positionMs) {
+    val activeDisplayItems = remember(lyrics, positionMs) {
         expandedLyricsDisplayItems(lyrics, playbackPositionMs = positionMs)
+    }
+    val activeInterlude = activeDisplayItems.filterIsInstance<ExpandedLyricDisplayItem.Interlude>()
+        .firstOrNull()
+    // Keep a departing interlude mounted for its 250ms fade-out. Its key is stable:
+    // no ghost copies of normal rows, and no Foundation moving-away placement.
+    var mostRecentInterlude by remember(lyrics) {
+        mutableStateOf<ExpandedLyricDisplayItem.Interlude?>(null)
+    }
+    var interludeExitFinished by remember(lyrics) { mutableStateOf(false) }
+    SideEffect {
+        if (activeInterlude != null) mostRecentInterlude = activeInterlude
+    }
+    LaunchedEffect(activeInterlude?.key) {
+        if (activeInterlude != null) interludeExitFinished = false
+    }
+    val exitingInterlude = mostRecentInterlude?.takeIf { candidate ->
+        activeInterlude == null && !interludeExitFinished &&
+            positionMs >= candidate.endTimeMs &&
+            positionMs < candidate.endTimeMs + CLASSIC_LYRICS_FADE_MS
+    }
+    LaunchedEffect(exitingInterlude?.key) {
+        if (exitingInterlude != null) {
+            delay(CLASSIC_LYRICS_FADE_MS.toLong())
+            interludeExitFinished = true
+        }
+    }
+    val displayItems = if (exitingInterlude == null) {
+        activeDisplayItems
+    } else {
+        buildList {
+            activeDisplayItems.forEach { item ->
+                if (item is ExpandedLyricDisplayItem.Line &&
+                    item.lyricIndex == exitingInterlude.nextLyricIndex
+                ) add(exitingInterlude)
+                add(item)
+            }
+        }
     }
     val timed = renderState.hasTimedLyrics
     val currentIndex = renderState.activeLineIndex
     val currentDisplayItemIndex = displayItems.indexOfFirst { item ->
         item is ExpandedLyricDisplayItem.Line && item.lyricIndex == currentIndex
     }
-    val interludeKey = displayItems.firstOrNull { it is ExpandedLyricDisplayItem.Interlude }?.key
+    val interludeKey = activeInterlude?.key
     val listState = rememberLazyListState()
     val density = LocalDensity.current
     val lineHeightPx = with(density) { textStyle.lineHeight.toPx().toInt() }
@@ -168,7 +212,6 @@ internal fun ExpandedLyricsPanel(
     val lineIntervalMs = currentIndex.takeIf { it > 0 }?.let { index ->
         lyrics[index].timeMs - lyrics[index - 1].timeMs
     } ?: 800
-    val moveSpring = classicLyricsMoveSpring(lineIntervalMs)
     var previousInterludeKey by remember(lyrics) { mutableStateOf(interludeKey) }
     // Snap (not spring) when lyrics document changes / first layout; spring only for line follow.
     // Also hide until snapped so "start at top → animate down to anchor" is not visible.
@@ -181,12 +224,46 @@ internal fun ExpandedLyricsPanel(
             lyrics.lastOrNull()?.text,
         )
     }
+    // The layout motion controller is local to this lyrics document, not the Lazy item animator.
+    val ownedMotionScope = rememberCoroutineScope()
+    val ownedMotion = remember(lyricsContentKey) { OwnedLyricsPositionMotion(ownedMotionScope) }
+    DisposableEffect(ownedMotion) { onDispose { ownedMotion.dispose() } }
     var revealedLyricsKey by remember { mutableStateOf<List<Any?>?>(null) }
     val lyricsRevealed = (!timed || revealedLyricsKey == lyricsContentKey) &&
         !layoutTransition.hideUntilSettled
     // After a track/lyrics snap, one more layout pass often re-triggers the spring follow with
     // staggerOffsets; those translationY lags get clipped by the item bounds (top/bottom shaved).
     var suppressedFollowIndex by remember { mutableStateOf<Int?>(null) }
+    val motionActive = rememberUpdatedState(
+        motionEnabled && lyricsRevealed && !layoutTransition.freezeScroll,
+    )
+    val currentMotionStiffness = rememberUpdatedState(classicLyricsMoveStiffness(lineIntervalMs))
+    // The only authority for item layout endpoints is measured LazyColumn geometry.
+    // Nested post-scroll contributes the consumed screen travel exactly once.
+    LaunchedEffect(ownedMotion, listState) {
+        snapshotFlow {
+            listState.layoutInfo.visibleItemsInfo.map { info ->
+                OwnedLyricGeometry(
+                    key = info.key.toString(),
+                    offsetPx = info.offset,
+                    heightPx = info.size,
+                )
+            }
+        }.collect { measured ->
+            ownedMotion.accept(
+                measured = measured,
+                animate = motionActive.value,
+                stiffness = currentMotionStiffness.value,
+                scrolling = listState.isScrollInProgress,
+            )
+        }
+    }
+    LaunchedEffect(ownedMotion, viewportHeightPx, layoutTransition.freezeScroll) {
+        ownedMotion.reset()
+    }
+    LaunchedEffect(ownedMotion, renderState.positionRevision) {
+        ownedMotion.reset()
+    }
 
     LaunchedEffect(layoutTransition.hideUntilSettled) {
         if (layoutTransition.hideUntilSettled) {
@@ -314,6 +391,8 @@ internal fun ExpandedLyricsPanel(
             check(scrollDistance != null)
             listState.scrollBy(scrollDistance)
         } else {
+            // A non-local seek cannot inherit a previous row's FLIP translation.
+            ownedMotion.reset()
             listState.scrollToItem(currentDisplayItemIndex, scrollOffset = indexedScrollOffset)
             withFrameNanos { }
             val measuredLayoutInfo = listState.layoutInfo
@@ -345,6 +424,7 @@ internal fun ExpandedLyricsPanel(
             state = listState,
             modifier = Modifier
                 .fillMaxSize()
+                .nestedScroll(ownedMotion.nestedScrollConnection)
                 .onSizeChanged { viewportHeightPx = it.height },
             contentPadding = PaddingValues(
                 start = horizontalPadding,
@@ -360,6 +440,13 @@ internal fun ExpandedLyricsPanel(
                 key = { _, item -> item.key },
             ) { displayIndex, item ->
                 val staggerOffsetY = staggerOffsets[displayIndex] ?: 0f
+                var entered by remember(item.key) { mutableStateOf(false) }
+                LaunchedEffect(item.key) { entered = true }
+                val itemFadeAlpha by animateFloatAsState(
+                    targetValue = if (entered && item != exitingInterlude) 1f else 0f,
+                    animationSpec = tween(CLASSIC_LYRICS_FADE_MS),
+                    label = "ownedLyricsEnterFade",
+                )
                 when (item) {
                     is ExpandedLyricDisplayItem.Line -> {
                         val index = item.lyricIndex
@@ -427,22 +514,12 @@ internal fun ExpandedLyricsPanel(
                             karaokeWordFadeWidthEm = lyricsWordAnimationPreset.wordFadeWidthEm,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .animateItem(
-                                    fadeInSpec = tween(CLASSIC_LYRICS_FADE_MS),
-                                    fadeOutSpec = tween(CLASSIC_LYRICS_FADE_MS),
-                                    // Avoid enter placement motion under alpha=0 / first reveal;
-                                    // it reads as a clipped scroll on track change.
-                                    placementSpec = if (lyricsRevealed && !layoutTransition.freezeScroll) {
-                                        moveSpring
-                                    } else {
-                                        null
-                                    },
-                                )
                                 .graphicsLayer {
                                     clip = false
+                                    alpha = itemFadeAlpha
                                     scaleX = lineScale * pressScale.value
                                     scaleY = lineScale * pressScale.value
-                                    translationY = staggerOffsetY
+                                    translationY = staggerOffsetY + ownedMotion.translationFor(item.key)
                                 }
                                 .then(
                                     if (timed) {
@@ -459,16 +536,10 @@ internal fun ExpandedLyricsPanel(
                     is ExpandedLyricDisplayItem.Interlude -> Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .graphicsLayer { translationY = staggerOffsetY }
-                            .animateItem(
-                                fadeInSpec = tween(CLASSIC_LYRICS_FADE_MS),
-                                fadeOutSpec = tween(CLASSIC_LYRICS_FADE_MS),
-                                placementSpec = if (lyricsRevealed && !layoutTransition.freezeScroll) {
-                                    moveSpring
-                                } else {
-                                    null
-                                },
-                            ),
+                            .graphicsLayer {
+                                alpha = itemFadeAlpha
+                                translationY = staggerOffsetY + ownedMotion.translationFor(item.key)
+                            },
                     ) {
                         InterludeDots(
                             colors = colors,
