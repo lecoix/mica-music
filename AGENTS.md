@@ -36,3 +36,14 @@ Single-context 布局：根目录 `CONTEXT.md` + `docs/adr/`。`docs/adr/` 已�
 ### 超大曲库容量基线（硬性）
 
 任何涉及曲库的设计或改动，必须以“**10,000 首歌曲、每首均有完整逐字歌词、8 GB 内存 Android 手机**”作为容量基线，评估启动、扫描、加载、排序、保存、同步和缓存时的内存峰值与稳定性。不得非必要地全量解析、编码、复制或常驻歌词；优先使用懒加载、有界缓存、分批或流式处理。完成前须用测试、测量或可审查的内存上界说明该设备能够承受；无法确认时必须明确标注风险，不得宣称安全。
+
+## Cursor Cloud specific instructions
+
+本仓库是 Android 应用，没有常驻开发服务器。Cloud Agent 镜像里默认还有 JDK 21；Gradle 与 `:taglib` 的 `jvmToolchain(17)` 必须使用 JDK 17，路径为 `/usr/lib/jvm/java-17-openjdk-amd64`。
+
+- Android SDK 在 `$HOME/android-sdk`。`local.properties` 被 gitignore，启动时会写成 `sdk.dir`。已安装：`platforms;android-35`、`platforms;android-36`、`build-tools;35.0.0`、`ndk;27.0.12077973`、`cmake;3.22.1`、`platform-tools`。这些版本对应 Android Gradle Plugin 8.9.1 的默认 Build Tools / NDK，以及 app `compileSdk 36`、库模块 `compileSdk 35`。
+- 原生编译依赖 TagLib 的 utfcpp submodule。若 `third_party/taglib/src/main/cpp/taglib/3rdparty/utfcpp/source/utf8.h` 不存在，先执行 `git submodule update --init --recursive`。
+- Linux 上用 `bash gradlew`，不要依赖 `gradlew` 的可执行位（仓库里是 `100644`）。调试包：`bash gradlew :app:assembleDebug --no-configuration-cache`。与 Ubuntu CI 对齐的检查：`bash gradlew :app:lintDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest --no-configuration-cache`。
+- `micaScreenshotFull` / Roborazzi 金图在 CI 里跑在 Windows。不要把 Linux 上的截图差异当成环境故障。
+- 只打包 `arm64-v8a` 与 `armeabi-v7a`。x86_64 模拟器不能当作运行时门禁。
+- Debug 构建和 JVM 测试不需要密钥。Release 签名才使用可选的 `keystore.properties` 或 `MICA_KEYSTORE_*`。
