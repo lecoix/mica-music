@@ -1,5 +1,6 @@
 package com.mica.music.ui.screens
 
+import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -22,19 +23,24 @@ class LyricsInterludePauseContractTest {
     @get:Rule val rule = createComposeRule()
 
     @Test fun pauseFreezesTheActualDotsClockAndResumeContinuesFromFrozenFrame() {
-        var running by mutableStateOf(true)
-        var position by mutableIntStateOf(17_000)
+        val runningState = mutableStateOf(true)
+        val positionState = mutableIntStateOf(17_000)
         var renderedMs = 0
+        var lastObservedRunning = false
+        var lastObservedPosition = 0
         rule.mainClock.autoAdvance = false
         rule.setContent {
-            renderedMs = rememberClassicInterludePositionMs(position, running)
+            lastObservedRunning = runningState.value
+            lastObservedPosition = positionState.intValue
+            renderedMs = rememberClassicInterludePositionMs(positionState.intValue, runningState.value)
+            Text("interlude-clock:$renderedMs")
         }
         rule.mainClock.advanceTimeBy(850)
         rule.waitForIdle()
         val advanced = renderedMs
         assertTrue("Dot clock must advance while running $advanced", advanced > 17_500)
 
-        rule.runOnIdle { running = false }
+        rule.runOnIdle { runningState.value = false }
         rule.mainClock.advanceTimeBy(32)
         rule.waitForIdle()
         val frozen = renderedMs
@@ -42,27 +48,36 @@ class LyricsInterludePauseContractTest {
         rule.waitForIdle()
         assertEquals("Pause must freeze the same dot phase", frozen, renderedMs)
 
-        rule.runOnIdle { running = true }
+        rule.runOnIdle { runningState.value = true }
         rule.mainClock.advanceTimeBy(320)
         rule.waitForIdle()
-        println("B3_D3_PHASE advanced=$advanced frozen=$frozen resumed=$renderedMs")
+        println("B3_D3_PHASE advanced=$advanced frozen=$frozen resumed=$renderedMs rootRunning=$lastObservedRunning rootPosition=$lastObservedPosition")
         assertTrue("Resume must advance from frozen state", renderedMs > frozen + 180)
         assertTrue("Resume must not restart at 17s", renderedMs >= frozen)
     }
 
     @Test fun explicitSeekWhilePausedRebasesTheClockWithoutPlayingOldPhase() {
-        var running by mutableStateOf(false)
-        var position by mutableIntStateOf(17_000)
+        val runningState = mutableStateOf(false)
+        val positionState = mutableIntStateOf(17_000)
         var renderedMs = 0
+        var lastObservedRunning = false
+        var lastObservedPosition = 0
         rule.mainClock.autoAdvance = false
-        rule.setContent { renderedMs = rememberClassicInterludePositionMs(position, running) }
+        rule.setContent {
+            lastObservedRunning = runningState.value
+            lastObservedPosition = positionState.intValue
+            renderedMs = rememberClassicInterludePositionMs(positionState.intValue, runningState.value)
+            Text("interlude-clock:$renderedMs")
+        }
         rule.mainClock.advanceTimeBy(50)
-        rule.runOnIdle { position = 22_000 }
+        rule.runOnIdle { positionState.intValue = 22_000 }
         rule.mainClock.advanceTimeBy(50)
         rule.waitForIdle()
+        println("B3_D3_SEEK rootPosition=$lastObservedPosition rendered=$renderedMs")
         assertEquals(22_000, renderedMs)
         rule.mainClock.advanceTimeBy(1_000)
         rule.waitForIdle()
+        println("B3_D3_SEEK rootPosition=$lastObservedPosition rendered=$renderedMs")
         assertEquals(22_000, renderedMs)
     }
 }
