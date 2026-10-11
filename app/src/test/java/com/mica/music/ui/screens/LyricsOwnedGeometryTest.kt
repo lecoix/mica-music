@@ -11,6 +11,30 @@ class LyricsOwnedGeometryTest {
     private fun at(key: String, y: Int, height: Int = 47) =
         OwnedLyricGeometry(key, offsetPx = y, heightPx = height)
 
+    @Test fun interludeAlreadyHeldByLazyKeysNeedsNoSecondScroll() {
+        assertEquals(0f, expandedLyricsMeasuredInterludeCorrectionPx(
+            beforeItemOffsetPx = -579,
+            afterItemOffsetPx = -579,
+            followScrollSinceBeforePx = 0f,
+            maxInsertionHeightPx = 84f,
+        ))
+    }
+
+    @Test fun interludeMeasuredDownshiftOnlyGetsTheObservedCorrection() {
+        assertEquals(84f, expandedLyricsMeasuredInterludeCorrectionPx(
+            beforeItemOffsetPx = 666,
+            afterItemOffsetPx = 750,
+            followScrollSinceBeforePx = 0f,
+            maxInsertionHeightPx = 84f,
+        ))
+        assertEquals(50f, expandedLyricsMeasuredInterludeCorrectionPx(
+            beforeItemOffsetPx = 100,
+            afterItemOffsetPx = 120,
+            followScrollSinceBeforePx = 30f,
+            maxInsertionHeightPx = 84f,
+        ))
+    }
+
     @Test fun scrollOnlyDoesNotGenerateASecondPlacementAnimation() {
         val before = at("line-0", -497)
         val after = at("line-0", -537)

@@ -7,6 +7,7 @@
         android:required="false" />
 
     <application>
+        <activity android:name=".ui.screens.B3LyricsVisualQaActivity" android:exported="true" android:theme="@android:style/Theme.Material.Light.NoActionBar" />
         <activity
             android:name="com.mica.music.data.ScannerContractHostActivity"
             android:exported="true"

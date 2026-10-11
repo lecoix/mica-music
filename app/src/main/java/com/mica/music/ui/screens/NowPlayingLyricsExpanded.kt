@@ -31,6 +31,7 @@ import kotlinx.coroutines.delay
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -49,6 +50,9 @@ import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onPlaced
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntOffset
@@ -93,6 +97,10 @@ internal fun ExpandedLyricsPanel(
     bilingualDisplayMode: LyricsBilingualDisplayMode = LyricsBilingualDisplayMode.ALL,
     lyricsPageOpen: Boolean = true,
     lyricsLayoutFocus: Float = 1f,
+    /** QA-only real geometry/scroll observer. Inactive in production. */
+    debugMotionTrace: ((ExpandedLyricsMotionTrace) -> Unit)? = null,
+    /** Integration-test control: separate a fixed list from ordinary auto-follow. */
+    debugFreezeFollowAfterSnap: Boolean = false,
 ) {
     val layoutTransition = expandedLyricsLayoutTransition(lyricsPageOpen, lyricsLayoutFocus)
     val lyrics = renderState.lyrics
@@ -172,6 +180,11 @@ internal fun ExpandedLyricsPanel(
     }
     val interludeKey = activeInterlude?.key
     val listState = rememberLazyListState()
+    val debugLedger = remember { ExpandedLyricsScrollLedger() }
+    // A stable measured geometry receipt from BEFORE the interlude enters the list.
+    // It is keyed by real lyric identity, never by the shifting LazyColumn index.
+    val preInterludeGeometry = remember(lyrics) { mutableMapOf<String, ExpandedLyricsInterludeReceipt>() }
+    var debugListRootY by remember { mutableFloatStateOf(Float.NaN) }
     val density = LocalDensity.current
     val lineHeightPx = with(density) { textStyle.lineHeight.toPx().toInt() }
     val translationLineHeightPx = with(density) { translationTextStyle.lineHeight.toPx().toInt() }
@@ -240,6 +253,30 @@ internal fun ExpandedLyricsPanel(
     val currentMotionStiffness = rememberUpdatedState(classicLyricsMoveStiffness(lineIntervalMs))
     // The only authority for item layout endpoints is measured LazyColumn geometry.
     // Nested post-scroll contributes the consumed screen travel exactly once.
+    val latestInterludeKey = rememberUpdatedState(interludeKey)
+    val upcomingEndMs = lyrics.getOrNull(currentIndex)?.endTimeMs
+    val approachingInsertion = upcomingEndMs != null &&
+        (lyrics.getOrNull(currentIndex + 1)?.timeMs ?: 0) - upcomingEndMs >= 7_000 &&
+        positionMs in (upcomingEndMs - 2_000) until upcomingEndMs
+    // A running B3 FLIP spring updates graphic-layer Y without requiring a new
+    // Lazy measurement. Refresh the visual receipt each frame close to the
+    // insertion boundary, otherwise a stale receipt can cost 10px on rapid cues.
+    LaunchedEffect(ownedMotion, listState, approachingInsertion) {
+        if (!approachingInsertion) return@LaunchedEffect
+        while (latestInterludeKey.value == null) {
+            withFrameNanos { }
+            if (latestInterludeKey.value != null) break
+            listState.layoutInfo.visibleItemsInfo.forEach { info ->
+                val key = info.key.toString()
+                preInterludeGeometry[key] = ExpandedLyricsInterludeReceipt(
+                    itemOffsetPx = info.offset,
+                    visualViewportYPx = info.offset +
+                        ownedMotion.translationFor(key) + (staggerOffsets[info.index] ?: 0f),
+                    followConsumedPx = debugLedger.followPx,
+                )
+            }
+        }
+    }
     LaunchedEffect(ownedMotion, listState) {
         snapshotFlow {
             listState.layoutInfo.visibleItemsInfo.map { info ->
@@ -250,6 +287,17 @@ internal fun ExpandedLyricsPanel(
                 )
             }
         }.collect { measured ->
+            if (latestInterludeKey.value == null) {
+                // Saved in the SAME Lazy viewport coordinate space as the next measurement.
+                // A new insertion must not blindly scroll by its nominal height.
+                measured.forEach {
+                    preInterludeGeometry[it.key] = ExpandedLyricsInterludeReceipt(
+                        itemOffsetPx = it.offsetPx,
+                        visualViewportYPx = it.offsetPx + ownedMotion.translationFor(it.key),
+                        followConsumedPx = debugLedger.followPx,
+                    )
+                }
+            }
             ownedMotion.accept(
                 measured = measured,
                 animate = motionActive.value,
@@ -263,6 +311,47 @@ internal fun ExpandedLyricsPanel(
     }
     LaunchedEffect(ownedMotion, renderState.positionRevision) {
         ownedMotion.reset()
+        preInterludeGeometry.clear()
+    }
+
+    val currentDebugState = rememberUpdatedState(
+        Triple(positionMs, isPlaying, interludeKey),
+    )
+    val currentDebugOffsets = rememberUpdatedState(staggerOffsets.toMap())
+    if (debugMotionTrace != null) {
+        LaunchedEffect(debugMotionTrace, ownedMotion, listState) {
+            while (true) {
+                val frame = withFrameNanos { it }
+                val (samplePosition, samplePlaying, sampleInterlude) = currentDebugState.value
+                val info = listState.layoutInfo
+                debugMotionTrace(
+                    ExpandedLyricsMotionTrace(
+                        frameNanos = frame,
+                        positionMs = samplePosition,
+                        playing = samplePlaying,
+                        interludeKey = sampleInterlude,
+                        event = "frame",
+                        followConsumedPx = debugLedger.followPx,
+                        interludeConsumedPx = debugLedger.interludePx,
+                        listRootYPx = debugListRootY,
+                        firstVisibleIndex = listState.firstVisibleItemIndex,
+                        firstVisibleScrollOffset = listState.firstVisibleItemScrollOffset,
+                        items = info.visibleItemsInfo.map { measured ->
+                            val key = measured.key.toString()
+                            ExpandedLyricsRowTrace(
+                                key = key,
+                                index = measured.index,
+                                measuredViewportYPx = measured.offset,
+                                measuredHeightPx = measured.size,
+                                rootGeometryYPx = debugListRootY + measured.offset,
+                                ownedTranslationPx = ownedMotion.translationFor(key),
+                                staggerTranslationPx = currentDebugOffsets.value[measured.index] ?: 0f,
+                            )
+                        },
+                    ),
+                )
+            }
+        }
     }
 
     LaunchedEffect(layoutTransition.hideUntilSettled) {
@@ -276,15 +365,52 @@ internal fun ExpandedLyricsPanel(
         if (layoutTransition.freezeScroll) return@LaunchedEffect
         val interludeAppeared = previousInterludeKey == null && interludeKey != null
         previousInterludeKey = interludeKey
-        if (!interludeAppeared) return@LaunchedEffect
-        val insertionHeightPx = with(density) { (10.dp + lyricsLineSpacingDp.dp).toPx() }
-        if (motionEnabled) {
-            listState.animateScrollBy(
-                insertionHeightPx,
-                animationSpec = classicLyricsScrollSpring(lineIntervalMs),
-            )
+        if (!interludeAppeared) {
+            if (interludeKey == null) ownedMotion.releasePins()
+            return@LaunchedEffect
+        }
+        // Wait for the new interlude row to be measured, then derive only the
+        // UNCOMPENSATED forward shift of the next lyric from its old key geometry.
+        // A keyed LazyColumn can maintain that row already; in that case another
+        // nominal-height scroll duplicates the correction (84px on the QA device).
+        withFrameNanos { }
+        val nextLine = lyrics.getOrNull(
+            (activeInterlude ?: return@LaunchedEffect).nextLyricIndex,
+        ) ?: return@LaunchedEffect
+        val nextKey = ExpandedLyricDisplayItem.Line(activeInterlude.nextLyricIndex, nextLine).key
+        val before = preInterludeGeometry[nextKey] ?: return@LaunchedEffect
+        val after = listState.layoutInfo.visibleItemsInfo
+            .firstOrNull { it.key.toString() == nextKey } ?: return@LaunchedEffect
+        val maxInsertionHeightPx = with(density) { (10.dp + lyricsLineSpacingDp.dp).toPx() }
+        val correction = expandedLyricsMeasuredInterludeCorrectionPx(
+            beforeItemOffsetPx = before.itemOffsetPx,
+            afterItemOffsetPx = after.offset,
+            followScrollSinceBeforePx = debugLedger.followPx - before.followConsumedPx,
+            maxInsertionHeightPx = maxInsertionHeightPx,
+        )
+        // Row.onPlaced synchronously owns the next line's visual continuity
+        // before graphicsLayer draws. Here we only consume a real, measured
+        // scroll correction, not the nominal interlude height.
+        if (correction < 0.75f) return@LaunchedEffect
+        if (!motionEnabled) {
+            debugLedger.interludePx += listState.scrollBy(correction)
         } else {
-            listState.scrollBy(insertionHeightPx)
+            val animation = TargetBasedAnimation(
+                animationSpec = classicLyricsScrollSpring(lineIntervalMs),
+                typeConverter = Float.VectorConverter,
+                initialValue = 0f,
+                targetValue = correction,
+            )
+            val startTime = withFrameNanos { it }
+            var previous = 0f
+            while (true) {
+                val elapsed = (withFrameNanos { it } - startTime).coerceAtLeast(0L)
+                val current = animation.getValueFromNanos(elapsed.coerceAtMost(animation.durationNanos))
+                val consumed = listState.scrollBy(current - previous)
+                debugLedger.interludePx += consumed
+                previous = current
+                if (elapsed >= animation.durationNanos) break
+            }
         }
     }
 
@@ -298,8 +424,12 @@ internal fun ExpandedLyricsPanel(
         lineHeightPx,
         translationLineHeightPx,
         layoutTransition.freezeScroll,
+        debugFreezeFollowAfterSnap,
     ) {
         if (layoutTransition.freezeScroll) return@LaunchedEffect
+        if (debugFreezeFollowAfterSnap && revealedLyricsKey == lyricsContentKey) {
+            return@LaunchedEffect
+        }
         if (!timed || currentIndex < 0 || currentDisplayItemIndex < 0) {
             revealedLyricsKey = lyricsContentKey
             return@LaunchedEffect
@@ -366,7 +496,7 @@ internal fun ExpandedLyricsPanel(
                     val playTimeNanos = (withFrameNanos { it } - startNanos).coerceAtLeast(0L)
                     val actualPlayTimeNanos = playTimeNanos.coerceAtMost(scrollAnimation.durationNanos)
                     val actualScroll = scrollAnimation.getValueFromNanos(actualPlayTimeNanos)
-                    listState.scrollBy(actualScroll - previousScroll)
+                    debugLedger.followPx += listState.scrollBy(actualScroll - previousScroll)
                     previousScroll = actualScroll
 
                     listState.layoutInfo.visibleItemsInfo.forEach { itemInfo ->
@@ -389,11 +519,12 @@ internal fun ExpandedLyricsPanel(
             }
         } else if (followDecision.mode == ExpandedLyricsFollowMode.INSTANT) {
             check(scrollDistance != null)
-            listState.scrollBy(scrollDistance)
+            debugLedger.followPx += listState.scrollBy(scrollDistance)
         } else {
             // A non-local seek cannot inherit a previous row's FLIP translation.
             ownedMotion.reset()
             listState.scrollToItem(currentDisplayItemIndex, scrollOffset = indexedScrollOffset)
+            // The snap is an authority reset, not a displacement-animation event.
             withFrameNanos { }
             val measuredLayoutInfo = listState.layoutInfo
             measuredLayoutInfo.visibleItemsInfo
@@ -407,7 +538,7 @@ internal fun ExpandedLyricsPanel(
                         itemSizePx = measuredItem.size,
                     )
                     if (kotlin.math.abs(correction) > 0.5f) {
-                        listState.scrollBy(correction)
+                        debugLedger.followPx += listState.scrollBy(correction)
                     }
                 }
         }
@@ -425,6 +556,7 @@ internal fun ExpandedLyricsPanel(
             modifier = Modifier
                 .fillMaxSize()
                 .nestedScroll(ownedMotion.nestedScrollConnection)
+                .onGloballyPositioned { debugListRootY = it.positionInRoot().y }
                 .onSizeChanged { viewportHeightPx = it.height },
             contentPadding = PaddingValues(
                 start = horizontalPadding,
@@ -514,6 +646,30 @@ internal fun ExpandedLyricsPanel(
                             karaokeWordFadeWidthEm = lyricsWordAnimationPreset.wordFadeWidthEm,
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .onPlaced { coordinates ->
+                                    // Synchronous layout-stage handoff, before graphicsLayer is
+                                    // drawn: no one-frame +84px dip while a spring is starting.
+                                    val receipt = preInterludeGeometry[item.key]
+                                    if (activeInterlude != null &&
+                                        index >= activeInterlude.nextLyricIndex &&
+                                        receipt != null
+                                    ) {
+                                        // onPlaced's LayoutCoordinates belong to the
+                                        // LyricLineBlock's modifier, not the Lazy item
+                                        // placement authority: use the actual Lazy info
+                                        // instead of subtracting unrelated root origins.
+                                        val rawY = listState.layoutInfo.visibleItemsInfo
+                                            .firstOrNull { it.key.toString() == item.key }
+                                            ?.offset?.toFloat()
+                                        if (rawY != null) {
+                                            val naturalScroll = debugLedger.followPx - receipt.followConsumedPx
+                                            ownedMotion.pin(
+                                                item.key,
+                                                receipt.visualViewportYPx - naturalScroll - rawY - staggerOffsetY,
+                                            )
+                                        }
+                                    }
+                                }
                                 .graphicsLayer {
                                     clip = false
                                     alpha = itemFadeAlpha

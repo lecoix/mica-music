@@ -69,6 +69,7 @@ internal class OwnedLyricsPositionMotion(
     private var totalScrollTravelPx = 0f
     private var sampledScrollTravelPx = 0f
     private val visibleRows = mutableStateMapOf<String, RowMotion>()
+    private val pinnedKeys = mutableSetOf<String>()
 
     val nestedScrollConnection: NestedScrollConnection = object : NestedScrollConnection {
         override fun onPostScroll(
@@ -85,6 +86,21 @@ internal class OwnedLyricsPositionMotion(
 
     fun translationFor(key: String): Float = visibleRows[key]?.translationPx ?: 0f
 
+    /** Interlude-only handoff: keep the previous next-line visual Y while the
+     * real list consumes exactly the measured insertion scroll. A pinned row's
+     * ordinary FLIP spring is cancelled rather than competing with the scroll.
+     */
+    fun pin(key: String, translationPx: Float) {
+        val row = visibleRows.getOrPut(key) { RowMotion() }
+        pinnedKeys.add(key)
+        row.cancel()
+        row.translationPx = translationPx
+    }
+
+    fun releasePins() {
+        pinnedKeys.clear()
+    }
+
     /**
      * One measured layout snapshot = one authority commit. Stale rows are retired
      * as soon as LazyColumn recycles them, so no detached row can animate down.
@@ -100,11 +116,14 @@ internal class OwnedLyricsPositionMotion(
         val stale = visibleRows.keys.filter { it !in next }
         stale.forEach { key ->
             visibleRows.remove(key)?.cancel()
+            pinnedKeys.remove(key)
         }
         measured.forEach { after ->
             val before = lastGeometry[after.key]
             val row = visibleRows.getOrPut(after.key) { RowMotion() }
-            if (before != null && animate) {
+            if (after.key in pinnedKeys) {
+                // The interlude bridge holds this key; no concurrent FLIP spring.
+            } else if (before != null && animate) {
                 val observedMove = (after.offsetPx - before.offsetPx).toFloat()
                 // When a scroll bypasses nested dispatch (e.g. scrollToItem), skip
                 // compensation rather than mistake scrolling for remeasurement.
@@ -153,6 +172,7 @@ internal class OwnedLyricsPositionMotion(
     fun reset() {
         visibleRows.values.forEach { it.cancel() }
         visibleRows.clear()
+        pinnedKeys.clear()
         lastGeometry = emptyMap()
         sampledScrollTravelPx = totalScrollTravelPx
     }
