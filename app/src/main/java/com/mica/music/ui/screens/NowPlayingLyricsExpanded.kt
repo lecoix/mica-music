@@ -8,9 +8,11 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.MutatePriority
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -80,6 +82,7 @@ import com.mica.music.ui.theme.LocalLyricSplitEnabled
 import com.mica.music.ui.theme.PlayerContentColors
 import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
 
 @Composable
 internal fun ExpandedLyricsPanel(
@@ -180,6 +183,8 @@ internal fun ExpandedLyricsPanel(
     }
     val interludeKey = activeInterlude?.key
     val listState = rememberLazyListState()
+    val scrollAuthority = remember(lyrics) { LyricsScrollAuthority() }
+    val isUserDragging by listState.interactionSource.collectIsDraggedAsState()
     val debugLedger = remember { ExpandedLyricsScrollLedger() }
     // A stable measured geometry receipt from BEFORE the interlude enters the list.
     // It is keyed by real lyric identity, never by the shifting LazyColumn index.
@@ -226,6 +231,7 @@ internal fun ExpandedLyricsPanel(
         lyrics[index].timeMs - lyrics[index - 1].timeMs
     } ?: 800
     var previousInterludeKey by remember(lyrics) { mutableStateOf(interludeKey) }
+    var interludeBridgeActive by remember(lyrics) { mutableStateOf(false) }
     // Snap (not spring) when lyrics document changes / first layout; spring only for line follow.
     // Also hide until snapped so "start at top → animate down to anchor" is not visible.
     val lyricsContentKey = remember(lyrics) {
@@ -266,6 +272,9 @@ internal fun ExpandedLyricsPanel(
         while (latestInterludeKey.value == null) {
             withFrameNanos { }
             if (latestInterludeKey.value != null) break
+            // Only the currently visible geometry belongs to the pending transaction.
+            // Do not retain an O(all visited lyric lines) historical map.
+            preInterludeGeometry.clear()
             listState.layoutInfo.visibleItemsInfo.forEach { info ->
                 val key = info.key.toString()
                 preInterludeGeometry[key] = ExpandedLyricsInterludeReceipt(
@@ -288,6 +297,7 @@ internal fun ExpandedLyricsPanel(
             }
         }.collect { measured ->
             if (latestInterludeKey.value == null) {
+                preInterludeGeometry.clear()
                 // Saved in the SAME Lazy viewport coordinate space as the next measurement.
                 // A new insertion must not blindly scroll by its nominal height.
                 measured.forEach {
@@ -306,12 +316,33 @@ internal fun ExpandedLyricsPanel(
             )
         }
     }
-    LaunchedEffect(ownedMotion, viewportHeightPx, layoutTransition.freezeScroll) {
-        ownedMotion.reset()
-    }
-    LaunchedEffect(ownedMotion, renderState.positionRevision) {
+    LaunchedEffect(ownedMotion, viewportHeightPx, layoutTransition.freezeScroll,
+        lyricsFontSizeSp, lyricsLineSpacingDp, lyricsCurrentLinePositionPercent,
+    ) {
         ownedMotion.reset()
         preInterludeGeometry.clear()
+    }
+    LaunchedEffect(ownedMotion, renderState.positionRevision) {
+        scrollAuthority.resetToFollowing()
+        ownedMotion.reset()
+        interludeBridgeActive = false
+        preInterludeGeometry.clear()
+    }
+    // Drag and fling own the true LazyListState. The 4-second idle timer begins
+    // only after kinetic scrolling ends; new touch/seek invalidates its generation.
+    LaunchedEffect(isUserDragging, listState, scrollAuthority) {
+        if (isUserDragging) {
+            scrollAuthority.beginGesture()
+            interludeBridgeActive = false
+            ownedMotion.releasePins()
+        } else if (scrollAuthority.mode == LyricsScrollMode.BROWSING_DRAG) {
+            val token = scrollAuthority.handOffToFling()
+            snapshotFlow { listState.isScrollInProgress }.first { !it }
+            if (scrollAuthority.settleGesture(token)) {
+                delay(4_000L)
+                scrollAuthority.returnToCurrent(token)
+            }
+        }
     }
 
     val currentDebugState = rememberUpdatedState(
@@ -361,56 +392,75 @@ internal fun ExpandedLyricsPanel(
         }
     }
 
-    LaunchedEffect(interludeKey, motionEnabled, lyricsLineSpacingDp, layoutTransition.freezeScroll) {
-        if (layoutTransition.freezeScroll) return@LaunchedEffect
+    LaunchedEffect(interludeKey, motionEnabled, lyricsLineSpacingDp,
+        layoutTransition.freezeScroll, scrollAuthority.generation,
+    ) {
+        if (layoutTransition.freezeScroll || scrollAuthority.browsing) {
+            previousInterludeKey = interludeKey
+            interludeBridgeActive = false
+            ownedMotion.releasePins()
+            return@LaunchedEffect
+        }
         val interludeAppeared = previousInterludeKey == null && interludeKey != null
         previousInterludeKey = interludeKey
         if (!interludeAppeared) {
-            if (interludeKey == null) ownedMotion.releasePins()
+            interludeBridgeActive = false
+            ownedMotion.releasePins()
             return@LaunchedEffect
         }
-        // Wait for the new interlude row to be measured, then derive only the
-        // UNCOMPENSATED forward shift of the next lyric from its old key geometry.
-        // A keyed LazyColumn can maintain that row already; in that case another
-        // nominal-height scroll duplicates the correction (84px on the QA device).
-        withFrameNanos { }
-        val nextLine = lyrics.getOrNull(
-            (activeInterlude ?: return@LaunchedEffect).nextLyricIndex,
-        ) ?: return@LaunchedEffect
-        val nextKey = ExpandedLyricDisplayItem.Line(activeInterlude.nextLyricIndex, nextLine).key
-        val before = preInterludeGeometry[nextKey] ?: return@LaunchedEffect
-        val after = listState.layoutInfo.visibleItemsInfo
-            .firstOrNull { it.key.toString() == nextKey } ?: return@LaunchedEffect
-        val maxInsertionHeightPx = with(density) { (10.dp + lyricsLineSpacingDp.dp).toPx() }
-        val correction = expandedLyricsMeasuredInterludeCorrectionPx(
-            beforeItemOffsetPx = before.itemOffsetPx,
-            afterItemOffsetPx = after.offset,
-            followScrollSinceBeforePx = debugLedger.followPx - before.followConsumedPx,
-            maxInsertionHeightPx = maxInsertionHeightPx,
-        )
-        // Row.onPlaced synchronously owns the next line's visual continuity
-        // before graphicsLayer draws. Here we only consume a real, measured
-        // scroll correction, not the nominal interlude height.
-        if (correction < 0.75f) return@LaunchedEffect
-        if (!motionEnabled) {
-            debugLedger.interludePx += listState.scrollBy(correction)
-        } else {
-            val animation = TargetBasedAnimation(
-                animationSpec = classicLyricsScrollSpring(lineIntervalMs),
-                typeConverter = Float.VectorConverter,
-                initialValue = 0f,
-                targetValue = correction,
+
+        // ENTERING is a bounded layout transaction, not a state lasting for
+        // the entire 12-second interlude. The next-line visual position is
+        // held only until the measured list correction has been consumed.
+        interludeBridgeActive = true
+        try {
+            withFrameNanos { }
+            val entering = activeInterlude ?: return@LaunchedEffect
+            val nextLine = lyrics.getOrNull(entering.nextLyricIndex) ?: return@LaunchedEffect
+            val nextKey = ExpandedLyricDisplayItem.Line(entering.nextLyricIndex, nextLine).key
+            val before = preInterludeGeometry[nextKey] ?: return@LaunchedEffect
+            val after = listState.layoutInfo.visibleItemsInfo
+                .firstOrNull { it.key.toString() == nextKey } ?: return@LaunchedEffect
+            val maxHeightPx = with(density) { (10.dp + lyricsLineSpacingDp.dp).toPx() }
+            val correction = expandedLyricsMeasuredInterludeCorrectionPx(
+                beforeItemOffsetPx = before.itemOffsetPx,
+                afterItemOffsetPx = after.offset,
+                followScrollSinceBeforePx = debugLedger.followPx - before.followConsumedPx,
+                maxInsertionHeightPx = maxHeightPx,
             )
-            val startTime = withFrameNanos { it }
-            var previous = 0f
-            while (true) {
-                val elapsed = (withFrameNanos { it } - startTime).coerceAtLeast(0L)
-                val current = animation.getValueFromNanos(elapsed.coerceAtMost(animation.durationNanos))
-                val consumed = listState.scrollBy(current - previous)
-                debugLedger.interludePx += consumed
-                previous = current
-                if (elapsed >= animation.durationNanos) break
+            if (correction > 0.75f) {
+                if (!motionEnabled) {
+                    listState.scroll(MutatePriority.Default) {
+                        debugLedger.interludePx += scrollBy(correction)
+                    }
+                } else {
+                    val animation = TargetBasedAnimation(
+                        animationSpec = classicLyricsScrollSpring(lineIntervalMs),
+                        typeConverter = Float.VectorConverter,
+                        initialValue = 0f,
+                        targetValue = correction,
+                    )
+                    // The whole programmatic animation is one scroll mutation.
+                    // LazyColumn's user-input priority can interrupt it cleanly.
+                    listState.scroll(MutatePriority.Default) {
+                        val start = withFrameNanos { it }
+                        var previous = 0f
+                        while (true) {
+                            val elapsed = (withFrameNanos { it } - start).coerceAtLeast(0L)
+                            val current = animation.getValueFromNanos(
+                                elapsed.coerceAtMost(animation.durationNanos),
+                            )
+                            debugLedger.interludePx += scrollBy(current - previous)
+                            previous = current
+                            if (elapsed >= animation.durationNanos) break
+                        }
+                    }
+                }
             }
+        } finally {
+            interludeBridgeActive = false
+            ownedMotion.releasePins()
+            preInterludeGeometry.clear()
         }
     }
 
@@ -425,8 +475,10 @@ internal fun ExpandedLyricsPanel(
         translationLineHeightPx,
         layoutTransition.freezeScroll,
         debugFreezeFollowAfterSnap,
+        scrollAuthority.generation,
+        scrollAuthority.returnToCurrentRevision,
     ) {
-        if (layoutTransition.freezeScroll) return@LaunchedEffect
+        if (layoutTransition.freezeScroll || !scrollAuthority.mayFollow) return@LaunchedEffect
         if (debugFreezeFollowAfterSnap && revealedLyricsKey == lyricsContentKey) {
             return@LaunchedEffect
         }
@@ -490,13 +542,16 @@ internal fun ExpandedLyricsPanel(
             )
             var previousScroll = 0f
             var maxDelayNanos = 0L
-            val startNanos = withFrameNanos { it }
             try {
+                // One scrolling mutation for the full follow animation. A drag
+                // preempts it via LazyColumn's UserInput priority.
+                listState.scroll(MutatePriority.Default) {
+                val startNanos = withFrameNanos { it }
                 while (true) {
                     val playTimeNanos = (withFrameNanos { it } - startNanos).coerceAtLeast(0L)
                     val actualPlayTimeNanos = playTimeNanos.coerceAtMost(scrollAnimation.durationNanos)
                     val actualScroll = scrollAnimation.getValueFromNanos(actualPlayTimeNanos)
-                    debugLedger.followPx += listState.scrollBy(actualScroll - previousScroll)
+                    debugLedger.followPx += scrollBy(actualScroll - previousScroll)
                     previousScroll = actualScroll
 
                     listState.layoutInfo.visibleItemsInfo.forEach { itemInfo ->
@@ -513,6 +568,7 @@ internal fun ExpandedLyricsPanel(
                         )
                     }
                     if (playTimeNanos >= scrollAnimation.durationNanos + maxDelayNanos) break
+                }
                 }
             } finally {
                 staggerOffsets.clear()
@@ -544,6 +600,7 @@ internal fun ExpandedLyricsPanel(
         }
         revealedLyricsKey = lyricsContentKey
         suppressedFollowIndex = followDecision.nextSuppressedIndex
+        scrollAuthority.followSettled()
     }
 
     LyricsAreaEdgeFade(
@@ -651,6 +708,8 @@ internal fun ExpandedLyricsPanel(
                                     // drawn: no one-frame +84px dip while a spring is starting.
                                     val receipt = preInterludeGeometry[item.key]
                                     if (activeInterlude != null &&
+                                        (interludeBridgeActive || previousInterludeKey == null) &&
+                                        !scrollAuthority.browsing &&
                                         index >= activeInterlude.nextLyricIndex &&
                                         receipt != null
                                     ) {
@@ -682,7 +741,11 @@ internal fun ExpandedLyricsPanel(
                                         Modifier.clickable(
                                             interactionSource = interactionSource,
                                             indication = null,
-                                        ) { onLineClick(line.timeMs) }
+                                        ) {
+                                            scrollAuthority.resetToFollowing()
+                                            ownedMotion.reset()
+                                            onLineClick(line.timeMs)
+                                        }
                                     } else {
                                         Modifier
                                     },
@@ -917,15 +980,22 @@ private fun Float.pow(power: Float): Float = Math.pow(toDouble(), power.toDouble
 private fun Float.pow(power: Int): Float = pow(power.toFloat())
 
 @Composable
-private fun rememberClassicInterludePositionMs(anchorPositionMs: Int, running: Boolean): Int {
+internal fun rememberClassicInterludePositionMs(anchorPositionMs: Int, running: Boolean): Int {
+    // D3: pausing freezes the last drawn animation phase. Resuming continues
+    // from it; ordinary player time updates do not restart the dots at frame 0.
     var framePositionMs by remember { mutableIntStateOf(anchorPositionMs) }
+    var previousPlayerPositionMs by remember { mutableIntStateOf(anchorPositionMs) }
     LaunchedEffect(anchorPositionMs, running) {
-        framePositionMs = anchorPositionMs
+        val jumped = anchorPositionMs < previousPlayerPositionMs ||
+            anchorPositionMs - previousPlayerPositionMs > 250
+        previousPlayerPositionMs = anchorPositionMs
+        if (jumped) framePositionMs = anchorPositionMs
         if (!running) return@LaunchedEffect
-        val startNanos = withFrameNanos { it }
+        val base = maxOf(framePositionMs, anchorPositionMs)
+        val start = withFrameNanos { it }
         while (true) {
-            val nowNanos = withFrameNanos { it }
-            framePositionMs = anchorPositionMs + ((nowNanos - startNanos) / 1_000_000L).toInt()
+            val now = withFrameNanos { it }
+            framePositionMs = base + ((now - start).coerceAtLeast(0L) / 1_000_000L).toInt()
         }
     }
     return framePositionMs
