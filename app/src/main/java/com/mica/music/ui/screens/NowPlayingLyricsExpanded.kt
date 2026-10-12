@@ -247,6 +247,49 @@ internal fun ExpandedLyricsPanel(
     val ownedMotionScope = rememberCoroutineScope()
     val ownedMotion = remember(lyricsContentKey) { OwnedLyricsPositionMotion(ownedMotionScope) }
     DisposableEffect(ownedMotion) { onDispose { ownedMotion.dispose() } }
+
+    // Capture the OLD measured viewport geometry during composition, before a
+    // typography/anchor reflow lays out the LazyColumn with new dimensions.
+    // A browse receipt belongs to a stable lyric key and the existing gesture
+    // generation; it must NOT restart the user's 4-second idle countdown.
+    val browseReflowReceipt = remember(
+        lyricsContentKey,
+        lyricsFontSizeSp,
+        lyricsTranslationFontSizeSp,
+        lyricsLineSpacingDp,
+        lyricsCurrentLinePositionPercent,
+        layoutViewportHeightPx,
+        lyricsAlignment,
+        lyricSplitEnabled,
+        bilingualDisplayMode,
+    ) {
+        if (scrollAuthority.mode != LyricsScrollMode.BROWSING_HOLD) {
+            null
+        } else {
+            val info = listState.layoutInfo
+            info.visibleItemsInfo
+                .filter { it.key.toString().startsWith("line-") }
+                .filter {
+                    val physicalTop = it.offset + info.beforeContentPadding
+                    physicalTop + it.size > 0 && physicalTop < info.viewportSize.height
+                }
+                .minByOrNull {
+                    kotlin.math.abs(
+                        it.offset + info.beforeContentPadding + it.size / 2f -
+                            info.viewportSize.height / 3f,
+                    )
+                }
+                ?.let { item ->
+                    val key = item.key.toString()
+                    ExpandedLyricsBrowseReflowReceipt(
+                        key = key,
+                        physicalTopPx = item.offset + info.beforeContentPadding +
+                            ownedMotion.translationFor(key) + (staggerOffsets[item.index] ?: 0f),
+                        gestureGeneration = scrollAuthority.generation,
+                    )
+                }
+        }
+    }
     var revealedLyricsKey by remember { mutableStateOf<List<Any?>?>(null) }
     val lyricsRevealed = (!timed || revealedLyricsKey == lyricsContentKey) &&
         !layoutTransition.hideUntilSettled
@@ -322,6 +365,42 @@ internal fun ExpandedLyricsPanel(
         ownedMotion.reset()
         preInterludeGeometry.clear()
     }
+    LaunchedEffect(browseReflowReceipt, listState, ownedMotion, renderState.positionRevision) {
+        val receipt = browseReflowReceipt ?: return@LaunchedEffect
+        if (!scrollAuthority.isCurrent(receipt.gestureGeneration) ||
+            scrollAuthority.mode != LyricsScrollMode.BROWSING_HOLD
+        ) return@LaunchedEffect
+
+        // The new Lazy item measurements are available after placement. Restore
+        // the SAME row to its prior physical Y, even when top content padding,
+        // wrapped text height and the configured follow anchor all change.
+        withFrameNanos { }
+        if (!scrollAuthority.isCurrent(receipt.gestureGeneration) ||
+            scrollAuthority.mode != LyricsScrollMode.BROWSING_HOLD
+        ) return@LaunchedEffect
+        ownedMotion.reset()
+        val itemIndex = displayItems.indexOfFirst { it.key.toString() == receipt.key }
+        if (itemIndex < 0) return@LaunchedEffect
+        if (listState.layoutInfo.visibleItemsInfo.none { it.key.toString() == receipt.key }) {
+            listState.scrollToItem(itemIndex)
+            withFrameNanos { }
+        }
+        repeat(2) {
+            if (!scrollAuthority.isCurrent(receipt.gestureGeneration) ||
+                scrollAuthority.mode != LyricsScrollMode.BROWSING_HOLD
+            ) return@LaunchedEffect
+            val geometry = listState.layoutInfo
+            val row = geometry.visibleItemsInfo.firstOrNull {
+                it.key.toString() == receipt.key
+            } ?: return@LaunchedEffect
+            val currentY = row.offset + geometry.beforeContentPadding +
+                ownedMotion.translationFor(receipt.key) + (staggerOffsets[row.index] ?: 0f)
+            val delta = currentY - receipt.physicalTopPx
+            if (kotlin.math.abs(delta) <= 0.5f) return@repeat
+            listState.scrollBy(delta)
+            withFrameNanos { }
+        }
+    }
     LaunchedEffect(ownedMotion, renderState.positionRevision) {
         scrollAuthority.resetToFollowing()
         ownedMotion.reset()
@@ -367,6 +446,16 @@ internal fun ExpandedLyricsPanel(
                         listRootYPx = debugListRootY,
                         firstVisibleIndex = listState.firstVisibleItemIndex,
                         firstVisibleScrollOffset = listState.firstVisibleItemScrollOffset,
+                        scrollMode = scrollAuthority.mode.name,
+                        scrollInProgress = listState.isScrollInProgress,
+                        followMode = debugLedger.followMode,
+                        followDeltaPx = debugLedger.followDeltaPx,
+                        followTargetIndex = debugLedger.followTargetIndex,
+                        viewportStartOffsetPx = info.viewportStartOffset,
+                        viewportEndOffsetPx = info.viewportEndOffset,
+                        viewportPhysicalHeightPx = info.viewportSize.height,
+                        afterContentPaddingPx = info.afterContentPadding,
+                        beforeContentPaddingPx = info.beforeContentPadding,
                         items = info.visibleItemsInfo.map { measured ->
                             val key = measured.key.toString()
                             ExpandedLyricsRowTrace(
@@ -374,7 +463,7 @@ internal fun ExpandedLyricsPanel(
                                 index = measured.index,
                                 measuredViewportYPx = measured.offset,
                                 measuredHeightPx = measured.size,
-                                rootGeometryYPx = debugListRootY + measured.offset,
+                                rootGeometryYPx = debugListRootY + measured.offset + info.beforeContentPadding,
                                 ownedTranslationPx = ownedMotion.translationFor(key),
                                 staggerTranslationPx = currentDebugOffsets.value[measured.index] ?: 0f,
                             )
@@ -531,6 +620,9 @@ internal fun ExpandedLyricsPanel(
             targetVisible = visibleTarget != null,
             scrollDistancePx = scrollDistance,
         )
+        debugLedger.followMode = followDecision.mode.name
+        debugLedger.followDeltaPx = scrollDistance ?: Float.NaN
+        debugLedger.followTargetIndex = currentDisplayItemIndex
 
         if (followDecision.mode == ExpandedLyricsFollowMode.SPRING) {
             val springDistance = requireNotNull(scrollDistance)
@@ -577,26 +669,30 @@ internal fun ExpandedLyricsPanel(
             check(scrollDistance != null)
             debugLedger.followPx += listState.scrollBy(scrollDistance)
         } else {
-            // A non-local seek cannot inherit a previous row's FLIP translation.
+            // Explicit seek / new lyrics / first open: establish the *real*
+            // measured row before aligning its center. The former estimated
+            // offset could position a long wrapped lyric outside the viewport,
+            // so the post-snap measurement was absent and no correction ran.
             ownedMotion.reset()
-            listState.scrollToItem(currentDisplayItemIndex, scrollOffset = indexedScrollOffset)
-            // The snap is an authority reset, not a displacement-animation event.
+            listState.scrollToItem(currentDisplayItemIndex, scrollOffset = 0)
             withFrameNanos { }
-            val measuredLayoutInfo = listState.layoutInfo
-            measuredLayoutInfo.visibleItemsInfo
-                .firstOrNull { it.index == currentDisplayItemIndex }
-                ?.let { measuredItem ->
-                    val correction = expandedLyricsGeometryScrollDelta(
-                        viewportStartOffsetPx = measuredLayoutInfo.viewportStartOffset,
-                        viewportEndOffsetPx = measuredLayoutInfo.viewportEndOffset,
-                        currentLinePositionPercent = lyricsCurrentLinePositionPercent,
-                        itemOffsetPx = measuredItem.offset,
-                        itemSizePx = measuredItem.size,
-                    )
-                    if (kotlin.math.abs(correction) > 0.5f) {
-                        debugLedger.followPx += listState.scrollBy(correction)
-                    }
-                }
+            repeat(2) {
+                val measuredInfo = listState.layoutInfo
+                val measuredItem = measuredInfo.visibleItemsInfo
+                    .firstOrNull { it.index == currentDisplayItemIndex }
+                    ?: return@repeat
+                val correction = expandedLyricsGeometryScrollDelta(
+                    viewportStartOffsetPx = measuredInfo.viewportStartOffset,
+                    viewportEndOffsetPx = measuredInfo.viewportEndOffset,
+                    currentLinePositionPercent = lyricsCurrentLinePositionPercent,
+                    itemOffsetPx = measuredItem.offset,
+                    itemSizePx = measuredItem.size,
+                )
+                if (kotlin.math.abs(correction) <= 0.5f) return@repeat
+                debugLedger.followPx += listState.scrollBy(correction)
+                withFrameNanos { }
+            }
+            ownedMotion.reset()
         }
         revealedLyricsKey = lyricsContentKey
         suppressedFollowIndex = followDecision.nextSuppressedIndex
@@ -775,6 +871,12 @@ internal fun ExpandedLyricsPanel(
         }
     }
 }
+
+private data class ExpandedLyricsBrowseReflowReceipt(
+    val key: String,
+    val physicalTopPx: Float,
+    val gestureGeneration: Int,
+)
 
 internal data class ExpandedLyricsLayoutTransition(
     val freezeScroll: Boolean,
@@ -1050,6 +1152,7 @@ internal fun expandedLyricsFollowDecision(
     )
 }
 
+/** Match LazyListItemInfo.offset to LazyListLayoutInfo's own coordinate system. */
 internal fun expandedLyricsGeometryScrollDelta(
     viewportStartOffsetPx: Int,
     viewportEndOffsetPx: Int,
@@ -1057,13 +1160,12 @@ internal fun expandedLyricsGeometryScrollDelta(
     itemOffsetPx: Int,
     itemSizePx: Int,
 ): Float {
-    val viewportSpanPx = (viewportEndOffsetPx - viewportStartOffsetPx).coerceAtLeast(0)
-    val anchorInViewportPx = expandedLyricsCurrentLineAnchorYPx(
-        viewportHeightPx = viewportSpanPx,
+    val span = (viewportEndOffsetPx - viewportStartOffsetPx).coerceAtLeast(0)
+    val anchor = viewportStartOffsetPx + expandedLyricsCurrentLineAnchorYPx(
+        viewportHeightPx = span,
         currentLinePositionPercent = currentLinePositionPercent,
     )
-    val targetAnchorPx = viewportStartOffsetPx + anchorInViewportPx
-    return itemOffsetPx + itemSizePx / 2f - targetAnchorPx
+    return itemOffsetPx + itemSizePx / 2f - anchor
 }
 
 internal data class ExpandedLyricsAnchorRangePadding(

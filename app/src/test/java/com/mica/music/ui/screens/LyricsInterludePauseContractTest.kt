@@ -1,11 +1,18 @@
 package com.mica.music.ui.screens
 
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performClick
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -15,7 +22,11 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
-/** D3: the real interlude rendering clock pauses in place, then resumes phase. */
+/**
+ * D3 Behavior Contract: drive the production clock through real Compose UI input.
+ * A direct test-thread state mutation can mask whether frame-clock recomposition
+ * was committed, so button interactions verify the user-visible state change.
+ */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], qualifiers = "w400dp-h900dp-xxhdpi")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -23,61 +34,66 @@ class LyricsInterludePauseContractTest {
     @get:Rule val rule = createComposeRule()
 
     @Test fun pauseFreezesTheActualDotsClockAndResumeContinuesFromFrozenFrame() {
-        val runningState = mutableStateOf(true)
-        val positionState = mutableIntStateOf(17_000)
-        var renderedMs = 0
-        var lastObservedRunning = false
-        var lastObservedPosition = 0
+        var displayedMs = 0
+        var observedPlaying = false
         rule.mainClock.autoAdvance = false
         rule.setContent {
-            lastObservedRunning = runningState.value
-            lastObservedPosition = positionState.intValue
-            renderedMs = rememberClassicInterludePositionMs(positionState.intValue, runningState.value)
-            Text("interlude-clock:$renderedMs")
+            var playing by remember { mutableStateOf(true) }
+            observedPlaying = playing
+            displayedMs = rememberClassicInterludePositionMs(17_000, playing)
+            Column {
+                Button(onClick = { playing = !playing }, modifier = Modifier.testTag("toggle-clock")) {
+                    Text(if (playing) "Playing" else "Paused")
+                }
+                Text("Phase:$displayedMs")
+            }
         }
         rule.mainClock.advanceTimeBy(850)
         rule.waitForIdle()
-        val advanced = renderedMs
-        assertTrue("Dot clock must advance while running $advanced", advanced > 17_500)
+        val advanced = displayedMs
+        assertTrue("clock must move when playing: $advanced", advanced > 17_500)
 
-        rule.runOnIdle { runningState.value = false }
+        rule.onNodeWithTag("toggle-clock").performClick()
         rule.mainClock.advanceTimeBy(32)
         rule.waitForIdle()
-        val frozen = renderedMs
+        val frozen = displayedMs
+        assertTrue("UI pause toggle must be observed", !observedPlaying)
         rule.mainClock.advanceTimeBy(1_500)
         rule.waitForIdle()
-        assertEquals("Pause must freeze the same dot phase", frozen, renderedMs)
+        assertEquals("pause should hold phase", frozen, displayedMs)
 
-        rule.runOnIdle { runningState.value = true }
+        rule.onNodeWithTag("toggle-clock").performClick()
         rule.mainClock.advanceTimeBy(320)
         rule.waitForIdle()
-        println("B3_D3_PHASE advanced=$advanced frozen=$frozen resumed=$renderedMs rootRunning=$lastObservedRunning rootPosition=$lastObservedPosition")
-        assertTrue("Resume must advance from frozen state", renderedMs > frozen + 180)
-        assertTrue("Resume must not restart at 17s", renderedMs >= frozen)
+        println("D3_VISUAL_PHASE playing=$observedPlaying advanced=$advanced frozen=$frozen resumed=$displayedMs")
+        assertTrue("UI resume toggle must be observed", observedPlaying)
+        assertTrue("resume should continue after last phase", displayedMs > frozen + 180)
     }
 
-    @Test fun explicitSeekWhilePausedRebasesTheClockWithoutPlayingOldPhase() {
-        val runningState = mutableStateOf(false)
-        val positionState = mutableIntStateOf(17_000)
-        var renderedMs = 0
-        var lastObservedRunning = false
-        var lastObservedPosition = 0
+    @Test fun explicitSeekWhilePausedRebasesClockToNewTime() {
+        var displayedMs = 0
+        var observedPositionMs = 0
         rule.mainClock.autoAdvance = false
         rule.setContent {
-            lastObservedRunning = runningState.value
-            lastObservedPosition = positionState.intValue
-            renderedMs = rememberClassicInterludePositionMs(positionState.intValue, runningState.value)
-            Text("interlude-clock:$renderedMs")
+            var position by remember { mutableIntStateOf(17_000) }
+            observedPositionMs = position
+            displayedMs = rememberClassicInterludePositionMs(position, false)
+            Column {
+                Button(onClick = { position = 22_000 }, modifier = Modifier.testTag("seek-clock")) {
+                    Text("Seek 22s")
+                }
+                Text("Phase:$displayedMs")
+            }
         }
         rule.mainClock.advanceTimeBy(50)
-        rule.runOnIdle { positionState.intValue = 22_000 }
+        rule.onNodeWithTag("seek-clock").performClick()
         rule.mainClock.advanceTimeBy(50)
         rule.waitForIdle()
-        println("B3_D3_SEEK rootPosition=$lastObservedPosition rendered=$renderedMs")
-        assertEquals(22_000, renderedMs)
+        println("D3_VISUAL_SEEK state=$observedPositionMs clock=$displayedMs")
+        assertEquals("UI seek must be observed", 22_000, observedPositionMs)
+        assertEquals("paused seek should rebase clock", 22_000, displayedMs)
         rule.mainClock.advanceTimeBy(1_000)
         rule.waitForIdle()
-        println("B3_D3_SEEK rootPosition=$lastObservedPosition rendered=$renderedMs")
-        assertEquals(22_000, renderedMs)
+        assertEquals("paused clock may not advance", 22_000, displayedMs)
     }
 }

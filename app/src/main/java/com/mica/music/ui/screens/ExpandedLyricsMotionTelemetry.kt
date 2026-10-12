@@ -2,7 +2,8 @@ package com.mica.music.ui.screens
 
 /**
  * Optional real ExpandedLyricsPanel geometry probe, emitted only for explicit tests.
- * All Y fields are device pixels in the same Compose root/Lazy viewport.
+ * measuredViewportYPx is in LazyList's padding-shifted item-offset space;
+ * rootGeometryYPx / visualRootYPx are physical Compose root pixels.
  * Scroll totals are consumed list.scrollBy distances (positive = content rises).
  */
 internal data class ExpandedLyricsMotionTrace(
@@ -17,6 +18,16 @@ internal data class ExpandedLyricsMotionTrace(
     val firstVisibleIndex: Int,
     val firstVisibleScrollOffset: Int,
     val items: List<ExpandedLyricsRowTrace>,
+    val scrollMode: String = "UNKNOWN",
+    val scrollInProgress: Boolean = false,
+    val followMode: String = "none",
+    val followDeltaPx: Float = Float.NaN,
+    val followTargetIndex: Int = -1,
+    val viewportStartOffsetPx: Int = 0,
+    val viewportEndOffsetPx: Int = 0,
+    val viewportPhysicalHeightPx: Int = 0,
+    val afterContentPaddingPx: Int = -1,
+    val beforeContentPaddingPx: Int = -1,
 )
 
 internal data class ExpandedLyricsRowTrace(
@@ -59,4 +70,7 @@ internal data class ExpandedLyricsInterludeReceipt(
 internal class ExpandedLyricsScrollLedger {
     var followPx: Float = 0f
     var interludePx: Float = 0f
+    var followMode: String = "none"
+    var followDeltaPx: Float = Float.NaN
+    var followTargetIndex: Int = -1
 }

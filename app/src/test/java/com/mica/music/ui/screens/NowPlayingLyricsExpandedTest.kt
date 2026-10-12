@@ -180,7 +180,9 @@ class NowPlayingLyricsExpandedTest {
     }
 
     @Test
-    fun expandedLyricsGeometryScrollDelta_usesLazyListViewportCoordinateSpace() {
+    fun expandedLyricsGeometryScrollDelta_usesTheSameNegativeStartAsLazyItemOffsets() {
+        // Lazy offsets and viewportStartOffset share one layout coordinate space.
+        // The 25% anchor is -550 + 250 = -300; center(-350,100) is -300.
         assertEquals(
             0f,
             expandedLyricsGeometryScrollDelta(

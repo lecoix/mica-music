@@ -162,7 +162,28 @@ class ExpandedLyricsInterludeIntegrationTest {
 
     @Test fun secondGapRemainsStableThroughout55To68() {
         val frames = runProductionWindow(55_500, 67_900, 8)
-        assertInterludeGapStable(frames, 8, "55-to-68-gap")
+        // A seek to 55.5s is allowed to snap instantly to the already-live
+        // interlude; measure the gap only after this seek transaction settles.
+        // The separate seek-rebase test below guards against a delayed jump.
+        assertInterludeGapStable(frames, 8, "55-to-68-gap", settledAfterMs = 56_500)
+    }
+
+    @Test fun seekIntoActiveSecondInterludeSettlesBeforeLaterPlaybackAdvances() {
+        val frames = runProductionWindow(55_500, 56_700, 8)
+        // The seek can snap within the first 700ms at the same playback
+        // timestamp, but must not leave another large relocation queued.
+        val seekEnd = frames.lastOrNull { it.positionMs == 55_500 && line(it, 8) != null }
+            ?: error("Missing actual next-line geometry at end of seek transaction")
+        val later = frames.firstOrNull { it.positionMs >= 56_500 && line(it, 8) != null }
+            ?: error("Missing actual next-line geometry after seek")
+        val unexplainedMotion = abs(
+            line(later, 8)!!.visualRootYPx - line(seekEnd, 8)!!.visualRootYPx +
+                later.followConsumedPx - seekEnd.followConsumedPx,
+        )
+        println("PANEL_SEEK_SECOND_GAP residualAfterSeekPx=$unexplainedMotion " +
+            "startIndex=${seekEnd.firstVisibleIndex} laterIndex=${later.firstVisibleIndex}")
+        assertTrue("Seek must not leave large delayed interlude drift: $unexplainedMotion",
+            unexplainedMotion < 16f)
     }
 
     @Test fun exitAt29RunsNaturalFollowAndDropsExpiredInterlude() {
@@ -199,6 +220,16 @@ class ExpandedLyricsInterludeIntegrationTest {
                     (it.followConsumedPx - begin.followConsumedPx)
             )
         }
+        val worst = visible.maxByOrNull {
+            abs((line(it, nextIndex)!!.visualRootYPx - baseY) +
+                (it.followConsumedPx - begin.followConsumedPx))
+        }!!
+        val end = visible.last()
+        println("PANEL_GAP_DETAIL $label beginT=${begin.positionMs} beginY=$baseY beginFollow=${begin.followConsumedPx} " +
+            "worstT=${worst.positionMs} worstY=${line(worst, nextIndex)?.visualRootYPx} worstFollow=${worst.followConsumedPx} " +
+            "endT=${end.positionMs} endY=${line(end,nextIndex)?.visualRootYPx} endFollow=${end.followConsumedPx} " +
+            "beginScroll=${begin.firstVisibleIndex}:${begin.firstVisibleScrollOffset} " +
+            "worstScroll=${worst.firstVisibleIndex}:${worst.firstVisibleScrollOffset}")
         println("PANEL_GAP $label maxAdditionalPx=$maxResidual frames=${visible.size}")
         assertTrue("$label drift >8px during gap: $maxResidual", maxResidual < 8f)
     }
