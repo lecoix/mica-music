@@ -70,6 +70,7 @@ REVIEWED_SUITE_CATEGORIES = {
     "MicaAppTest": ARCHITECTURE_CONTRACT,
 
     "LibraryScaleTest": IMPLEMENTATION_VERIFICATION,
+    "NativeLibraryCompatibilityDeviceTest": IMPLEMENTATION_VERIFICATION,
     "DsdDecimationAudioProcessorTest": IMPLEMENTATION_VERIFICATION,
     "MicaFloatDspAudioSinkTest": IMPLEMENTATION_VERIFICATION,
     "PcmDeliveryProbeTest": IMPLEMENTATION_VERIFICATION,

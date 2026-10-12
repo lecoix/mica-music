@@ -24,7 +24,7 @@ import org.robolectric.annotation.LooperMode
 
 @UnstableApi
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [34, 36])
 @LooperMode(LooperMode.Mode.PAUSED)
 class MicaMediaServiceNoisyReceiverTest {
     @Test

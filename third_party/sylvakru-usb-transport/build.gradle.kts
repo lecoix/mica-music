@@ -6,6 +6,7 @@ plugins {
 android {
     namespace = "com.afalphy.sylvakru"
     compileSdk = 35
+    ndkVersion = libs.versions.ndk.get()
 
     defaultConfig {
         minSdk = 26
@@ -14,7 +15,11 @@ android {
         }
         externalNativeBuild {
             cmake {
-                arguments += listOf("-DANDROID_STL=c++_shared")
+                arguments += listOf(
+                    "-DANDROID_STL=c++_shared",
+                    "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON",
+                    "-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-z,common-page-size=16384",
+                )
             }
         }
     }

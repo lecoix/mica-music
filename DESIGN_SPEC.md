@@ -1004,9 +1004,9 @@ fun MinimalTabRow(
 | WebDAV / SMB | `sardine-android` / `okhttp-digest` / `smbj` | 0.9 / 3.1.1 / 0.15.0（Apache-2.0；`smbj` 另带 Bouncy Castle / SLF4J / mbassador） |
 | USB 独占 | `:sylvakru-usb-transport` + vendored libusb 1.0.30 | Apache-2.0 / LGPL-2.1+ |
 | Mica TagLib fork / jAudiotagger | 元数据 | vendored（基于 Kyant0 1.0.6；TagLib C++ 2.2.1，LGPL/MPL）/ 3.0.1（LGPL 2.1） |
-| 测试 | JUnit / Robolectric / MockK / Roborazzi | 4.13.2 / 4.13 / 1.13.13 / 1.34.0 |
+| 测试 | JUnit / Robolectric / MockK / Roborazzi | 4.13.2 / 4.16.1 / 1.13.13 / 1.34.0 |
 
-**平台**：`minSdk 26`，`targetSdk 34`，`compileSdk 36`；当前 App 打包 `arm64-v8a` + `armeabi-v7a`，Release workflow 另生成 universal APK。
+**平台**：`minSdk 26`，`targetSdk 36`，`compileSdk 36`；当前 App 打包 `arm64-v8a` + `armeabi-v7a`，Release workflow 另生成 universal APK。target 36 属于 `codex/target-sdk-36` 适配工作树，真机验收与发布状态见 `docs/TARGET_SDK_36_MIGRATION.md`；历史 tag 不受该描述更新影响。
 
 **v1.1 草案已移除或未采用的依赖**：直接 `implementation("androidx.media3:media3-exoplayer-hls")`、Compose `ui-text-google-fonts`（字体 spec 仍未落地）。
 

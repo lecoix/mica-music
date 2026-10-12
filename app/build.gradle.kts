@@ -53,6 +53,7 @@ val updateInternationalManifestUrl = providers.gradleProperty("mica.update.inter
 android {
     namespace = "com.mica.music"
     compileSdk = 36
+    ndkVersion = libs.versions.ndk.get()
 
     defaultConfig {
         // Active hardware probing is diagnostic only and must not run on ordinary song switches.
@@ -62,7 +63,7 @@ android {
         applicationId = qaApplicationIdOverride
             ?: if (qaSideBySide) "com.mica.music.qa" else "com.mica.music"
         minSdk = 26
-        targetSdk = 34
+        targetSdk = 36
         versionCode = 58
         versionName = "0.4.3" + if (qaSideBySide) "-qa" else ""
         buildConfigField(
@@ -97,6 +98,10 @@ android {
     testOptions {
         unitTests.isIncludeAndroidResources = true
         unitTests.isReturnDefaultValues = true
+        // Allow headroom for the full Robolectric suite, including API 36 sandboxes.
+        unitTests.all {
+            it.maxHeapSize = "2g"
+        }
     }
 
     sourceSets {
@@ -199,6 +204,8 @@ dependencies {
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.graphics)
+    // Use the maintained native PathIterator artifact without changing the Compose BOM.
+    implementation(libs.androidx.graphics.path)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
     implementation(libs.androidx.material.icons.extended)

@@ -1,8 +1,10 @@
 package com.mica.music.util
 
 import android.content.Context
+import android.content.ContentValues
 import android.content.Intent
 import android.net.Uri
+import android.provider.MediaStore
 import androidx.test.core.app.ApplicationProvider
 import com.mica.music.data.Song
 import com.mica.music.testutil.SongFixtures
@@ -14,6 +16,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
 class SongActionsTest {
@@ -214,9 +217,19 @@ class SongActionsTest {
     }
 
     @Test
+    @Config(sdk = [34, 36])
     fun lyricoEditTagIntentUsesReadOnlyGrantForMediaStoreUri() {
         val context = ApplicationProvider.getApplicationContext<Context>()
-        val uri = Uri.parse("content://media/external/audio/media/42")
+        // ClipData.newUri asks the provider for MIME type; use an existing item.
+        val uri = checkNotNull(
+            context.contentResolver.insert(
+                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                ContentValues().apply {
+                    put(MediaStore.Audio.Media.DISPLAY_NAME, "Track.flac")
+                    put(MediaStore.Audio.Media.MIME_TYPE, "audio/flac")
+                },
+            ),
+        )
 
         val intent = buildLyricoEditTagIntent(
             context = context,
@@ -231,6 +244,7 @@ class SongActionsTest {
         assertTrue(intent.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION != 0)
         assertFalse(intent.flags and Intent.FLAG_GRANT_WRITE_URI_PERMISSION != 0)
         assertNotNull(intent.clipData)
+        assertEquals(uri, intent.clipData!!.getItemAt(0).uri)
     }
 
     @Test

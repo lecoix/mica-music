@@ -12,6 +12,10 @@ Windows PowerShell 5.1 若看到中文乱码，先在当前会话启用 UTF-8：
 
 ## 单命令质量门
 
+targetSdk 36 使用 Robolectric 4.16.1。运行 API 36 的 JVM/Robolectric 测试需要 **JDK 21**；应用 Java/Kotlin 字节码目标仍为 17，TagLib 仍需 JDK 17 编译工具链。`android-tests` 的 JVM job、`android-nightly` 和发布前测试 job 同时安装 17/21，默认使用 21；Gradle 从 `JAVA_HOME_17_X64` / `JAVA_HOME_21_X64` 识别两套工具链。本地已安装的 JDK 17 也可自动识别。固定 SDK 34 的截图 job 继续使用 JDK 17，其结果不代表 Android 16 真机视觉验收。迁移范围与待验收项见 [`TARGET_SDK_36_MIGRATION.md`](TARGET_SDK_36_MIGRATION.md)。
+
+默认 JVM 平台通过 `app/src/test/resources/robolectric.properties` 固定为 API 34，避免 targetSdk 提升时隐式改变所有测试的平台以及 Robolectric native 初始化路径；显式 `@Config` 继续覆盖原有多 API 和新增 API 36 用例。默认 JVM 通过不能表述为全量 API 36 通过。
+
 ```powershell
 .\gradlew :app:micaCheck --no-configuration-cache
 ```

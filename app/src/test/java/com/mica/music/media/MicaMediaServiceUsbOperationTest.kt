@@ -107,6 +107,7 @@ class MicaMediaServiceUsbOperationTest {
         }
     }
 
+    @Config(sdk = [34, 36])
     @Test fun queuedUsbDispatchCannotMutateStateAfterServiceDestroy() {
         val controller = Robolectric.buildService(MicaMediaService::class.java)
         val service = controller.create().get()

@@ -7,11 +7,11 @@
 ## Stack
 
 - **Language:** Kotlin 2.2.21 + Jetpack Compose (Material3 BOM 2024.10.00)
-- **Android SDK:** minSdk 26, targetSdk 34, compileSdk 36; packaged ABIs: **arm64-v8a + armeabi-v7a**
-- **Build:** AGP 8.9.1, Gradle 8.9, version catalog (`gradle/libs.versions.toml`)
+- **Android SDK:** minSdk 26, targetSdk 36, compileSdk 36; packaged ABIs: **arm64-v8a + armeabi-v7a**
+- **Build:** AGP 8.9.1, Gradle 8.11.1, NDK r28c (28.2.13676358), version catalog (`gradle/libs.versions.toml`)
 - **License:** Apache-2.0（仓库根 `LICENSE`）；第三方清单 `docs/OPEN_SOURCE_NOTICES.md`，与关于页同步
 - **Key deps:** Media3 **1.9.0**, Jellyfin `media3-ffmpeg-decoder` **1.9.0+1**, Room 2.6.1 (KSP), Coil 2.7.0, Navigation Compose 2.8.2, Coroutines 1.8.1, WorkManager 2.10.5, Lyricon provider 0.1.70, Glance 1.2.0, `sardine-android` 0.9 / `okhttp-digest` 3.1.1 / `smbj` 0.15.0, reorderable 2.4.3, **BlurView 3.2.0** (JitPack), **Mica vendored TagLib fork**（基于 Kyant0 1.0.6 / TagLib C++ 2.2.1）, jAudiotagger
-- **Test:** JUnit 4, Robolectric 4.13, MockK, Roborazzi 1.34
+- **Test:** JUnit 4, Robolectric 4.16.1 (API 36 requires JDK 21), MockK, Roborazzi 1.34
 - **FFmpeg native** — `libffmpegJNI.so` 作为 Media3 decoder 扩展（`third_party/media3-ffmpeg-decoder`）随工程分发；无独立 FFmpeg CLI / `libmica_ffmpeg.so` 软件播放路径
 
 ## Layout

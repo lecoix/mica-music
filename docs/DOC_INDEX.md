@@ -44,6 +44,7 @@
 | [`EXTERNAL_EVENT_CONTRACT_TESTING.md`](EXTERNAL_EVENT_CONTRACT_TESTING.md) | 外部事件源、框架回调与状态机之间的契约测试原则；防止 mock 输入模型与生产事件流脱节 |
 | [`AUTOMATED_FLOW_TESTING.md`](AUTOMATED_FLOW_TESTING.md) | 自动化流程测试分层、QA 设备隔离、首批 Device Flow 矩阵与 CI 晋级规则 |
 | [`TESTING.md`](TESTING.md) | 质量门、测试分层、播放/队列/数据库契约与真机验收清单 |
+| [`TARGET_SDK_36_MIGRATION.md`](TARGET_SDK_36_MIGRATION.md) | Android 16 target 适配范围、构建与 native 对齐证据、未完成的真机验收 |
 | [`SETTINGS_AUDIT_MATRIX.md`](SETTINGS_AUDIT_MATRIX.md) | 设置入口 → 持久化 owner/key → 运行时消费点的静态审计矩阵 |
 | [`APP_UPDATE.md`](APP_UPDATE.md) | 更新清单、发布 workflow 与国内镜像接入说明 |
 | [`HUAWEI_LOCKSCREEN_ARTWORK_COMPATIBILITY.md`](HUAWEI_LOCKSCREEN_ARTWORK_COMPATIBILITY.md) | OXF-AN10 MediaSession 封面触发锁屏的真机证据、现行兼容边界与未来替代方案 |

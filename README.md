@@ -25,8 +25,9 @@
 ### 环境要求
 
 - **Android Studio**：Hedgehog (2023.1.1) 或更新
-- **JDK**：17
-- **Android SDK**：API 36（compileSdk）/ API 26+（minSdk；targetSdk 34）
+- **JDK**：21（API 36 Robolectric 测试）及 17（TagLib 编译工具链）；应用字节码目标仍为 Java 17
+- **Android SDK**：API 36（compileSdk / targetSdk）/ API 26+（minSdk）
+- **Android NDK**：r28c（28.2.13676358，项目固定版本）
 - **设备**：Android 8.0+；当前 App 打包 **arm64-v8a / armeabi-v7a**，Release workflow 可生成 64 位、32 位与 universal APK；Media3 FFmpeg 扩展包含在工程内。
 
 ### 自行编译
