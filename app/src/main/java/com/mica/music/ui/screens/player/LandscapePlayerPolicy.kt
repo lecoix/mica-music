@@ -10,6 +10,13 @@ internal enum class LandscapePlayerViewport {
     Stage,
 }
 
+/** Page-owned lyrics transitions are outside the layout engine's portrait lyrics state. */
+internal fun playerPageSpectrumAllowed(
+    landscapeMode: Boolean,
+    lyricsExpanded: Boolean,
+    lyricsTransitionProgress: Float,
+): Boolean = !landscapeMode || (!lyricsExpanded && lyricsTransitionProgress <= 0f)
+
 internal enum class PlayerViewportLayout {
     Vertical,
     Landscape,

@@ -1137,6 +1137,57 @@ class PlayerPageLayoutEngineTest {
     }
 
     @Test
+    fun landscapeCoverFlowSpectrumFollowsProgressPlacementAndPlaybackGuards() {
+        for (mode in listOf(PlayerCoverFlowMode.PAUSE_FOLD, PlayerCoverFlowMode.RETRO_3D)) {
+            for (edgeProgress in listOf(false, true)) {
+                val landscapeMode = playerViewportPlan(900f, 400f, mode).usesLandscapeLayout
+                assertTrue(landscapeMode)
+                val input = baseInput(
+                    coverFlowModeEnabled = mode.usesCoverFlowStage,
+                    useCoverEdgeProgress = resolveUseCoverEdgeProgress(mode, true, edgeProgress, false),
+                ).copy(
+                    screenWidth = 900.dp,
+                    screenHeight = 400.dp,
+                    coverViewportWidth = 280.dp,
+                    coverFlowProgress = 1f,
+                    spectrumAllowed = playerPageSpectrumAllowed(landscapeMode, false, 0f),
+                )
+                val frame = PlayerPageLayoutEngine.computeFrame(input, density, typography)
+                assertTrue("$mode edge=$edgeProgress must enable spectrum", frame.spectrumEnabled)
+                assertEquals(edgeProgress, frame.lower.coverEdgeOnPlaySurface)
+                assertEquals(!edgeProgress, frame.lower.showStandardProgress)
+
+                for (blocked in listOf(
+                    input.copy(spectrumSettingEnabled = false),
+                    input.copy(coverSwitching = true),
+                    input.copy(spectrumDeferred = true),
+                )) {
+                    assertFalse(PlayerPageLayoutEngine.computeFrame(blocked, density, typography).spectrumEnabled)
+                }
+            }
+        }
+    }
+
+    @Test
+    fun landscapeSpectrumWaitsForPageOwnedLyricsTransitionToFinish() {
+        for (mode in listOf(PlayerCoverFlowMode.PAUSE_FOLD, PlayerCoverFlowMode.RETRO_3D)) {
+            // Classic and cloud lyrics use page-owned progress, while model lyrics stay closed.
+            for ((requested, progress) in listOf(true to 0f, true to 1f, false to 0.5f, false to 0.0001f)) {
+                val input = baseInput(coverFlowModeEnabled = mode.usesCoverFlowStage).copy(
+                    spectrumAllowed = playerPageSpectrumAllowed(true, requested, progress),
+                )
+                assertFalse(PlayerPageLayoutEngine.computeFrame(input, density, typography).spectrumEnabled)
+            }
+            val restored = baseInput(coverFlowModeEnabled = mode.usesCoverFlowStage).copy(
+                spectrumAllowed = playerPageSpectrumAllowed(true, false, 0f),
+            )
+            assertTrue(PlayerPageLayoutEngine.computeFrame(restored, density, typography).spectrumEnabled)
+        }
+        // Portrait lyrics eligibility remains owned by the layout engine.
+        assertTrue(playerPageSpectrumAllowed(false, true, 1f))
+    }
+
+    @Test
     fun photoStackSpectrumDoesNotRequireStandardSpectrumSetting() {
         val frame = PlayerPageLayoutEngine.computeFrame(
             input = baseInput(

@@ -119,6 +119,7 @@ import com.mica.music.ui.screens.player.landscapePlayerLayoutPlanForBounds
 import com.mica.music.ui.screens.player.adaptiveLandscapeStandardArtworkEligible
 import com.mica.music.ui.screens.player.landscapeStandardArtworkLayout
 import com.mica.music.ui.screens.player.playerViewportPlan
+import com.mica.music.ui.screens.player.playerPageSpectrumAllowed
 import com.mica.music.ui.screens.player.stableGeometry
 import com.mica.music.ui.screens.player.rememberPlayerPageUiModel
 import com.mica.music.ui.screens.player.view.PhotoStackCarouselNavigationBridge
@@ -818,8 +819,11 @@ fun NowPlayingContent(
             val modelLyricsExpanded = classicLyricsExpanded &&
                 !landscapeMode &&
                 !photoStackLyricsPageEnabled
-            val spectrumAllowed = !landscapeMode ||
-                (!effectiveCoverFlowMode.usesCoverFlowStage && !classicLyricsExpanded)
+            val spectrumAllowed = playerPageSpectrumAllowed(
+                landscapeMode = landscapeMode,
+                lyricsExpanded = lyricsExpanded,
+                lyricsTransitionProgress = maxOf(lyricsPageTransition, landscapeCoverFlowLyricsProgress),
+            )
             val pageModel = rememberPlayerPageUiModel(
                 surfaceState = surfaceState,
                 queueState = queueState,
