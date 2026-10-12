@@ -1,0 +1,472 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.mica.music.ui.screens.ExpandedLyricsInterludeIntegrationTest" tests="9" skipped="0" failures="3" errors="0" timestamp="2026-10-12T08:51:42" hostname="LIBRA640" time="9.235">
+  <properties/>
+  <testcase name="interludeOpeningAt55PreservesNextLineAgainstNaturalScroll" classname="com.mica.music.ui.screens.ExpandedLyricsInterludeIntegrationTest" time="2.473"/>
+  <testcase name="firstOpeningAtAnchor60StillKeepsLowerNextLineStable" classname="com.mica.music.ui.screens.ExpandedLyricsInterludeIntegrationTest" time="0.807">
+    <failure message="java.lang.AssertionError: Actual next lyric never measured" type="java.lang.AssertionError">java.lang.AssertionError: Actual next lyric never measured
+	at org.junit.Assert.fail(Assert.java:89)
+	at org.junit.Assert.assertTrue(Assert.java:42)
+	at com.mica.music.ui.screens.ExpandedLyricsInterludeIntegrationTest.runProductionWindow(ExpandedLyricsInterludeIntegrationTest.kt:109)
+	at com.mica.music.ui.screens.ExpandedLyricsInterludeIntegrationTest.runProductionWindow$default(ExpandedLyricsInterludeIntegrationTest.kt:52)
+	at com.mica.music.ui.screens.ExpandedLyricsInterludeIntegrationTest.firstOpeningAtAnchor60StillKeepsLowerNextLineStable(ExpandedLyricsInterludeIntegrationTest.kt:179)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.junit.runners.model.FrameworkMethod$1.runReflectiveCall(FrameworkMethod.java:59)
+	at org.junit.internal.runners.model.ReflectiveCallable.run(ReflectiveCallable.java:12)
+	at org.junit.runners.model.FrameworkMethod.invokeExplosively(FrameworkMethod.java:56)
+	at org.junit.internal.runners.statements.InvokeMethod.evaluate(InvokeMethod.java:17)
+	at org.junit.rules.ExternalResource$1.evaluate(ExternalResource.java:54)
+	at androidx.compose.ui.test.junit4.AndroidComposeTestRule$apply$1$evaluate$1.invoke(AndroidComposeTestRule.android.kt:272)
+	at androidx.compose.ui.test.junit4.AndroidComposeTestRule$apply$1$evaluate$1.invoke(AndroidComposeTestRule.android.kt:271)
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment$AndroidComposeUiTestImpl.withDisposableContent(ComposeUiTest.android.kt:505)
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment$runTest$1$1$1$1$1$1.invoke(ComposeUiTest.android.kt:333)
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment.withComposeIdlingResource(ComposeUiTest.android.kt:385)
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment.access$withComposeIdlingResource(ComposeUiTest.android.kt:219)
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment$runTest$1$1$1$1$1.invoke(ComposeUiTest.android.kt:332)
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment.withWindowRecomposer(ComposeUiTest.android.kt:359)
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment.access$withWindowRecomposer(ComposeUiTest.android.kt:219)
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment$runTest$1$1$1$1.invoke(ComposeUiTest.android.kt:331)
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment.withTestCoroutines(ComposeUiTest.android.kt:372)
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment.access$withTestCoroutines(ComposeUiTest.android.kt:219)
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment$runTest$1$1$1.invoke(ComposeUiTest.android.kt:330)
+	at androidx.compose.ui.test.IdlingStrategy.withStrategy(IdlingStrategy.android.kt:52)
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment$runTest$1$1.invoke(ComposeUiTest.android.kt:329)
+	at androidx.compose.ui.test.IdlingResourceRegistry.withRegistry(IdlingResourceRegistry.jvm.kt:155)
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment$runTest$1.invoke(ComposeUiTest.android.kt:328)
+	at androidx.compose.ui.test.ComposeRootRegistry.withRegistry(ComposeRootRegistry.android.kt:146)
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment.runTest(ComposeUiTest.android.kt:327)
+	at androidx.compose.ui.test.junit4.AndroidComposeTestRule$apply$1.evaluate(AndroidComposeTestRule.android.kt:271)
+	at org.junit.runners.ParentRunner$3.evaluate(ParentRunner.java:306)
+	at org.robolectric.RobolectricTestRunner$HelperTestRunner$1.evaluate(RobolectricTestRunner.java:489)
+	at org.robolectric.internal.SandboxTestRunner$2.lambda$evaluate$2(SandboxTestRunner.java:291)
+	at org.robolectric.internal.bytecode.Sandbox.lambda$runOnMainThread$0(Sandbox.java:104)
+	at java.base/java.util.concurrent.FutureTask.run(FutureTask.java:317)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
+	at java.base/java.lang.Thread.run(Thread.java:1583)
+</failure>
+  </testcase>
+  <testcase name="overlappingFollowUsesSameNaturalScrollBaseline" classname="com.mica.music.ui.screens.ExpandedLyricsInterludeIntegrationTest" time="0.809"/>
+  <testcase name="firstGapRemainsStableThroughout17To29" classname="com.mica.music.ui.screens.ExpandedLyricsInterludeIntegrationTest" time="1.4"/>
+  <testcase name="exitAt68RunsNaturalFollowAndDropsExpiredInterlude" classname="com.mica.music.ui.screens.ExpandedLyricsInterludeIntegrationTest" time="0.65"/>
+  <testcase name="firstOpeningWithFixedScrollBaseline" classname="com.mica.music.ui.screens.ExpandedLyricsInterludeIntegrationTest" time="0.485">
+    <failure message="java.lang.AssertionError: Actual next lyric never measured" type="java.lang.AssertionError">java.lang.AssertionError: Actual next lyric never measured
+	at org.junit.Assert.fail(Assert.java:89)
+	at org.junit.Assert.assertTrue(Assert.java:42)
+	at com.mica.music.ui.screens.ExpandedLyricsInterludeIntegrationTest.runProductionWindow(ExpandedLyricsInterludeIntegrationTest.kt:109)
+	at com.mica.music.ui.screens.ExpandedLyricsInterludeIntegrationTest.runProductionWindow$default(ExpandedLyricsInterludeIntegrationTest.kt:52)
+	at com.mica.music.ui.screens.ExpandedLyricsInterludeIntegrationTest.firstOpeningWithFixedScrollBaseline(ExpandedLyricsInterludeIntegrationTest.kt:224)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.junit.runners.model.FrameworkMethod$1.runReflectiveCall(FrameworkMethod.java:59)
+	at org.junit.internal.runners.model.ReflectiveCallable.run(ReflectiveCallable.java:12)
+	at org.junit.runners.model.FrameworkMethod.invokeExplosively(FrameworkMethod.java:56)
+	at org.junit.internal.runners.statements.InvokeMethod.evaluate(InvokeMethod.java:17)
+	at org.junit.rules.ExternalResource$1.evaluate(ExternalResource.java:54)
+	at androidx.compose.ui.test.junit4.AndroidComposeTestRule$apply$1$evaluate$1.invoke(AndroidComposeTestRule.android.kt:272)
+	at androidx.compose.ui.test.junit4.AndroidComposeTestRule$apply$1$evaluate$1.invoke(AndroidComposeTestRule.android.kt:271)
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment$AndroidComposeUiTestImpl.withDisposableContent(ComposeUiTest.android.kt:505)
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment$runTest$1$1$1$1$1$1.invoke(ComposeUiTest.android.kt:333)
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment.withComposeIdlingResource(ComposeUiTest.android.kt:385)
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment.access$withComposeIdlingResource(ComposeUiTest.android.kt:219)
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment$runTest$1$1$1$1$1.invoke(ComposeUiTest.android.kt:332)
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment.withWindowRecomposer(ComposeUiTest.android.kt:359)
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment.access$withWindowRecomposer(ComposeUiTest.android.kt:219)
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment$runTest$1$1$1$1.invoke(ComposeUiTest.android.kt:331)
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment.withTestCoroutines(ComposeUiTest.android.kt:372)
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment.access$withTestCoroutines(ComposeUiTest.android.kt:219)
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment$runTest$1$1$1.invoke(ComposeUiTest.android.kt:330)
+	at androidx.compose.ui.test.IdlingStrategy.withStrategy(IdlingStrategy.android.kt:52)
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment$runTest$1$1.invoke(ComposeUiTest.android.kt:329)
+	at androidx.compose.ui.test.IdlingResourceRegistry.withRegistry(IdlingResourceRegistry.jvm.kt:155)
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment$runTest$1.invoke(ComposeUiTest.android.kt:328)
+	at androidx.compose.ui.test.ComposeRootRegistry.withRegistry(ComposeRootRegistry.android.kt:146)
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment.runTest(ComposeUiTest.android.kt:327)
+	at androidx.compose.ui.test.junit4.AndroidComposeTestRule$apply$1.evaluate(AndroidComposeTestRule.android.kt:271)
+	at org.junit.runners.ParentRunner$3.evaluate(ParentRunner.java:306)
+	at org.robolectric.RobolectricTestRunner$HelperTestRunner$1.evaluate(RobolectricTestRunner.java:489)
+	at org.robolectric.internal.SandboxTestRunner$2.lambda$evaluate$2(SandboxTestRunner.java:291)
+	at org.robolectric.internal.bytecode.Sandbox.lambda$runOnMainThread$0(Sandbox.java:104)
+	at java.base/java.util.concurrent.FutureTask.run(FutureTask.java:317)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
+	at java.base/java.lang.Thread.run(Thread.java:1583)
+</failure>
+  </testcase>
+  <testcase name="diagnoseAt17WhileAutoplaying" classname="com.mica.music.ui.screens.ExpandedLyricsInterludeIntegrationTest" time="0.797"/>
+  <testcase name="exitAt29RunsNaturalFollowAndDropsExpiredInterlude" classname="com.mica.music.ui.screens.ExpandedLyricsInterludeIntegrationTest" time="0.64"/>
+  <testcase name="secondGapRemainsStableThroughout55To68" classname="com.mica.music.ui.screens.ExpandedLyricsInterludeIntegrationTest" time="1.173">
+    <failure message="java.lang.AssertionError: 55-to-68-gap drift &gt;8px during gap: 484.0" type="java.lang.AssertionError">java.lang.AssertionError: 55-to-68-gap drift &gt;8px during gap: 484.0
+	at org.junit.Assert.fail(Assert.java:89)
+	at org.junit.Assert.assertTrue(Assert.java:42)
+	at com.mica.music.ui.screens.ExpandedLyricsInterludeIntegrationTest.assertInterludeGapStable(ExpandedLyricsInterludeIntegrationTest.kt:203)
+	at com.mica.music.ui.screens.ExpandedLyricsInterludeIntegrationTest.assertInterludeGapStable$default(ExpandedLyricsInterludeIntegrationTest.kt:183)
+	at com.mica.music.ui.screens.ExpandedLyricsInterludeIntegrationTest.secondGapRemainsStableThroughout55To68(ExpandedLyricsInterludeIntegrationTest.kt:165)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.junit.runners.model.FrameworkMethod$1.runReflectiveCall(FrameworkMethod.java:59)
+	at org.junit.internal.runners.model.ReflectiveCallable.run(ReflectiveCallable.java:12)
+	at org.junit.runners.model.FrameworkMethod.invokeExplosively(FrameworkMethod.java:56)
+	at org.junit.internal.runners.statements.InvokeMethod.evaluate(InvokeMethod.java:17)
+	at org.junit.rules.ExternalResource$1.evaluate(ExternalResource.java:54)
+	at androidx.compose.ui.test.junit4.AndroidComposeTestRule$apply$1$evaluate$1.invoke(AndroidComposeTestRule.android.kt:272)
+	at androidx.compose.ui.test.junit4.AndroidComposeTestRule$apply$1$evaluate$1.invoke(AndroidComposeTestRule.android.kt:271)
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment$AndroidComposeUiTestImpl.withDisposableContent(ComposeUiTest.android.kt:505)
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment$runTest$1$1$1$1$1$1.invoke(ComposeUiTest.android.kt:333)
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment.withComposeIdlingResource(ComposeUiTest.android.kt:385)
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment.access$withComposeIdlingResource(ComposeUiTest.android.kt:219)
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment$runTest$1$1$1$1$1.invoke(ComposeUiTest.android.kt:332)
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment.withWindowRecomposer(ComposeUiTest.android.kt:359)
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment.access$withWindowRecomposer(ComposeUiTest.android.kt:219)
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment$runTest$1$1$1$1.invoke(ComposeUiTest.android.kt:331)
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment.withTestCoroutines(ComposeUiTest.android.kt:372)
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment.access$withTestCoroutines(ComposeUiTest.android.kt:219)
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment$runTest$1$1$1.invoke(ComposeUiTest.android.kt:330)
+	at androidx.compose.ui.test.IdlingStrategy.withStrategy(IdlingStrategy.android.kt:52)
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment$runTest$1$1.invoke(ComposeUiTest.android.kt:329)
+	at androidx.compose.ui.test.IdlingResourceRegistry.withRegistry(IdlingResourceRegistry.jvm.kt:155)
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment$runTest$1.invoke(ComposeUiTest.android.kt:328)
+	at androidx.compose.ui.test.ComposeRootRegistry.withRegistry(ComposeRootRegistry.android.kt:146)
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment.runTest(ComposeUiTest.android.kt:327)
+	at androidx.compose.ui.test.junit4.AndroidComposeTestRule$apply$1.evaluate(AndroidComposeTestRule.android.kt:271)
+	at org.junit.runners.ParentRunner$3.evaluate(ParentRunner.java:306)
+	at org.robolectric.RobolectricTestRunner$HelperTestRunner$1.evaluate(RobolectricTestRunner.java:489)
+	at org.robolectric.internal.SandboxTestRunner$2.lambda$evaluate$2(SandboxTestRunner.java:291)
+	at org.robolectric.internal.bytecode.Sandbox.lambda$runOnMainThread$0(Sandbox.java:104)
+	at java.base/java.util.concurrent.FutureTask.run(FutureTask.java:317)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
+	at java.base/java.lang.Thread.run(Thread.java:1583)
+</failure>
+  </testcase>
+  <system-out><![CDATA[EXPANDED_PANEL_FRAMES start=49000 end=55400 count=530
+PANEL_MEASURE t=55000 f=8256000000 playing=true i=true first=5:681 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=773 nextY=1151.0 owned=-84.0 lag=0.0
+PANEL_MEASURE t=55000 f=8288000000 playing=true i=true first=5:681 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=773 nextY=1151.0 owned=-84.0 lag=0.0
+PANEL_MEASURE t=55000 f=8320000000 playing=true i=true first=5:687 listRoot=462.0 follow=1.5 insertion=5.355353 nextRaw=767 nextY=1151.0 owned=-78.0 lag=0.0
+PANEL_MEASURE t=55100 f=8352000000 playing=true i=true first=5:698 listRoot=462.0 follow=1.5 insertion=16.036049 nextRaw=756 nextY=1151.0 owned=-67.0 lag=0.0
+PANEL_MEASURE t=55100 f=8384000000 playing=true i=true first=5:709 listRoot=462.0 follow=1.5 insertion=27.565323 nextRaw=745 nextY=1151.0 owned=-56.0 lag=0.0
+PANEL_MEASURE t=55100 f=8416000000 playing=true i=true first=5:720 listRoot=462.0 follow=1.5 insertion=38.149364 nextRaw=734 nextY=1151.0 owned=-45.0 lag=0.0
+PANEL_MEASURE t=55100 f=8448000000 playing=true i=true first=5:729 listRoot=462.0 follow=1.5 insertion=47.210712 nextRaw=725 nextY=1151.0 owned=-36.0 lag=0.0
+PANEL_MEASURE t=55200 f=8480000000 playing=true i=true first=5:736 listRoot=462.0 follow=1.5 insertion=54.697426 nextRaw=718 nextY=1151.0 owned=-29.0 lag=0.0
+PANEL_MEASURE t=55200 f=8512000000 playing=true i=true first=5:742 listRoot=462.0 follow=1.5 insertion=60.762897 nextRaw=712 nextY=1151.0 owned=-23.0 lag=0.0
+PANEL_MEASURE t=55200 f=8544000000 playing=true i=true first=5:747 listRoot=462.0 follow=1.5 insertion=65.62165 nextRaw=707 nextY=1151.0 owned=-18.0 lag=0.0
+PANEL_MEASURE t=55300 f=8576000000 playing=true i=true first=5:751 listRoot=462.0 follow=1.5 insertion=69.48783 nextRaw=703 nextY=1151.0 owned=-14.0 lag=0.0
+PANEL_MEASURE t=55300 f=8608000000 playing=true i=true first=5:754 listRoot=462.0 follow=1.5 insertion=72.55193 nextRaw=700 nextY=1151.0 owned=-11.0 lag=0.0
+PANEL_MEASURE t=55300 f=8640000000 playing=true i=true first=5:756 listRoot=462.0 follow=1.5 insertion=74.97448 nextRaw=698 nextY=1151.0 owned=-9.0 lag=0.0
+PANEL_MEASURE t=55300 f=8672000000 playing=true i=true first=5:758 listRoot=462.0 follow=1.5 insertion=76.886986 nextRaw=696 nextY=1151.0 owned=-7.0 lag=0.0
+PANEL_MEASURE t=55400 f=8704000000 playing=true i=true first=5:760 listRoot=462.0 follow=1.5 insertion=78.395485 nextRaw=694 nextY=1151.0 owned=-5.0 lag=0.0
+PANEL_MEASURE t=55400 f=8736000000 playing=true i=true first=5:761 listRoot=462.0 follow=1.5 insertion=79.58467 nextRaw=693 nextY=1151.0 owned=-4.0 lag=0.0
+PANEL_MEASURE t=55400 f=8768000000 playing=true i=true first=5:762 listRoot=462.0 follow=1.5 insertion=80.52182 nextRaw=692 nextY=1151.0 owned=-3.0 lag=0.0
+PANEL_MEASURE t=55400 f=8800000000 playing=true i=true first=5:763 listRoot=462.0 follow=1.5 insertion=81.2602 nextRaw=691 nextY=1151.0 owned=-2.0 lag=0.0
+PANEL_MEASURE t=55400 f=8832000000 playing=true i=true first=5:763 listRoot=462.0 follow=1.5 insertion=81.8419 nextRaw=691 nextY=1151.0 owned=-2.0 lag=0.0
+PANEL_MEASURE t=55400 f=8864000000 playing=true i=true first=5:764 listRoot=462.0 follow=1.5 insertion=82.30013 nextRaw=690 nextY=1151.0 owned=-1.0 lag=0.0
+PANEL_MEASURE t=55400 f=8896000000 playing=true i=true first=5:764 listRoot=462.0 follow=1.5 insertion=82.66108 nextRaw=690 nextY=1151.0 owned=-1.0 lag=0.0
+PANEL_MEASURE t=55400 f=8928000000 playing=true i=true first=5:764 listRoot=462.0 follow=1.5 insertion=82.94539 nextRaw=690 nextY=1151.0 owned=-1.0 lag=0.0
+PANEL_MEASURE t=55400 f=8960000000 playing=true i=true first=5:765 listRoot=462.0 follow=1.5 insertion=83.169334 nextRaw=689 nextY=1151.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=55400 f=8992000000 playing=true i=true first=5:765 listRoot=462.0 follow=1.5 insertion=83.345726 nextRaw=689 nextY=1151.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=55400 f=9024000000 playing=true i=true first=5:765 listRoot=462.0 follow=1.5 insertion=83.484665 nextRaw=689 nextY=1151.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=55400 f=9056000000 playing=true i=true first=5:765 listRoot=462.0 follow=1.5 insertion=83.59409 nextRaw=689 nextY=1151.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=55400 f=9088000000 playing=true i=true first=5:765 listRoot=462.0 follow=1.5 insertion=83.68029 nextRaw=689 nextY=1151.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=55400 f=9120000000 playing=true i=true first=5:765 listRoot=462.0 follow=1.5 insertion=83.748184 nextRaw=689 nextY=1151.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=55400 f=9152000000 playing=true i=true first=5:765 listRoot=462.0 follow=1.5 insertion=83.80166 nextRaw=689 nextY=1151.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=55400 f=9184000000 playing=true i=true first=5:765 listRoot=462.0 follow=1.5 insertion=83.84377 nextRaw=689 nextY=1151.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=55400 f=9216000000 playing=true i=true first=5:765 listRoot=462.0 follow=1.5 insertion=83.87695 nextRaw=689 nextY=1151.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=55400 f=9248000000 playing=true i=true first=5:765 listRoot=462.0 follow=1.5 insertion=83.90308 nextRaw=689 nextY=1151.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=55400 f=9280000000 playing=true i=true first=5:765 listRoot=462.0 follow=1.5 insertion=83.92366 nextRaw=689 nextY=1151.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=55400 f=9312000000 playing=true i=true first=5:765 listRoot=462.0 follow=1.5 insertion=83.93987 nextRaw=689 nextY=1151.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=55400 f=9344000000 playing=true i=true first=5:765 listRoot=462.0 follow=1.5 insertion=83.952644 nextRaw=689 nextY=1151.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=55400 f=9376000000 playing=true i=true first=5:765 listRoot=462.0 follow=1.5 insertion=83.9627 nextRaw=689 nextY=1151.0 owned=0.0 lag=0.0
+PANEL_TRANSITION second-opening maxResidualPx=0.0 beforeY=1151.0 afterY=1151.0 naturalFollow=0.0 interludeCorrection=83.966896
+EXPANDED_PANEL_FRAMES start=13000 end=17400 count=390
+PANEL_MEASURE t=17000 f=6016000000 playing=true i=true first=0:0 listRoot=462.0 follow=0.0 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17000 f=6048000000 playing=true i=true first=0:0 listRoot=462.0 follow=0.0 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17000 f=6080000000 playing=true i=true first=0:0 listRoot=462.0 follow=0.0 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17100 f=6112000000 playing=true i=true first=0:0 listRoot=462.0 follow=0.0 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17100 f=6144000000 playing=true i=true first=0:0 listRoot=462.0 follow=0.0 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17100 f=6176000000 playing=true i=true first=0:0 listRoot=462.0 follow=0.0 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17100 f=6208000000 playing=true i=true first=0:0 listRoot=462.0 follow=0.0 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17200 f=6240000000 playing=true i=true first=0:0 listRoot=462.0 follow=0.0 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17200 f=6272000000 playing=true i=true first=0:0 listRoot=462.0 follow=0.0 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17200 f=6304000000 playing=true i=true first=0:0 listRoot=462.0 follow=0.0 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17300 f=6336000000 playing=true i=true first=0:0 listRoot=462.0 follow=0.0 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17300 f=6368000000 playing=true i=true first=0:0 listRoot=462.0 follow=0.0 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17300 f=6400000000 playing=true i=true first=0:0 listRoot=462.0 follow=0.0 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17300 f=6432000000 playing=true i=true first=0:0 listRoot=462.0 follow=0.0 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17400 f=6464000000 playing=true i=true first=0:0 listRoot=462.0 follow=0.0 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17400 f=6496000000 playing=true i=true first=0:0 listRoot=462.0 follow=0.0 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17400 f=6528000000 playing=true i=true first=0:0 listRoot=462.0 follow=0.0 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17400 f=6560000000 playing=true i=true first=0:0 listRoot=462.0 follow=0.0 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17400 f=6592000000 playing=true i=true first=0:0 listRoot=462.0 follow=0.0 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17400 f=6624000000 playing=true i=true first=0:0 listRoot=462.0 follow=0.0 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17400 f=6656000000 playing=true i=true first=0:0 listRoot=462.0 follow=0.0 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17400 f=6688000000 playing=true i=true first=0:0 listRoot=462.0 follow=0.0 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17400 f=6720000000 playing=true i=true first=0:0 listRoot=462.0 follow=0.0 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17400 f=6752000000 playing=true i=true first=0:0 listRoot=462.0 follow=0.0 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17400 f=6784000000 playing=true i=true first=0:0 listRoot=462.0 follow=0.0 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17400 f=6816000000 playing=true i=true first=0:0 listRoot=462.0 follow=0.0 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17400 f=6848000000 playing=true i=true first=0:0 listRoot=462.0 follow=0.0 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17400 f=6880000000 playing=true i=true first=0:0 listRoot=462.0 follow=0.0 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17400 f=6912000000 playing=true i=true first=0:0 listRoot=462.0 follow=0.0 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17400 f=6944000000 playing=true i=true first=0:0 listRoot=462.0 follow=0.0 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17400 f=6976000000 playing=true i=true first=0:0 listRoot=462.0 follow=0.0 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17400 f=7008000000 playing=true i=true first=0:0 listRoot=462.0 follow=0.0 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17400 f=7040000000 playing=true i=true first=0:0 listRoot=462.0 follow=0.0 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17400 f=7072000000 playing=true i=true first=0:0 listRoot=462.0 follow=0.0 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17400 f=7104000000 playing=true i=true first=0:0 listRoot=462.0 follow=0.0 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17400 f=7136000000 playing=true i=true first=0:0 listRoot=462.0 follow=0.0 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+EXPANDED_PANEL_FRAMES start=13000 end=17400 count=126
+PANEL_MEASURE t=16700 f=2208000000 playing=true i=false first=1:77 listRoot=462.0 follow=282.45737 insertion=0.0 nextRaw=689 nextY=1151.0048 owned=0.0 lag=0.004814148
+PANEL_MEASURE t=16900 f=2240000000 playing=true i=false first=1:77 listRoot=462.0 follow=282.46643 insertion=0.0 nextRaw=689 nextY=1151.0038 owned=0.0 lag=0.003791809
+PANEL_MEASURE t=17100 f=2272000000 playing=true i=true first=1:77 listRoot=462.0 follow=282.47357 insertion=0.0 nextRaw=773 nextY=1151.0 owned=-84.00703 lag=0.0070266724
+PANEL_MEASURE t=17300 f=2304000000 playing=true i=true first=1:77 listRoot=462.0 follow=282.47653 insertion=0.0 nextRaw=773 nextY=1150.9971 owned=-84.00293 lag=0.0
+PANEL_MEASURE t=17400 f=2336000000 playing=true i=true first=1:83 listRoot=462.0 follow=282.47653 insertion=5.355353 nextRaw=767 nextY=1150.9971 owned=-78.00293 lag=0.0
+PANEL_MEASURE t=17400 f=2368000000 playing=true i=true first=1:94 listRoot=462.0 follow=282.47653 insertion=16.036049 nextRaw=756 nextY=1150.9971 owned=-67.00293 lag=0.0
+PANEL_MEASURE t=17400 f=2400000000 playing=true i=true first=1:105 listRoot=462.0 follow=282.47653 insertion=27.565323 nextRaw=745 nextY=1150.9971 owned=-56.00293 lag=0.0
+PANEL_MEASURE t=17400 f=2432000000 playing=true i=true first=1:116 listRoot=462.0 follow=282.47653 insertion=38.149364 nextRaw=734 nextY=1150.9971 owned=-45.00293 lag=0.0
+PANEL_MEASURE t=17400 f=2464000000 playing=true i=true first=1:125 listRoot=462.0 follow=282.47653 insertion=47.210712 nextRaw=725 nextY=1150.9971 owned=-36.00293 lag=0.0
+PANEL_MEASURE t=17400 f=2496000000 playing=true i=true first=1:132 listRoot=462.0 follow=282.47653 insertion=54.697426 nextRaw=718 nextY=1150.9971 owned=-29.00293 lag=0.0
+PANEL_MEASURE t=17400 f=2528000000 playing=true i=true first=1:138 listRoot=462.0 follow=282.47653 insertion=60.762897 nextRaw=712 nextY=1150.9971 owned=-23.00293 lag=0.0
+PANEL_MEASURE t=17400 f=2560000000 playing=true i=true first=1:143 listRoot=462.0 follow=282.47653 insertion=65.62165 nextRaw=707 nextY=1150.9971 owned=-18.00293 lag=0.0
+PANEL_MEASURE t=17400 f=2592000000 playing=true i=true first=1:147 listRoot=462.0 follow=282.47653 insertion=69.48783 nextRaw=703 nextY=1150.9971 owned=-14.00293 lag=0.0
+PANEL_MEASURE t=17400 f=2624000000 playing=true i=true first=1:150 listRoot=462.0 follow=282.47653 insertion=72.55193 nextRaw=700 nextY=1150.9971 owned=-11.00293 lag=0.0
+PANEL_MEASURE t=17400 f=2656000000 playing=true i=true first=1:152 listRoot=462.0 follow=282.47653 insertion=74.97448 nextRaw=698 nextY=1150.9971 owned=-9.00293 lag=0.0
+PANEL_MEASURE t=17400 f=2688000000 playing=true i=true first=1:154 listRoot=462.0 follow=282.47653 insertion=76.886986 nextRaw=696 nextY=1150.9971 owned=-7.0029297 lag=0.0
+PANEL_MEASURE t=17400 f=2720000000 playing=true i=true first=1:156 listRoot=462.0 follow=282.47653 insertion=78.395485 nextRaw=694 nextY=1150.9971 owned=-5.0029297 lag=0.0
+PANEL_MEASURE t=17400 f=2752000000 playing=true i=true first=1:157 listRoot=462.0 follow=282.47653 insertion=79.58467 nextRaw=693 nextY=1150.9971 owned=-4.0029297 lag=0.0
+PANEL_MEASURE t=17400 f=2784000000 playing=true i=true first=1:158 listRoot=462.0 follow=282.47653 insertion=80.52182 nextRaw=692 nextY=1150.9971 owned=-3.0029297 lag=0.0
+PANEL_MEASURE t=17400 f=2816000000 playing=true i=true first=1:159 listRoot=462.0 follow=282.47653 insertion=81.2602 nextRaw=691 nextY=1150.9971 owned=-2.0029297 lag=0.0
+PANEL_MEASURE t=17400 f=2848000000 playing=true i=true first=1:159 listRoot=462.0 follow=282.47653 insertion=81.8419 nextRaw=691 nextY=1150.9971 owned=-2.0029297 lag=0.0
+PANEL_MEASURE t=17400 f=2880000000 playing=true i=true first=1:160 listRoot=462.0 follow=282.47653 insertion=82.30013 nextRaw=690 nextY=1150.9971 owned=-1.0029297 lag=0.0
+PANEL_MEASURE t=17400 f=2912000000 playing=true i=true first=1:160 listRoot=462.0 follow=282.47653 insertion=82.66108 nextRaw=690 nextY=1150.9971 owned=-1.0029297 lag=0.0
+PANEL_TRANSITION first-opening-fast-position maxResidualPx=0.0034179688 beforeY=1151.0038 afterY=1150.9971 naturalFollow=0.010101318 interludeCorrection=82.81171
+EXPANDED_PANEL_FRAMES start=17500 end=28900 count=880
+PANEL_MEASURE t=28500 f=13856000000 playing=true i=true first=1:77 listRoot=462.0 follow=282.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=28500 f=13888000000 playing=true i=true first=1:77 listRoot=462.0 follow=282.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=28500 f=13920000000 playing=true i=true first=1:77 listRoot=462.0 follow=282.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=28600 f=13952000000 playing=true i=true first=1:77 listRoot=462.0 follow=282.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=28600 f=13984000000 playing=true i=true first=1:77 listRoot=462.0 follow=282.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=28600 f=14016000000 playing=true i=true first=1:77 listRoot=462.0 follow=282.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=28600 f=14048000000 playing=true i=true first=1:77 listRoot=462.0 follow=282.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=28700 f=14080000000 playing=true i=true first=1:77 listRoot=462.0 follow=282.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=28700 f=14112000000 playing=true i=true first=1:77 listRoot=462.0 follow=282.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=28700 f=14144000000 playing=true i=true first=1:77 listRoot=462.0 follow=282.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=28800 f=14176000000 playing=true i=true first=1:77 listRoot=462.0 follow=282.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=28800 f=14208000000 playing=true i=true first=1:77 listRoot=462.0 follow=282.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=28800 f=14240000000 playing=true i=true first=1:77 listRoot=462.0 follow=282.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=28800 f=14272000000 playing=true i=true first=1:77 listRoot=462.0 follow=282.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=28900 f=14304000000 playing=true i=true first=1:77 listRoot=462.0 follow=282.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=28900 f=14336000000 playing=true i=true first=1:77 listRoot=462.0 follow=282.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=28900 f=14368000000 playing=true i=true first=1:77 listRoot=462.0 follow=282.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=28900 f=14400000000 playing=true i=true first=1:77 listRoot=462.0 follow=282.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=28900 f=14432000000 playing=true i=true first=1:77 listRoot=462.0 follow=282.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=28900 f=14464000000 playing=true i=true first=1:77 listRoot=462.0 follow=282.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=28900 f=14496000000 playing=true i=true first=1:77 listRoot=462.0 follow=282.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=28900 f=14528000000 playing=true i=true first=1:77 listRoot=462.0 follow=282.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=28900 f=14560000000 playing=true i=true first=1:77 listRoot=462.0 follow=282.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=28900 f=14592000000 playing=true i=true first=1:77 listRoot=462.0 follow=282.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=28900 f=14624000000 playing=true i=true first=1:77 listRoot=462.0 follow=282.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=28900 f=14656000000 playing=true i=true first=1:77 listRoot=462.0 follow=282.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=28900 f=14688000000 playing=true i=true first=1:77 listRoot=462.0 follow=282.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=28900 f=14720000000 playing=true i=true first=1:77 listRoot=462.0 follow=282.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=28900 f=14752000000 playing=true i=true first=1:77 listRoot=462.0 follow=282.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=28900 f=14784000000 playing=true i=true first=1:77 listRoot=462.0 follow=282.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=28900 f=14816000000 playing=true i=true first=1:77 listRoot=462.0 follow=282.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=28900 f=14848000000 playing=true i=true first=1:77 listRoot=462.0 follow=282.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=28900 f=14880000000 playing=true i=true first=1:77 listRoot=462.0 follow=282.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=28900 f=14912000000 playing=true i=true first=1:77 listRoot=462.0 follow=282.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=28900 f=14944000000 playing=true i=true first=1:77 listRoot=462.0 follow=282.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=28900 f=14976000000 playing=true i=true first=1:77 listRoot=462.0 follow=282.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_GAP 17-to-29-gap maxAdditionalPx=0.0 frames=738
+EXPANDED_PANEL_FRAMES start=67000 end=68400 count=180
+PANEL_MEASURE t=68000 f=2656000000 playing=true i=false first=5:681 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=68000 f=2688000000 playing=true i=false first=5:687 listRoot=462.0 follow=6.8670187 insertion=0.0 nextRaw=767 nextY=1229.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=68000 f=2720000000 playing=true i=false first=5:717 listRoot=462.0 follow=37.274117 insertion=0.0 nextRaw=737 nextY=1199.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=68100 f=2752000000 playing=true i=false first=5:757 listRoot=462.0 follow=76.664825 insertion=0.0 nextRaw=697 nextY=1159.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=68100 f=2784000000 playing=true i=false first=5:795 listRoot=462.0 follow=115.13724 insertion=0.0 nextRaw=659 nextY=1121.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=68100 f=2816000000 playing=true i=false first=5:829 listRoot=462.0 follow=149.03105 insertion=0.0 nextRaw=625 nextY=1087.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=68100 f=2848000000 playing=true i=false first=5:857 listRoot=462.0 follow=177.45927 insertion=0.0 nextRaw=597 nextY=1059.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=68200 f=2880000000 playing=true i=false first=5:881 listRoot=462.0 follow=200.6859 insertion=0.0 nextRaw=573 nextY=1035.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=68200 f=2912000000 playing=true i=false first=5:899 listRoot=462.0 follow=219.38304 insertion=0.0 nextRaw=471 nextY=933.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=68200 f=2944000000 playing=true i=false first=5:899 listRoot=462.0 follow=219.14162 insertion=0.0 nextRaw=471 nextY=933.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=68300 f=2976000000 playing=true i=false first=5:898 listRoot=462.0 follow=217.77382 insertion=0.0 nextRaw=472 nextY=934.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=68300 f=3008000000 playing=true i=false first=5:896 listRoot=462.0 follow=216.0019 insertion=0.0 nextRaw=474 nextY=936.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=68300 f=3040000000 playing=true i=false first=5:894 listRoot=462.0 follow=214.27132 insertion=0.0 nextRaw=476 nextY=938.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=68300 f=3072000000 playing=true i=false first=5:893 listRoot=462.0 follow=212.74667 insertion=0.0 nextRaw=477 nextY=939.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=68400 f=3104000000 playing=true i=false first=5:891 listRoot=462.0 follow=211.4679 insertion=0.0 nextRaw=479 nextY=941.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=68400 f=3136000000 playing=true i=false first=5:890 listRoot=462.0 follow=210.4231 insertion=0.0 nextRaw=480 nextY=942.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=68400 f=3168000000 playing=true i=false first=5:890 listRoot=462.0 follow=209.58205 insertion=0.0 nextRaw=480 nextY=942.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=68400 f=3200000000 playing=true i=false first=5:889 listRoot=462.0 follow=208.91086 insertion=0.0 nextRaw=481 nextY=943.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=68400 f=3232000000 playing=true i=false first=5:888 listRoot=462.0 follow=208.37798 insertion=0.0 nextRaw=482 nextY=944.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=68400 f=3264000000 playing=true i=false first=5:888 listRoot=462.0 follow=207.95622 insertion=0.0 nextRaw=482 nextY=944.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=68400 f=3296000000 playing=true i=false first=5:888 listRoot=462.0 follow=207.62305 insertion=0.0 nextRaw=482 nextY=944.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=68400 f=3328000000 playing=true i=false first=5:887 listRoot=462.0 follow=207.36015 insertion=0.0 nextRaw=483 nextY=945.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=68400 f=3360000000 playing=true i=false first=5:887 listRoot=462.0 follow=207.15286 insertion=0.0 nextRaw=483 nextY=945.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=68400 f=3392000000 playing=true i=false first=5:887 listRoot=462.0 follow=206.98949 insertion=0.0 nextRaw=483 nextY=945.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=68400 f=3424000000 playing=true i=false first=5:887 listRoot=462.0 follow=206.86075 insertion=0.0 nextRaw=483 nextY=945.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=68400 f=3456000000 playing=true i=false first=5:887 listRoot=462.0 follow=206.75931 insertion=0.0 nextRaw=483 nextY=945.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=68400 f=3488000000 playing=true i=false first=5:887 listRoot=462.0 follow=206.67941 insertion=0.0 nextRaw=483 nextY=945.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=68400 f=3520000000 playing=true i=false first=5:887 listRoot=462.0 follow=206.61649 insertion=0.0 nextRaw=483 nextY=945.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=68400 f=3552000000 playing=true i=false first=5:887 listRoot=462.0 follow=206.56691 insertion=0.0 nextRaw=483 nextY=945.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=68400 f=3584000000 playing=true i=false first=5:887 listRoot=462.0 follow=206.52786 insertion=0.0 nextRaw=483 nextY=945.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=68400 f=3616000000 playing=true i=false first=5:886 listRoot=462.0 follow=206.4971 insertion=0.0 nextRaw=484 nextY=946.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=68400 f=3648000000 playing=true i=false first=5:886 listRoot=462.0 follow=206.47287 insertion=0.0 nextRaw=484 nextY=946.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=68400 f=3680000000 playing=true i=false first=5:886 listRoot=462.0 follow=206.45378 insertion=0.0 nextRaw=484 nextY=946.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=68400 f=3712000000 playing=true i=false first=5:886 listRoot=462.0 follow=206.43875 insertion=0.0 nextRaw=484 nextY=946.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=68400 f=3744000000 playing=true i=false first=5:886 listRoot=462.0 follow=206.42691 insertion=0.0 nextRaw=484 nextY=946.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=68400 f=3776000000 playing=true i=false first=5:886 listRoot=462.0 follow=206.41759 insertion=0.0 nextRaw=484 nextY=946.0 owned=0.0 lag=0.0
+PANEL_EXIT 68-exit followPx=204.9137 nextTopBefore=1235.0 nextTopAfter=946.0 heightBefore=151 heightAfter=151
+EXPANDED_PANEL_FRAMES start=13000 end=17400 count=390
+PANEL_MEASURE t=17000 f=6016000000 playing=true i=true first=0:1 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17000 f=6048000000 playing=true i=true first=0:1 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17000 f=6080000000 playing=true i=true first=0:1 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17100 f=6112000000 playing=true i=true first=0:1 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17100 f=6144000000 playing=true i=true first=0:1 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17100 f=6176000000 playing=true i=true first=0:1 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17100 f=6208000000 playing=true i=true first=0:1 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17200 f=6240000000 playing=true i=true first=0:1 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17200 f=6272000000 playing=true i=true first=0:1 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17200 f=6304000000 playing=true i=true first=0:1 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17300 f=6336000000 playing=true i=true first=0:1 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17300 f=6368000000 playing=true i=true first=0:1 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17300 f=6400000000 playing=true i=true first=0:1 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17300 f=6432000000 playing=true i=true first=0:1 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17400 f=6464000000 playing=true i=true first=0:1 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17400 f=6496000000 playing=true i=true first=0:1 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17400 f=6528000000 playing=true i=true first=0:1 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17400 f=6560000000 playing=true i=true first=0:1 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17400 f=6592000000 playing=true i=true first=0:1 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17400 f=6624000000 playing=true i=true first=0:1 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17400 f=6656000000 playing=true i=true first=0:1 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17400 f=6688000000 playing=true i=true first=0:1 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17400 f=6720000000 playing=true i=true first=0:1 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17400 f=6752000000 playing=true i=true first=0:1 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17400 f=6784000000 playing=true i=true first=0:1 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17400 f=6816000000 playing=true i=true first=0:1 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17400 f=6848000000 playing=true i=true first=0:1 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17400 f=6880000000 playing=true i=true first=0:1 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17400 f=6912000000 playing=true i=true first=0:1 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17400 f=6944000000 playing=true i=true first=0:1 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17400 f=6976000000 playing=true i=true first=0:1 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17400 f=7008000000 playing=true i=true first=0:1 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17400 f=7040000000 playing=true i=true first=0:1 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17400 f=7072000000 playing=true i=true first=0:1 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17400 f=7104000000 playing=true i=true first=0:1 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+PANEL_MEASURE t=17400 f=7136000000 playing=true i=true first=0:1 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=null nextY=null owned=null lag=null
+EXPANDED_PANEL_FRAMES start=13000 end=17400 count=390
+PANEL_MEASURE t=17000 f=6016000000 playing=true i=true first=1:77 listRoot=462.0 follow=282.5 insertion=0.0 nextRaw=773 nextY=1151.0 owned=-84.0 lag=0.0
+PANEL_MEASURE t=17000 f=6048000000 playing=true i=true first=1:77 listRoot=462.0 follow=282.5 insertion=0.0 nextRaw=773 nextY=1151.0 owned=-84.0 lag=0.0
+PANEL_MEASURE t=17000 f=6080000000 playing=true i=true first=1:83 listRoot=462.0 follow=282.5 insertion=5.355353 nextRaw=767 nextY=1151.0 owned=-78.0 lag=0.0
+PANEL_MEASURE t=17100 f=6112000000 playing=true i=true first=1:94 listRoot=462.0 follow=282.5 insertion=16.036049 nextRaw=756 nextY=1151.0 owned=-67.0 lag=0.0
+PANEL_MEASURE t=17100 f=6144000000 playing=true i=true first=1:105 listRoot=462.0 follow=282.5 insertion=27.565323 nextRaw=745 nextY=1151.0 owned=-56.0 lag=0.0
+PANEL_MEASURE t=17100 f=6176000000 playing=true i=true first=1:116 listRoot=462.0 follow=282.5 insertion=38.149364 nextRaw=734 nextY=1151.0 owned=-45.0 lag=0.0
+PANEL_MEASURE t=17100 f=6208000000 playing=true i=true first=1:125 listRoot=462.0 follow=282.5 insertion=47.210712 nextRaw=725 nextY=1151.0 owned=-36.0 lag=0.0
+PANEL_MEASURE t=17200 f=6240000000 playing=true i=true first=1:132 listRoot=462.0 follow=282.5 insertion=54.697426 nextRaw=718 nextY=1151.0 owned=-29.0 lag=0.0
+PANEL_MEASURE t=17200 f=6272000000 playing=true i=true first=1:138 listRoot=462.0 follow=282.5 insertion=60.762897 nextRaw=712 nextY=1151.0 owned=-23.0 lag=0.0
+PANEL_MEASURE t=17200 f=6304000000 playing=true i=true first=1:143 listRoot=462.0 follow=282.5 insertion=65.62165 nextRaw=707 nextY=1151.0 owned=-18.0 lag=0.0
+PANEL_MEASURE t=17300 f=6336000000 playing=true i=true first=1:147 listRoot=462.0 follow=282.5 insertion=69.48783 nextRaw=703 nextY=1151.0 owned=-14.0 lag=0.0
+PANEL_MEASURE t=17300 f=6368000000 playing=true i=true first=1:150 listRoot=462.0 follow=282.5 insertion=72.55193 nextRaw=700 nextY=1151.0 owned=-11.0 lag=0.0
+PANEL_MEASURE t=17300 f=6400000000 playing=true i=true first=1:152 listRoot=462.0 follow=282.5 insertion=74.97448 nextRaw=698 nextY=1151.0 owned=-9.0 lag=0.0
+PANEL_MEASURE t=17300 f=6432000000 playing=true i=true first=1:154 listRoot=462.0 follow=282.5 insertion=76.886986 nextRaw=696 nextY=1151.0 owned=-7.0 lag=0.0
+PANEL_MEASURE t=17400 f=6464000000 playing=true i=true first=1:156 listRoot=462.0 follow=282.5 insertion=78.395485 nextRaw=694 nextY=1151.0 owned=-5.0 lag=0.0
+PANEL_MEASURE t=17400 f=6496000000 playing=true i=true first=1:157 listRoot=462.0 follow=282.5 insertion=79.58467 nextRaw=693 nextY=1151.0 owned=-4.0 lag=0.0
+PANEL_MEASURE t=17400 f=6528000000 playing=true i=true first=1:158 listRoot=462.0 follow=282.5 insertion=80.52182 nextRaw=692 nextY=1151.0 owned=-3.0 lag=0.0
+PANEL_MEASURE t=17400 f=6560000000 playing=true i=true first=1:159 listRoot=462.0 follow=282.5 insertion=81.2602 nextRaw=691 nextY=1151.0 owned=-2.0 lag=0.0
+PANEL_MEASURE t=17400 f=6592000000 playing=true i=true first=1:159 listRoot=462.0 follow=282.5 insertion=81.8419 nextRaw=691 nextY=1151.0 owned=-2.0 lag=0.0
+PANEL_MEASURE t=17400 f=6624000000 playing=true i=true first=1:160 listRoot=462.0 follow=282.5 insertion=82.30013 nextRaw=690 nextY=1151.0 owned=-1.0 lag=0.0
+PANEL_MEASURE t=17400 f=6656000000 playing=true i=true first=1:160 listRoot=462.0 follow=282.5 insertion=82.66108 nextRaw=690 nextY=1151.0 owned=-1.0 lag=0.0
+PANEL_MEASURE t=17400 f=6688000000 playing=true i=true first=1:160 listRoot=462.0 follow=282.5 insertion=82.94539 nextRaw=690 nextY=1151.0 owned=-1.0 lag=0.0
+PANEL_MEASURE t=17400 f=6720000000 playing=true i=true first=1:161 listRoot=462.0 follow=282.5 insertion=83.169334 nextRaw=689 nextY=1151.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=17400 f=6752000000 playing=true i=true first=1:161 listRoot=462.0 follow=282.5 insertion=83.345726 nextRaw=689 nextY=1151.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=17400 f=6784000000 playing=true i=true first=1:161 listRoot=462.0 follow=282.5 insertion=83.484665 nextRaw=689 nextY=1151.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=17400 f=6816000000 playing=true i=true first=1:161 listRoot=462.0 follow=282.5 insertion=83.59409 nextRaw=689 nextY=1151.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=17400 f=6848000000 playing=true i=true first=1:161 listRoot=462.0 follow=282.5 insertion=83.68029 nextRaw=689 nextY=1151.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=17400 f=6880000000 playing=true i=true first=1:161 listRoot=462.0 follow=282.5 insertion=83.748184 nextRaw=689 nextY=1151.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=17400 f=6912000000 playing=true i=true first=1:161 listRoot=462.0 follow=282.5 insertion=83.80166 nextRaw=689 nextY=1151.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=17400 f=6944000000 playing=true i=true first=1:161 listRoot=462.0 follow=282.5 insertion=83.84377 nextRaw=689 nextY=1151.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=17400 f=6976000000 playing=true i=true first=1:161 listRoot=462.0 follow=282.5 insertion=83.87695 nextRaw=689 nextY=1151.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=17400 f=7008000000 playing=true i=true first=1:161 listRoot=462.0 follow=282.5 insertion=83.90308 nextRaw=689 nextY=1151.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=17400 f=7040000000 playing=true i=true first=1:161 listRoot=462.0 follow=282.5 insertion=83.92366 nextRaw=689 nextY=1151.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=17400 f=7072000000 playing=true i=true first=1:161 listRoot=462.0 follow=282.5 insertion=83.93987 nextRaw=689 nextY=1151.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=17400 f=7104000000 playing=true i=true first=1:161 listRoot=462.0 follow=282.5 insertion=83.952644 nextRaw=689 nextY=1151.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=17400 f=7136000000 playing=true i=true first=1:161 listRoot=462.0 follow=282.5 insertion=83.9627 nextRaw=689 nextY=1151.0 owned=0.0 lag=0.0
+PANEL_17_DELTA=0.0 followDelta=0.0 insertionDelta=83.966896 beforeY=1151.0 afterY=1151.0
+PANEL_TRANSITION first-opening maxResidualPx=0.0 beforeY=1151.0 afterY=1151.0 naturalFollow=0.0 interludeCorrection=83.966896
+EXPANDED_PANEL_FRAMES start=28000 end=29400 count=180
+PANEL_MEASURE t=29000 f=2656000000 playing=true i=false first=1:77 listRoot=462.0 follow=282.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=29000 f=2688000000 playing=true i=false first=1:84 listRoot=462.0 follow=289.26913 insertion=0.0 nextRaw=766 nextY=1228.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=29000 f=2720000000 playing=true i=false first=1:123 listRoot=462.0 follow=327.61993 insertion=0.0 nextRaw=727 nextY=1189.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=29100 f=2752000000 playing=true i=false first=1:172 listRoot=462.0 follow=377.3013 insertion=0.0 nextRaw=678 nextY=1140.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=29100 f=2784000000 playing=true i=false first=2:16 listRoot=462.0 follow=425.82446 insertion=0.0 nextRaw=629 nextY=1091.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=29100 f=2816000000 playing=true i=false first=2:59 listRoot=462.0 follow=468.57288 insertion=0.0 nextRaw=586 nextY=1048.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=29100 f=2848000000 playing=true i=false first=2:94 listRoot=462.0 follow=504.42786 insertion=0.0 nextRaw=551 nextY=1013.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=29200 f=2880000000 playing=true i=false first=2:124 listRoot=462.0 follow=533.7223 insertion=0.0 nextRaw=521 nextY=983.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=29200 f=2912000000 playing=true i=false first=2:147 listRoot=462.0 follow=557.304 insertion=0.0 nextRaw=414 nextY=876.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=29200 f=2944000000 playing=true i=false first=2:147 listRoot=462.0 follow=557.4061 insertion=0.0 nextRaw=414 nextY=876.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=29300 f=2976000000 playing=true i=false first=2:148 listRoot=462.0 follow=557.98486 insertion=0.0 nextRaw=413 nextY=875.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=29300 f=3008000000 playing=true i=false first=2:149 listRoot=462.0 follow=558.7345 insertion=0.0 nextRaw=412 nextY=874.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=29300 f=3040000000 playing=true i=false first=2:149 listRoot=462.0 follow=559.4667 insertion=0.0 nextRaw=412 nextY=874.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=29300 f=3072000000 playing=true i=false first=2:150 listRoot=462.0 follow=560.1117 insertion=0.0 nextRaw=411 nextY=873.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=29400 f=3104000000 playing=true i=false first=2:151 listRoot=462.0 follow=560.6527 insertion=0.0 nextRaw=410 nextY=872.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=29400 f=3136000000 playing=true i=false first=2:151 listRoot=462.0 follow=561.0947 insertion=0.0 nextRaw=410 nextY=872.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=29400 f=3168000000 playing=true i=false first=2:151 listRoot=462.0 follow=561.45056 insertion=0.0 nextRaw=410 nextY=872.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=29400 f=3200000000 playing=true i=false first=2:152 listRoot=462.0 follow=561.7345 insertion=0.0 nextRaw=409 nextY=871.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=29400 f=3232000000 playing=true i=false first=2:152 listRoot=462.0 follow=561.95996 insertion=0.0 nextRaw=409 nextY=871.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=29400 f=3264000000 playing=true i=false first=2:152 listRoot=462.0 follow=562.13837 insertion=0.0 nextRaw=409 nextY=871.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=29400 f=3296000000 playing=true i=false first=2:152 listRoot=462.0 follow=562.27936 insertion=0.0 nextRaw=409 nextY=871.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=29400 f=3328000000 playing=true i=false first=2:152 listRoot=462.0 follow=562.39056 insertion=0.0 nextRaw=409 nextY=871.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=29400 f=3360000000 playing=true i=false first=2:152 listRoot=462.0 follow=562.4783 insertion=0.0 nextRaw=409 nextY=871.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=29400 f=3392000000 playing=true i=false first=2:153 listRoot=462.0 follow=562.5474 insertion=0.0 nextRaw=408 nextY=870.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=29400 f=3424000000 playing=true i=false first=2:153 listRoot=462.0 follow=562.6019 insertion=0.0 nextRaw=408 nextY=870.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=29400 f=3456000000 playing=true i=false first=2:153 listRoot=462.0 follow=562.64484 insertion=0.0 nextRaw=408 nextY=870.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=29400 f=3488000000 playing=true i=false first=2:153 listRoot=462.0 follow=562.6786 insertion=0.0 nextRaw=408 nextY=870.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=29400 f=3520000000 playing=true i=false first=2:153 listRoot=462.0 follow=562.7052 insertion=0.0 nextRaw=408 nextY=870.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=29400 f=3552000000 playing=true i=false first=2:153 listRoot=462.0 follow=562.7262 insertion=0.0 nextRaw=408 nextY=870.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=29400 f=3584000000 playing=true i=false first=2:153 listRoot=462.0 follow=562.7427 insertion=0.0 nextRaw=408 nextY=870.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=29400 f=3616000000 playing=true i=false first=2:153 listRoot=462.0 follow=562.7557 insertion=0.0 nextRaw=408 nextY=870.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=29400 f=3648000000 playing=true i=false first=2:153 listRoot=462.0 follow=562.7659 insertion=0.0 nextRaw=408 nextY=870.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=29400 f=3680000000 playing=true i=false first=2:153 listRoot=462.0 follow=562.774 insertion=0.0 nextRaw=408 nextY=870.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=29400 f=3712000000 playing=true i=false first=2:153 listRoot=462.0 follow=562.78033 insertion=0.0 nextRaw=408 nextY=870.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=29400 f=3744000000 playing=true i=false first=2:153 listRoot=462.0 follow=562.78534 insertion=0.0 nextRaw=408 nextY=870.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=29400 f=3776000000 playing=true i=false first=2:153 listRoot=462.0 follow=562.78925 insertion=0.0 nextRaw=408 nextY=870.0 owned=0.0 lag=0.0
+PANEL_EXIT 29-exit followPx=280.2909 nextTopBefore=1235.0 nextTopAfter=870.0 heightBefore=302 heightAfter=302
+EXPANDED_PANEL_FRAMES start=55500 end=67900 count=950
+PANEL_MEASURE t=67500 f=14976000000 playing=true i=true first=5:681 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=67500 f=15008000000 playing=true i=true first=5:681 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=67500 f=15040000000 playing=true i=true first=5:681 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=67600 f=15072000000 playing=true i=true first=5:681 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=67600 f=15104000000 playing=true i=true first=5:681 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=67600 f=15136000000 playing=true i=true first=5:681 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=67600 f=15168000000 playing=true i=true first=5:681 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=67700 f=15200000000 playing=true i=true first=5:681 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=67700 f=15232000000 playing=true i=true first=5:681 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=67700 f=15264000000 playing=true i=true first=5:681 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=67800 f=15296000000 playing=true i=true first=5:681 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=67800 f=15328000000 playing=true i=true first=5:681 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=67800 f=15360000000 playing=true i=true first=5:681 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=67800 f=15392000000 playing=true i=true first=5:681 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=67900 f=15424000000 playing=true i=true first=5:681 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=67900 f=15456000000 playing=true i=true first=5:681 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=67900 f=15488000000 playing=true i=true first=5:681 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=67900 f=15520000000 playing=true i=true first=5:681 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=67900 f=15552000000 playing=true i=true first=5:681 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=67900 f=15584000000 playing=true i=true first=5:681 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=67900 f=15616000000 playing=true i=true first=5:681 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=67900 f=15648000000 playing=true i=true first=5:681 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=67900 f=15680000000 playing=true i=true first=5:681 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=67900 f=15712000000 playing=true i=true first=5:681 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=67900 f=15744000000 playing=true i=true first=5:681 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=67900 f=15776000000 playing=true i=true first=5:681 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=67900 f=15808000000 playing=true i=true first=5:681 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=67900 f=15840000000 playing=true i=true first=5:681 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=67900 f=15872000000 playing=true i=true first=5:681 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=67900 f=15904000000 playing=true i=true first=5:681 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=67900 f=15936000000 playing=true i=true first=5:681 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=67900 f=15968000000 playing=true i=true first=5:681 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=67900 f=16000000000 playing=true i=true first=5:681 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=67900 f=16032000000 playing=true i=true first=5:681 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=67900 f=16064000000 playing=true i=true first=5:681 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_MEASURE t=67900 f=16096000000 playing=true i=true first=5:681 listRoot=462.0 follow=1.5 insertion=0.0 nextRaw=773 nextY=1235.0 owned=0.0 lag=0.0
+PANEL_GAP 55-to-68-gap maxAdditionalPx=484.0 frames=949
+]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>
