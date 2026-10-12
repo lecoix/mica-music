@@ -27,8 +27,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.Composable
 import kotlinx.coroutines.delay
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -51,10 +51,10 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntOffset
@@ -190,6 +190,17 @@ internal fun ExpandedLyricsPanel(
     // It is keyed by real lyric identity, never by the shifting LazyColumn index.
     val preInterludeGeometry = remember(lyrics) { mutableMapOf<String, ExpandedLyricsInterludeReceipt>() }
     var debugListRootY by remember { mutableFloatStateOf(Float.NaN) }
+    val layoutTrace = remember(lyrics) { LyricsLayoutTrace() }
+    DisposableEffect(layoutTrace) {
+        onDispose { layoutTrace.close() }
+    }
+    val traceContext = {
+        val info = listState.layoutInfo
+        "position=$positionMs revision=${renderState.positionRevision} current=$currentIndex " +
+            "display=$currentDisplayItemIndex viewport=${info.viewportStartOffset}..${info.viewportEndOffset} " +
+            "first=${listState.firstVisibleItemIndex}:${listState.firstVisibleItemScrollOffset} " +
+            "logical=[${info.visibleItemsInfo.take(LyricsLayoutTrace.MAX_ROWS).joinToString(";") { "${it.index}:${it.offset}:${it.size}" }}]"
+    }
     val density = LocalDensity.current
     val lineHeightPx = with(density) { textStyle.lineHeight.toPx().toInt() }
     val translationLineHeightPx = with(density) { translationTextStyle.lineHeight.toPx().toInt() }
@@ -624,6 +635,10 @@ internal fun ExpandedLyricsPanel(
         debugLedger.followDeltaPx = scrollDistance ?: Float.NaN
         debugLedger.followTargetIndex = currentDisplayItemIndex
 
+        layoutTrace.event {
+            "follow-start mode=${followDecision.mode} distance=$scrollDistance snap=$needsSnap " +
+                "interlude=$interludeKey ${traceContext()}"
+        }
         if (followDecision.mode == ExpandedLyricsFollowMode.SPRING) {
             val springDistance = requireNotNull(scrollDistance)
             val scrollAnimation = TargetBasedAnimation(
@@ -659,6 +674,7 @@ internal fun ExpandedLyricsPanel(
                             delayedScrollPx = delayedScroll,
                         )
                     }
+                    layoutTrace.sample(traceContext)
                     if (playTimeNanos >= scrollAnimation.durationNanos + maxDelayNanos) break
                 }
                 }
@@ -697,6 +713,8 @@ internal fun ExpandedLyricsPanel(
         revealedLyricsKey = lyricsContentKey
         suppressedFollowIndex = followDecision.nextSuppressedIndex
         scrollAuthority.followSettled()
+        layoutTrace.sample(traceContext, force = true)
+        layoutTrace.event { "follow-end ${traceContext()}" }
     }
 
     LyricsAreaEdgeFade(
@@ -736,6 +754,9 @@ internal fun ExpandedLyricsPanel(
                     is ExpandedLyricDisplayItem.Line -> {
                         val index = item.lyricIndex
                         val line = item.line
+                        DisposableEffect(layoutTrace, index) {
+                            onDispose { layoutTrace.removed(index) }
+                        }
                         val isCurrent = timed && index == currentIndex
                         val lineScale by animateFloatAsState(
                             targetValue = if (isCurrent) 1f else 0.97f,
@@ -831,6 +852,21 @@ internal fun ExpandedLyricsPanel(
                                     scaleX = lineScale * pressScale.value
                                     scaleY = lineScale * pressScale.value
                                     translationY = staggerOffsetY + ownedMotion.translationFor(item.key)
+                                }
+                                .onGloballyPositioned { coordinates ->
+                                    if (layoutTrace.isEnabled()) {
+                                        layoutTrace.placed(index) {
+                                            if (!coordinates.isAttached) null else LyricsTracePlacement(
+                                                displayIndex = displayIndex,
+                                                keyHash = item.key.hashCode(),
+                                                timeMs = line.timeMs,
+                                                rootY = coordinates.positionInRoot().y,
+                                                heightPx = coordinates.size.height,
+                                                lagPx = staggerOffsets[displayIndex] ?: 0f,
+                                            )
+                                        }
+                                        layoutTrace.sample(traceContext)
+                                    }
                                 }
                                 .then(
                                     if (timed) {
