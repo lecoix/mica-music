@@ -130,7 +130,7 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -220,7 +220,13 @@ dependencies {
     implementation(libs.androidx.media3.common)
     implementation(libs.androidx.media3.session)
     implementation(libs.androidx.media3.datasource.okhttp)
-    implementation(libs.sardine.android)
+    implementation(libs.sardine.android) {
+        // Sardine's Gradle metadata omits the exclusions from its POM.
+        // Android supplies XmlPullParser; bundling xpp3 conflicts with it in R8.
+        exclude(group = "xpp3", module = "xpp3")
+        exclude(group = "stax", module = "stax-api")
+        exclude(group = "stax", module = "stax")
+    }
     implementation(libs.okhttp.digest)
     implementation(libs.smbj)
     implementation(libs.androidx.media)
