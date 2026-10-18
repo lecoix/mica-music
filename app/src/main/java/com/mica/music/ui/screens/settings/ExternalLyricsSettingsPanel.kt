@@ -39,6 +39,7 @@ internal fun ExternalLyricsSettingsPanel(
     val context = LocalContext.current
     val overlayControl = remember(context) { AndroidExternalLyricsOverlayControl(context) }
     var showExternalLyricsColors by remember { mutableStateOf(false) }
+    var showUnfilledColor by remember { mutableStateOf(false) }
 
     SettingsSectionTitle("输出方式")
 
@@ -212,7 +213,7 @@ internal fun ExternalLyricsSettingsPanel(
         )
 
         SettingsChoiceRow(
-            title = "外部歌词颜色",
+            title = "已填充歌词颜色",
             subtitle = "支持单色或最多四色渐变",
             choices = ExternalLyricsColorModeChoices,
             selectedValue = uiSettings.externalLyricsColorMode.ordinal,
@@ -238,7 +239,7 @@ internal fun ExternalLyricsSettingsPanel(
         }
 
         SettingsActionRow(
-            title = "编辑外部歌词颜色",
+            title = "编辑已填充歌词颜色",
             subtitle = "当前 ${uiSettings.externalLyricsColors.take(uiSettings.externalLyricsColorCount).joinToString { formatExternalLyricsHex(it) }}",
             onClick = { showExternalLyricsColors = true },
         )
@@ -257,6 +258,38 @@ internal fun ExternalLyricsSettingsPanel(
                     showExternalLyricsColors = false
                 },
             )
+        }
+
+        SettingsToggleRow(
+            title = "自定义未填充颜色",
+            subtitle = "关闭时跟随已填充的第一个颜色；透明度固定为 42%",
+            checked = uiSettings.externalLyricsUnfilledColorArgb != null,
+            onCheckedChange = { enabled ->
+                uiSettings.updateExternalLyricsUnfilledColorArgb(
+                    if (enabled) uiSettings.externalLyricsColors.first() else null,
+                )
+            },
+        )
+
+        uiSettings.externalLyricsUnfilledColorArgb?.let { unfilledColor ->
+            SettingsActionRow(
+                title = "编辑未填充歌词颜色",
+                subtitle = "当前 ${formatExternalLyricsHex(unfilledColor)}",
+                onClick = { showUnfilledColor = true },
+            )
+
+            if (showUnfilledColor) {
+                ExternalLyricsColorDialog(
+                    title = "未填充歌词颜色",
+                    initialColors = listOf(unfilledColor),
+                    colorCount = 1,
+                    onDismiss = { showUnfilledColor = false },
+                    onConfirm = { colors ->
+                        uiSettings.updateExternalLyricsUnfilledColorArgb(colors.first())
+                        showUnfilledColor = false
+                    },
+                )
+            }
         }
 
         SettingsSliderRow(

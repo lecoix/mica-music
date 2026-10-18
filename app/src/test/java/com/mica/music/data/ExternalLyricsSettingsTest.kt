@@ -6,6 +6,18 @@ import org.junit.Test
 
 class ExternalLyricsSettingsTest {
     @Test
+    fun unfilledColorFollowsFirstFillColorUnlessCustomized() {
+        val fill = 0xFF66CCFF.toInt()
+        val custom = 0xFFFF80B5.toInt()
+        val style = ExternalLyricsStyle(colorsArgb = listOf(fill))
+
+        assertEquals(fill, style.resolvedUnfilledColorArgb)
+        assertEquals(custom, style.copy(unfilledColorArgb = custom).resolvedUnfilledColorArgb)
+        assertEquals(fill, style.copy(unfilledColorArgb = custom).copy(unfilledColorArgb = null).resolvedUnfilledColorArgb)
+        assertEquals(DEFAULT_EXTERNAL_LYRICS_COLORS.first(), ExternalLyricsStyle(colorsArgb = emptyList()).resolvedUnfilledColorArgb)
+    }
+
+    @Test
     fun colorsAreBoundedToFourAndEmptyInputUsesDefaults() {
         assertEquals(MAX_EXTERNAL_LYRICS_COLORS, normalizeExternalLyricsColors((0..9).toList()).size)
         assertEquals(DEFAULT_EXTERNAL_LYRICS_COLORS, normalizeExternalLyricsColors(emptyList()))

@@ -104,6 +104,7 @@ object LyricsPreferences {
     private const val KEY_EXTERNAL_LYRICS_COLOR_COUNT = "external_lyrics_color_count"
     private const val KEY_EXTERNAL_LYRICS_GRADIENT_ANGLE = "external_lyrics_gradient_angle"
     private const val KEY_EXTERNAL_LYRICS_COLOR_PREFIX = "external_lyrics_color_"
+    private const val KEY_EXTERNAL_LYRICS_UNFILLED_COLOR = "external_lyrics_unfilled_color"
     private const val KEY_EXTERNAL_LYRICS_OPACITY_PERCENT = "external_lyrics_opacity_percent"
     private const val KEY_EXTERNAL_LYRICS_SHADOW_STRENGTH_PERCENT =
         "external_lyrics_shadow_strength_percent"
@@ -705,6 +706,16 @@ object LyricsPreferences {
         }.apply()
     }
 
+    fun externalLyricsUnfilledColorArgb(context: Context): Int? =
+        MicaSettingsStore.prefs(context).all[KEY_EXTERNAL_LYRICS_UNFILLED_COLOR] as? Int
+
+    fun setExternalLyricsUnfilledColorArgb(context: Context, colorArgb: Int?) {
+        MicaSettingsStore.prefs(context).edit().apply {
+            if (colorArgb == null) remove(KEY_EXTERNAL_LYRICS_UNFILLED_COLOR)
+            else putInt(KEY_EXTERNAL_LYRICS_UNFILLED_COLOR, colorArgb)
+        }.apply()
+    }
+
     fun externalLyricsOpacityPercent(context: Context): Int =
         externalLyricsEffectPercent(
             context,
@@ -742,6 +753,7 @@ object LyricsPreferences {
         visibilityMode = externalLyricsVisibilityMode(context),
         colorMode = externalLyricsColorMode(context),
         colorsArgb = externalLyricsColors(context),
+        unfilledColorArgb = externalLyricsUnfilledColorArgb(context),
         gradientAngleDegrees = externalLyricsGradientAngleDegrees(context),
         desktopOriginalFontSizeSp = desktopLyricsOriginalFontSizeSp(context),
         desktopTranslationFontSizeSp = desktopLyricsTranslationFontSizeSp(context),
@@ -805,6 +817,7 @@ object LyricsPreferences {
                 KEY_EXTERNAL_LYRICS_VISIBILITY_MODE,
                 KEY_EXTERNAL_LYRICS_COLOR_MODE,
                 KEY_EXTERNAL_LYRICS_COLOR_COUNT,
+                KEY_EXTERNAL_LYRICS_UNFILLED_COLOR,
                 KEY_EXTERNAL_LYRICS_GRADIENT_ANGLE,
                 KEY_EXTERNAL_LYRICS_OPACITY_PERCENT,
                 KEY_EXTERNAL_LYRICS_SHADOW_STRENGTH_PERCENT,

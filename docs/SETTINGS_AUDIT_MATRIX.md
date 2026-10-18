@@ -42,6 +42,17 @@
 | 车载蓝牙歌词输出 | `LyricsPreferences` / `notification_lyrics_enabled` | 与通知栏歌词共用 `NotificationLyricsCoordinator` 的歌词加载和边界调度；通知栏歌词开启时额外更新兼容车机的无队列媒体会话 | `CONDITIONAL` | 已合入通知栏歌词；保留 legacy session，需真车验收 |
 | 外部歌词输出 | `LyricsPreferences` / `external_lyrics_mode` 及桌面/状态栏子项（含 `status_bar_lyrics_horizontal_offset_dp`） | `ui/overlay/DesktopLyricsOverlayService`；桌面歌词和状态栏歌词互斥，并要求悬浮窗权限；状态栏左右微调直接更新悬浮窗 `LayoutParams.x` | `CONDITIONAL` | 已独立为“歌词 → 外部歌词”子页；只显示当前输出模式对应的位置、字号和排版子项 |
 | 已填充歌词透明度/阴影/发光 | `LyricsPreferences` / `external_lyrics_opacity_percent`、`external_lyrics_shadow_strength_percent`、`external_lyrics_glow_strength_percent` | `ui/overlay/DesktopLyricsOverlayService.ExternalLyricsLineText`；桌面与状态栏共享，0–100%；透明度只控制已填充文字且覆盖颜色内置 alpha，未填充文字固定为 42%；阴影为右下方向性窄柔影，发光为零偏移宽色晕 | `CONDITIONAL` | 放在外部歌词颜色之后；默认 100/100/0；阴影/发光不再受填充透明度联动，两种效果同时开启时相互衰减 |
+| 未填充歌词颜色 | `LyricsPreferences` / `external_lyrics_unfilled_color`（可空 Int，关闭自定义时删除 key） | 同一 `ExternalLyricsLineText` 的现有底层文字；桌面与状态栏共用；无值时跟随已填充的第一个颜色，自定义时固定为所选单色；透明度保持 42%，覆盖颜色内置 alpha | `CONDITIONAL` | “通用样式 → 自定义未填充颜色 → 编辑未填充歌词颜色”；应用后持久化，取消不提交草稿；关闭自定义清除所选颜色 |
+
+#### 未填充颜色的刷新与容量边界（2026-10-18）
+
+- 偏好写入 owner 仍为 `LyricsPreferences` / `MicaSettingsStore`，设置回调在 UI 线程串行更新一个 key；沿用 SharedPreferences 的有序 `apply()`，不新增 coroutine、IO 等待、解析或文件缓存。
+- 唯一异步边界是既有 `NotificationLyricsCoordinator` 偏好监听器的 `playerHandler.post`。排队事件只携带 DISPLAY 失效信号，不捕获旧颜色；执行时先检查 `released`，再由 `reconcile()` 重新读取最新偏好并经 `DesktopLyricsOverlayStateStore.setStyle` 发布。样式在 player looper 上串行发布；歌词加载的 generation/取消协议保持现状，不新增样式请求 generation。
+- `delayedUnfilledColorRefreshPublishesLatestPreferenceInsteadOfOldColor` 在偏好通知与样式发布边界暂存旧刷新，先提交/发布新颜色，再释放旧刷新，验证持久化及发布状态仍为新颜色；这是边界测试，不代表完整 Service/WindowManager 真机链路已验收。UI flow 覆盖搜索入口、自定义开关、模式切换、已保存颜色展示和关闭自定义。
+- 自动化限制：Robolectric API 34 下既有已填充取色器和新增未填充取色器均在打开后出现 Compose `AppNotIdleException`；编辑器/弹窗外壳单独可通过，组合测试超时，冻结时钟和 Legacy 图形模式均不能消除。临时诊断测试已清理；最终 JVM UI flow 不打开共享取色器，其结果不包含“应用/取消”交互。
+- 验证证据：`ExternalLyricsSettingsTest`（4）、`LyricsPreferencesRobolectricTest`（API 26/34，共 46）、`DesktopLyricsOverlayStateStoreTest`（5）及新增设置开关 UI flow（1）共 56 项通过；Debug Kotlin/测试编译、`:app:lintDebug`、测试分类 manifest 校验通过。测试范围不包含完整取色器交互。
+- 相对既有实现只增加固定数量的可空颜色值及一个偏好 key，复用现有 Text 绘制层；不增加歌词解析、曲库/歌词列表、纹理、ticker 或缓存。对 10,000 首完整逐字歌词、8 GB 手机的**本次改动增量**内存为 O(1)，与曲目数/歌词长度无关；这不是全应用内存峰值实测。
+- 2026-10-18 真机补充：小米 `22081212C` / Android 12、独立 `com.mica.music.qa` 当前工作区包，用自行生成的静音 WAV + 内嵌逐字歌词，确认取色器输入/预览、取消不提交、应用保存、冷启动保持、桌面/状态栏绿色未填充与白色已填充区，以及关闭自定义后恢复跟随白色。证据见 [实机记录](testing/EXTERNAL_LYRICS_UNFILLED_COLOR_DEVICE_SMOKE.md)。测试中 warm 外部打开出现一次明确的 FocusEvent 超时 ANR，原因及与本次改动的关系未确认；冷启动路径通过不能外推前后台切换稳定性。
 
 ### 播放与封面
 

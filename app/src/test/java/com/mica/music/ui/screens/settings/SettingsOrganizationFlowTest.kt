@@ -17,6 +17,7 @@ import com.github.takahirom.roborazzi.captureRoboImage
 import com.mica.music.audio.loudness.LoudnessScanPort
 import com.mica.music.audio.loudness.LoudnessScanState
 import com.mica.music.data.AppUiSettings
+import com.mica.music.data.ExternalLyricsMode
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.PlayerCoverFlowMode
 import com.mica.music.data.preferences.PreferencesTestFixtures
@@ -150,6 +151,27 @@ class SettingsOrganizationFlowTest {
         search("Lyricon", "词幕歌词")
         compose.onNodeWithTag("settings:lyrics.lyricon").assertIsDisplayed().performClick()
         compose.runOnIdle { assertTrue(AppUiSettings(compose.activity).lyriconLyricsEnabled) }
+    }
+
+    @Test fun unfilledOverlayColorTogglePersistsAcrossSurfacesAndRestoresFollowingFill() {
+        settings.updateExternalLyricsMode(ExternalLyricsMode.DESKTOP)
+        open()
+        search("未填充", "外部歌词")
+        compose.onNodeWithText("编辑未填充歌词颜色").assertDoesNotExist()
+        compose.onNodeWithText("自定义未填充颜色").performScrollTo().performClick()
+        compose.onNodeWithText("编辑未填充歌词颜色").performScrollTo().assertIsDisplayed()
+        compose.runOnIdle {
+            assertEquals(settings.externalLyricsColors.first(), AppUiSettings(compose.activity).externalLyricsUnfilledColorArgb)
+            settings.updateExternalLyricsUnfilledColorArgb(0xFFFF80B5.toInt())
+            settings.updateExternalLyricsMode(ExternalLyricsMode.STATUS_BAR)
+        }
+        compose.onNodeWithText("编辑未填充歌词颜色").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("当前 #FFFF80B5").assertIsDisplayed()
+        compose.onNodeWithText("自定义未填充颜色").performScrollTo().performClick()
+        compose.onNodeWithText("编辑未填充歌词颜色").assertDoesNotExist()
+        compose.runOnIdle {
+            assertNull(AppUiSettings(compose.activity).externalLyricsUnfilledColorArgb)
+        }
     }
 
     @Test fun missingWallpaperShowsPrerequisiteWithoutChangingPreferences() {

@@ -695,6 +695,7 @@ REVIEWED_TEST_CATEGORIES.update({
     ('SettingsOrganizationFlowTest', 'infoSearchDestinationSurvivesStateRestorationAndSystemBack'): IMPLEMENTATION_VERIFICATION,
     ('SettingsOrganizationFlowTest', 'landscapeSearchBringsInfoTargetIntoShortViewport'): IMPLEMENTATION_VERIFICATION,
     ('SettingsOrganizationFlowTest', 'lyriconSearchScrollsToActualToggleAndPersists'): IMPLEMENTATION_VERIFICATION,
+    ('SettingsOrganizationFlowTest', 'unfilledOverlayColorTogglePersistsAcrossSurfacesAndRestoresFollowingFill'): IMPLEMENTATION_VERIFICATION,
     ('SettingsOrganizationFlowTest', 'missingWallpaperShowsPrerequisiteWithoutChangingPreferences'): IMPLEMENTATION_VERIFICATION,
     ('SettingsOrganizationFlowTest', 'playbackInfoEntryOpensDetailsAndReturnsToParent'): IMPLEMENTATION_VERIFICATION,
     ('SettingsOrganizationFlowTest', 'searchOpensInfoRowAndPreservesQueryAndSavedText'): IMPLEMENTATION_VERIFICATION,

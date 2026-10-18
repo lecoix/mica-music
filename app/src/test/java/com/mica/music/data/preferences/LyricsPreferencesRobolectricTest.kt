@@ -247,6 +247,57 @@ class LyricsPreferencesRobolectricTest {
     }
 
     @Test
+    fun unfilledColorPersistsIndependentlyAndCanReturnToFollowingFill() {
+        val settings = com.mica.music.data.AppUiSettings(context)
+        val fill = 0xFF66CCFF.toInt()
+        val custom = 0xFFFF80B5.toInt()
+        assertEquals(null, settings.externalLyricsUnfilledColorArgb)
+        settings.updateExternalLyricsColors(listOf(fill))
+        assertEquals(fill, LyricsPreferences.externalLyricsStyle(context).resolvedUnfilledColorArgb)
+
+        settings.updateExternalLyricsUnfilledColorArgb(custom)
+        assertEquals(custom, com.mica.music.data.AppUiSettings(context).externalLyricsUnfilledColorArgb)
+        assertEquals(custom, LyricsPreferences.externalLyricsStyle(context).resolvedUnfilledColorArgb)
+        assertEquals(listOf(fill), LyricsPreferences.externalLyricsColors(context))
+
+        settings.updateExternalLyricsUnfilledColorArgb(null)
+        assertEquals(null, com.mica.music.data.AppUiSettings(context).externalLyricsUnfilledColorArgb)
+        assertEquals(fill, LyricsPreferences.externalLyricsStyle(context).resolvedUnfilledColorArgb)
+    }
+
+    @Test
+    fun delayedUnfilledColorRefreshPublishesLatestPreferenceInsteadOfOldColor() {
+        val store = com.mica.music.media.DesktopLyricsOverlayStateStore()
+        val pending = mutableListOf<() -> Unit>()
+        val unregister = LyricsPreferences.registerNotificationLyricsChangeListener(context) { change ->
+            assertEquals(LyricsPreferences.NotificationLyricsChange.DISPLAY, change)
+            // Like the coordinator's posted refresh: read preferences only when it executes.
+            pending.add { store.setStyle(LyricsPreferences.externalLyricsStyle(context)) }
+        }
+        try {
+            LyricsPreferences.setExternalLyricsUnfilledColorArgb(context, 0xFFFF0000.toInt())
+            assertEquals(1, pending.size)
+            val oldRefresh = pending.removeAt(0)
+
+            LyricsPreferences.setExternalLyricsUnfilledColorArgb(context, 0xFF00FF00.toInt())
+            assertEquals(1, pending.size)
+            pending.removeAt(0).invoke()
+            assertEquals(0xFF00FF00.toInt(), store.state.value.style.resolvedUnfilledColorArgb)
+
+            oldRefresh()
+            assertEquals(0xFF00FF00.toInt(), store.state.value.style.resolvedUnfilledColorArgb)
+            assertEquals(0xFF00FF00.toInt(), LyricsPreferences.externalLyricsUnfilledColorArgb(context))
+
+            LyricsPreferences.setExternalLyricsUnfilledColorArgb(context, null)
+            assertEquals(1, pending.size)
+            pending.removeAt(0).invoke()
+            assertEquals(null, store.state.value.style.unfilledColorArgb)
+        } finally {
+            unregister()
+        }
+    }
+
+    @Test
     fun externalLyricsEffectChangesInvalidateTheLiveDisplay() {
         val changes = mutableListOf<LyricsPreferences.NotificationLyricsChange>()
         val unregister = LyricsPreferences.registerNotificationLyricsChangeListener(context, changes::add)

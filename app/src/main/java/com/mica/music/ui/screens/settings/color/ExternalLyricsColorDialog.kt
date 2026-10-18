@@ -25,6 +25,7 @@ internal fun ExternalLyricsColorDialog(
     colorCount: Int,
     onDismiss: () -> Unit,
     onConfirm: (List<Int>) -> Unit,
+    title: String = "已填充歌词颜色",
 ) {
     val safeCount = colorCount.coerceIn(1, MAX_EXTERNAL_LYRICS_COLORS)
     val defaults = (initialColors + DEFAULT_EXTERNAL_LYRICS_COLORS).take(MAX_EXTERNAL_LYRICS_COLORS)
@@ -39,7 +40,7 @@ internal fun ExternalLyricsColorDialog(
         shape = RectangleShape,
         title = {
             Text(
-                text = "桌面歌词颜色",
+                text = title,
                 style = MicaTheme.typography.titleMd,
                 color = MicaTheme.colors.textPrimary,
             )

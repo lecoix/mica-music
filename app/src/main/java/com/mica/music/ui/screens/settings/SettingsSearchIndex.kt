@@ -140,6 +140,7 @@ internal object SettingsSearchIndex {
             "lyrics.external",
             "外部歌词",
             "桌面歌词", "状态栏歌词", "悬浮窗", "overlay", "外部歌词输出",
+            "未填充", "未填充颜色", "已填充颜色",
             category = SettingsCategory.LYRICS,
             section = SettingsIndexSections.LYRICS_OUTPUT,
             availability = "需要悬浮窗权限；桌面歌词与状态栏歌词互斥",

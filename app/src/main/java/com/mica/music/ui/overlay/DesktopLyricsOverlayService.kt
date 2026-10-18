@@ -654,7 +654,7 @@ private fun ExternalLyricsLineText(
     val renderedFillFraction = externalLyricsFillFraction(text, line, positionMs)
     var textLayout by remember(text.text, fontSizeSp) { androidx.compose.runtime.mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
     val primaryColor = Color(style.normalizedColors.first())
-    val baseColor = primaryColor.copy(alpha = ExternalLyricsUnfilledAlpha)
+    val baseColor = Color(style.resolvedUnfilledColorArgb).copy(alpha = ExternalLyricsUnfilledAlpha)
 
     val marqueeModifier = if (marquee) {
         Modifier
