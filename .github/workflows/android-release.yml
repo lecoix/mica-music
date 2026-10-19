@@ -153,6 +153,8 @@ jobs:
             --no-configuration-cache
           ./gradlew :app:assembleRelease \
             --no-configuration-cache \
+            --max-workers=1 --no-parallel \
+            "-Dorg.gradle.jvmargs=-Xmx4096m -Dfile.encoding=UTF-8" \
             -Pmica.abiSplitApks=true \
             -Pmica.update.domesticUrl="$UPDATE_DOMESTIC_MANIFEST_URL"
 
