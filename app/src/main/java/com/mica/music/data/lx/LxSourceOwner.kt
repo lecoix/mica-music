@@ -66,6 +66,13 @@ internal data class LxOnlineSearchState(
     val hasMore: Boolean = false,
 )
 
+internal data class LxArtworkResource(
+    val ref: RemoteArtworkRef,
+    val bytes: ByteArray,
+    val generation: Long,
+    val revision: Long,
+)
+
 /** Script and online admission share one publication gate. Never writes the local/remote catalog. */
 internal class LxSourceOwner(
     private val store: LxScriptStore,
@@ -76,8 +83,8 @@ internal class LxSourceOwner(
     private val onlineRecoveryMutex = Mutex()
     // Resource caches and source mutations share one publication gate.
     private val lyricCache = LyricsDocumentMemoryCache()
-    private val artworkCache = object : LruCache<String, ByteArray>(16 * 1024 * 1024) {
-        override fun sizeOf(key: String, value: ByteArray) = value.size.coerceAtLeast(16 * 1024)
+    private val artworkCache = object : LruCache<String, LxArtworkResource>(16 * 1024 * 1024) {
+        override fun sizeOf(key: String, value: LxArtworkResource) = value.bytes.size.coerceAtLeast(16 * 1024)
     }
     private val resourcePermits = Semaphore(2)
     private val prefetchPermits = Semaphore(1)
@@ -151,7 +158,7 @@ internal class LxSourceOwner(
     internal suspend fun onlineArtwork(
         ref: RemoteArtworkRef,
         loader: suspend (String) -> ByteArray,
-    ): ByteArray? = resourcePermits.withPermit {
+    ): LxArtworkResource? = resourcePermits.withPermit {
         withContext(Dispatchers.IO) {
             val key = ref.sourceInstanceId + ":" + ref.opaqueArtworkId
             val capture = synchronized(gate) {
@@ -166,15 +173,17 @@ internal class LxSourceOwner(
             synchronized(gate) {
                 current(capture.first)
                 check(resourceRevision == capture.second) { "在线歌曲元数据已变更" }
-                artworkCache.put(key, loaded)
-                loaded
+                artworkCache.get(key) ?: LxArtworkResource(ref, loaded, capture.first, capture.second).also {
+                    artworkCache.put(key, it)
+                }
             }
         }
     }
 
-    /** Each pipe write is fenced against source/record invalidation using cache identity. */
-    internal fun <T> publishOnlineArtwork(ref: RemoteArtworkRef, bytes: ByteArray, write: () -> T): T = synchronized(gate) {
-        check(!released && artworkCache.get(ref.sourceInstanceId + ":" + ref.opaqueArtworkId) === bytes) {
+    /** Cache eviction is a memory policy, not source invalidation: accepted streams retain their token. */
+    internal fun <T> publishOnlineArtwork(ref: RemoteArtworkRef, resource: LxArtworkResource, write: () -> T): T = synchronized(gate) {
+        current(resource.generation)
+        check(resource.ref == ref && resource.revision == resourceRevision) {
             "在线封面已失效"
         }
         write()

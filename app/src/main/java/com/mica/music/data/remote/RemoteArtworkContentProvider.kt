@@ -7,7 +7,7 @@ import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.system.Os
 import android.system.OsConstants
-import android.system.ErrnoException
+import android.system.StructPollfd
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeout
 import com.mica.music.MicaApp
@@ -195,27 +195,24 @@ class RemoteArtworkContentProvider : ContentProvider() {
     private fun openLxArtwork(app: MicaApp, ref: RemoteArtworkRef): ParcelFileDescriptor {
         val pipe = ParcelFileDescriptor.createPipe()
         val fd = pipe[1].fileDescriptor
-        try {
-            Os.fcntlInt(fd, OsConstants.F_SETFL, Os.fcntlInt(fd, OsConstants.F_GETFL, 0) or OsConstants.O_NONBLOCK)
-        } catch (failure: Exception) {
-            pipe.forEach { it.close() }
-            throw failure
-        }
         scope.launch {
             pipe[1].use {
                 runCatching {
-                    val bytes = app.lxSourceOwner.onlineArtwork(ref, ::loadLxArtwork)
+                    val resource = app.lxSourceOwner.onlineArtwork(ref, ::loadLxArtwork)
                         ?: throw FileNotFoundException("LX artwork is unavailable")
+                    val bytes = resource.bytes
                     withTimeout(15_000) {
+                        val writable = arrayOf(StructPollfd().apply {
+                            this.fd = fd
+                            events = OsConstants.POLLOUT.toShort()
+                        })
                         var offset = 0
                         while (offset < bytes.size) {
-                            // A reader that stops draining must not block the source owner gate.
-                            val written = app.lxSourceOwner.publishOnlineArtwork(ref, bytes) {
-                                try {
-                                    Os.write(fd, bytes, offset, minOf(4096, bytes.size - offset))
-                                } catch (failure: ErrnoException) {
-                                    if (failure.errno == OsConstants.EAGAIN) 0 else throw failure
-                                }
+                            if (Os.poll(writable, 0) == 0) { delay(10); continue }
+                            // This pipe has one writer. POLLOUT plus a write <= PIPE_BUF
+                            // avoids waiting for a slow reader while holding the owner gate.
+                            val written = app.lxSourceOwner.publishOnlineArtwork(ref, resource) {
+                                Os.write(fd, bytes, offset, minOf(4096, bytes.size - offset))
                             }
                             if (written == 0) delay(10) else offset += written
                         }

@@ -45,6 +45,20 @@ class LxResourcePublicationTest {
         owner.close()
     }
 
+    @Test fun cacheEvictionDoesNotRevokeAnAcceptedArtworkStream() = runBlocking {
+        val owner = owner()
+        owner.importScript { "/**\n * @name One\n */" }
+        val tracks = (1..3).map { admit(owner, row.copy(id = "C" + it)) }
+        val refs = tracks.map { RemoteArtworkRef(it.ref.sourceInstanceId, it.ref.opaqueTrackId) }
+        val first = requireNotNull(owner.onlineArtwork(refs[0]) { ByteArray(8 * 1024 * 1024) { 1 } })
+        owner.onlineArtwork(refs[1]) { ByteArray(8 * 1024 * 1024) { 2 } }
+        owner.onlineArtwork(refs[2]) { ByteArray(8 * 1024 * 1024) { 3 } }
+        val output = java.io.ByteArrayOutputStream()
+        owner.publishOnlineArtwork(refs[0], first) { output.write(first.bytes[0].toInt()) }
+        assertArrayEquals(byteArrayOf(1), output.toByteArray())
+        owner.close()
+    }
+
     @Test fun invalidatedArtworkCannotWriteToObserver() = runBlocking {
         val owner = owner()
         owner.importScript { "/**\n * @name One\n */" }
@@ -54,8 +68,8 @@ class LxResourcePublicationTest {
         val output = java.io.ByteArrayOutputStream()
         owner.importScript { "/**\n * @name Two\n */" }
         val freshBytes = requireNotNull(owner.onlineArtwork(ref) { byteArrayOf(2) })
-        owner.publishOnlineArtwork(ref, freshBytes) { output.write(freshBytes) }
-        assertTrue(runCatching { owner.publishOnlineArtwork(ref, oldBytes) { output.write(oldBytes) } }.isFailure)
+        owner.publishOnlineArtwork(ref, freshBytes) { output.write(freshBytes.bytes) }
+        assertTrue(runCatching { owner.publishOnlineArtwork(ref, oldBytes) { output.write(oldBytes.bytes) } }.isFailure)
         assertArrayEquals(byteArrayOf(2), output.toByteArray())
         owner.close()
     }
@@ -76,12 +90,12 @@ class LxResourcePublicationTest {
                 admit(owner, row.copy(musicInfo = row.musicInfo.replace("old.jpg", "new.jpg")))
                 assertArrayEquals(byteArrayOf(2), owner.onlineArtwork(ref) { url ->
                     assertTrue(url.endsWith("new.jpg")); byteArrayOf(2)
-                })
+                }?.bytes)
             }
             release.complete(Unit)
             assertTrue(old.await().isFailure)
             if (!close) {
-                assertArrayEquals(byteArrayOf(2), owner.onlineArtwork(ref) { error("fresh cache was lost") })
+                assertArrayEquals(byteArrayOf(2), owner.onlineArtwork(ref) { error("fresh cache was lost") }?.bytes)
                 owner.close()
             }
         }

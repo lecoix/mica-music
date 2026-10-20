@@ -24,10 +24,10 @@
 | 在线搜索/选择 | generation/searchRequest、结果对象身份 | 网络返回及 IO→Main 交接后复验；SQLite write/read 与 onlineTracks 发布同 gate；歌单交接后由 PlaylistStore mutationMutex/revision 管理 | LxOnlineOwnerTest、LxOnlineStorageTest，覆盖实际 SQLite 与歌单持久化 |
 | 在线音频地址/运行时恢复 | generation/scriptId/runtime identity | musicUrl、恢复 mutex、初始化和重试返回后复验，URL 发布走 gate；不持久化短期音频 URL | LxOnlineOwnerTest，延迟旧结果与恢复后新 runtime |
 | LX 歌词 | generation/resourceRevision | semaphore、IO、网络/解析后复验；仅 owner gate 内写入独立有界歌词缓存；源变更、记录更新和 close 在同 gate 清缓存 | LxResourcePublicationTest：让旧非取消加载停住，完成新加载后释放旧加载，检查新缓存仍在 |
-| LX 封面 | generation/resourceRevision、缓存 bytes identity | 网络结束后在 gate 内落内存；每段非阻塞 pipe 写前 gate 内复验；EAGAIN 等待后再次复验，15s 输出超时；不落磁盘 | LxResourcePublicationTest：旧加载不能回填、旧 bytes 不能向观察者输出；Android smoke test 源码编译 |
+| LX 封面 | generation/resourceRevision、已接受资源 token | 网络结束后在 gate 内落内存；单 writer 在 poll(POLLOUT) 就绪后写不超过 PIPE_BUF 的片段，写前 gate 内复验；等待后再次复验，15s 输出超时；不落磁盘 | LxResourcePublicationTest：旧加载不能回填、旧资源不能向观察者输出，LRU 淘汰不撤销同代际已接受的输出；Android smoke test 源码编译 |
 | 正式远端/本地 snapshot | 原 0.4.4 owner 协议 | 未把 LX 作为 RemoteCatalogRepository 的全量 snapshot writer，原 storeSyncMutex/scanGeneration/storeRevision 路径保留 | 原回归套件 |
 
-封面非阻塞写 API：Android [Os](https://developer.android.com/reference/android/system/Os)。未连接设备时，不能把编译或 JVM 测试当成实际 native pipe、QuickJS、MediaSession 播放验收。
+封面 poll/write API：Android [Os](https://developer.android.com/reference/android/system/Os)。未连接设备时，不能把编译或 JVM 测试当成实际 native pipe、QuickJS、MediaSession 播放验收。
 
 ## 一万首歌曲 / 完整逐字歌词 / 8 GB Android 的容量边界
 
@@ -47,9 +47,10 @@
 2026-10-20 本地结果：
 
 - Kotlin 主程序与 Android 测试源码编译通过。
-- 完整 JVM 套件 418 个 suite / 2,574 项测试，0 failure / 0 error。
+- 迁移后完整 JVM 套件 418 个 suite / 2,574 项测试，0 failure / 0 error。最后的封面资源 token / QuickJS 3.2.3 适配后，LX 与更新通道定向回归 7 个 suite / 31 项测试再次全部通过，包含新增 LRU 淘汰测试。
 - 10,000 条近 8 KiB 元数据容量测试通过（本机 Robolectric 约 5.4 秒，不代表手机耗时）。
 - JS preload 协议 5 项测试通过；LX 版本/更新清单静态检查通过。
 - 本机原生构建最初被 C_INCLUDE_PATH=C:\mingw\include 污染；仅对构建进程移除相关变量后重跑，未修改音频源码。
+- 最终本地 lint 为 0 error（468 条 warning）；R8 release 构建通过。三个本地未签名 APK 的 applicationId、版本、名称、Provider authorities、原生库完整性及全部 ARM64 ELF 16 KB 对齐检查通过。
 - 签名/三个 ABI APK 的最终验证由独立发布流水线执行，未通过不会创建 Release。
 - adb 未发现设备；本轮未执行 connectedAndroidTest。旧 VALIDATION.md 只作历史证据。
