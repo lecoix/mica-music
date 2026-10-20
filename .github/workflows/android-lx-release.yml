@@ -1,0 +1,95 @@
+name: Android LX prerelease
+
+on:
+  push:
+    tags: ["lx-v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "LX tag, e.g. lx-v0.4.4-lx.1"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-lx-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: |
+            17
+            21
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Validate isolated release identity
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          python3 scripts/verify_lx_release.py --tag "$TAG"
+          test "$(git rev-parse "refs/tags/$TAG^{commit}")" = "$GITHUB_SHA"
+      - name: Test
+        run: |
+          chmod +x gradlew
+          node --test tools/test-lx-preload.cjs
+          ./gradlew :app:compileDebugKotlin :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-configuration-cache --max-workers=2 --no-parallel
+      - name: Decode signing key
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          test -n "$KEYSTORE"
+          printf '%s' "$KEYSTORE" | base64 --decode > "$RUNNER_TEMP/mica-release.jks"
+      - name: Assemble signed APKs
+        env:
+          MICA_KEYSTORE_FILE: ${{ runner.temp }}/mica-release.jks
+          MICA_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          MICA_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          MICA_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "$MICA_KEYSTORE_PASSWORD" && test -n "$MICA_KEY_ALIAS" && test -n "$MICA_KEY_PASSWORD"
+          ./gradlew :app:assembleRelease --no-configuration-cache --max-workers=1 --no-parallel '-Dorg.gradle.jvmargs=-Xmx4096m -Dfile.encoding=UTF-8' -Pmica.abiSplitApks=true
+      - name: Verify APK identity, native libraries and signatures
+        run: |
+          set -euo pipefail
+          VERSION="$(python3 -c 'import json; print(json.load(open("updates/lx.json"))["versionName"])')"
+          bash scripts/prepare_release_apks.sh app/build/outputs/apk/release release-apks "$VERSION" release
+          BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
+          python3 scripts/verify_lx_release.py --apks release-apks --aapt "$BUILD_TOOLS/aapt"
+          for apk in release-apks/*.apk; do "$BUILD_TOOLS/apksigner" verify --verbose "$apk"; done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mica-lx-apks
+          path: release-apks/*.apk
+          if-no-files-found: error
+          retention-days: 90
+      - name: Publish isolated prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          # No Pages deployment, stable update.json change, or Latest release promotion.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release already exists; refusing to overwrite published assets" >&2
+            exit 1
+          fi
+          gh release create "$TAG" release-apks/*.apk --verify-tag --prerelease --latest=false --title "Mica LX $TAG" --notes-file docs/lx-experiment/RELEASE_NOTES.md
+      - name: Remove temporary signing key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/mica-release.jks"

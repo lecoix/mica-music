@@ -88,6 +88,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 "Albums" -> StartupBrowseTarget.ALBUMS
                 else -> StartupBrowseTarget.NONE
             }
+            app.lxSourceOwner.loadOnline()
             library.loadCachedLibrary(startupBrowseTarget)
             // The identity migration runs inside the library DB load. Refresh the eagerly
             // constructed preference-backed playlist store after that migration completes.
@@ -123,7 +124,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun resolveSong(id: String): Song? =
-        transientPlaybackCatalog.songById(id) ?: library.songById(id)
+        transientPlaybackCatalog.songById(id) ?: library.songById(id) ?: app.lxSourceOwner.onlineTracks.value[id]?.toPlaybackSong()
 
     fun refreshSongMetadataAfterTagEditor(songId: String) {
         library.launchRefreshSongMetadata(songId)

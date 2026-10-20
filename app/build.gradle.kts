@@ -19,6 +19,9 @@ val qaApplicationIdOverride = providers.gradleProperty("mica.qaApplicationId")
     .orNull
     ?.trim()
     ?.takeIf(String::isNotEmpty)
+require(qaApplicationIdOverride == null || qaApplicationIdOverride.startsWith("com.mica.music.lx.")) {
+    "LX builds must use a separate com.mica.music.lx package"
+}
 val abiSplitApks = providers.gradleProperty("mica.abiSplitApks")
     .map(String::toBoolean)
     .getOrElse(false)
@@ -48,7 +51,7 @@ val updateDomesticManifestUrl = providers.gradleProperty("mica.update.domesticUr
 val updateInternationalManifestUrl = providers.gradleProperty("mica.update.internationalUrl")
     .orNull
     ?.takeIf { it.isNotBlank() }
-    ?: "https://lecoix.github.io/mica-music/update.json"
+    ?: "https://raw.githubusercontent.com/lecoix/mica-music/codex/lx-standalone-044/updates/lx.json"
 
 android {
     namespace = "com.mica.music"
@@ -61,11 +64,11 @@ android {
         // The 1.5 s frame/log capture is opt-in and must not burden ordinary track switches.
         buildConfigField("boolean", "TRACK_SWITCH_PERFORMANCE", (providers.gradleProperty("mica.trackSwitchPerformance").orNull == "true").toString())
         applicationId = qaApplicationIdOverride
-            ?: if (qaSideBySide) "com.mica.music.qa" else "com.mica.music"
+            ?: if (qaSideBySide) "com.mica.music.lx.qa" else "com.mica.music.lx"
         minSdk = 26
         targetSdk = 36
-        versionCode = 59
-        versionName = "0.4.4" + if (qaSideBySide) "-qa" else ""
+        versionCode = 1
+        versionName = "0.4.4-lx.1" + if (qaSideBySide) "-qa" else ""
         buildConfigField(
             "String",
             "UPDATE_DOMESTIC_MANIFEST_URL",
@@ -77,9 +80,7 @@ android {
             buildConfigString(updateInternationalManifestUrl),
         )
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        // Reuse the established test-only package for side-by-side QA so MIUI can update it
-        // without requiring a new-package install confirmation; instrumentation still targets applicationId.
-        testApplicationId = "com.mica.music.test"
+        testApplicationId = "${applicationId}.test"
         ndk {
             // Package both supported ABIs; each self-owned native library must exist for both.
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
@@ -194,6 +195,7 @@ configurations.configureEach {
 }
 
 dependencies {
+    implementation("wang.harlon.quickjs:wrapper-android:2.4.0")
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.documentfile)
     implementation(libs.androidx.lifecycle.runtime.ktx)

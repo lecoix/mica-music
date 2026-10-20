@@ -103,7 +103,7 @@ fun AboutScreen(
 
             SettingsSectionTitle("版本")
             AboutInfoRow(
-                title = "Mica Music",
+                title = "Mica LX",
                 subtitle = versionName,
                 onClick = onOpenVersionUpdate,
             )
@@ -124,6 +124,8 @@ fun AboutScreen(
             LicenseRow("FFmpeg（libffmpegJNI.so 内静态链接）", "LGPL 2.1+；当前仓库构建脚本未启用 GPL 或 nonfree 组件")
             LicenseRow("Kotlin / Kotlinx Coroutines", "Apache License 2.0")
             LicenseRow("OkHttp", "Apache License 2.0")
+            LicenseRow("LX Music Mobile preload（实验兼容层）", "Apache License 2.0 · lyswhut")
+            LicenseRow("QuickJS wrapper 2.4.0 / QuickJS", "Apache License 2.0 / MIT")
             LicenseRow("sardine-android（WebDAV）", "Apache License 2.0")
             LicenseRow("okhttp-digest（WebDAV Digest）", "Apache License 2.0")
             LicenseRow("smbj（SMB2 / SMB3；未启用 SMB1）", "Apache License 2.0")
@@ -235,7 +237,7 @@ private fun AboutHero() {
             .padding(horizontal = HifiSpacing.lg, vertical = HifiSpacing.md),
     ) {
         Text(
-            text = "Mica",
+            text = "Mica LX",
             style = MicaTheme.typography.titleLg,
             color = MicaTheme.colors.textPrimary,
         )

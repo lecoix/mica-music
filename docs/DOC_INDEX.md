@@ -37,6 +37,8 @@
 
 ## 仍有价值（专项）
 
+- [`lx-experiment/README.md`](lx-experiment/README.md) — 独立工作树 LX 脚本基础兼容实验：试用、协议边界、owner/代际审查、验证证据；未宣称第三方或实机验收通过。
+
 - [`USAGE_TUTORIAL.md`](USAGE_TUTORIAL.md) — 首次使用技巧教程：Compose 示意、完成记录、重看入口、动效与容量边界。
 
 | 文档 | 用途 |

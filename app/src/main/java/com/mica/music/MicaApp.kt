@@ -46,8 +46,14 @@ import com.mica.music.playback.PlaybackExecutionState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.collectLatest
+import com.mica.music.data.remote.toPlaybackSong
 
 class MicaApp : Application() {
+    internal val lxSourceOwner by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        com.mica.music.data.lx.LxSourceOwner(com.mica.music.data.lx.AndroidLxScriptStore(this), com.mica.music.data.lx.AndroidLxOnlineStore(this)) {
+            com.mica.music.data.lx.QuickJsLxRuntime(this)
+        }
+    }
     /** Process-lifetime scope for playback behavior that must outlive Activity/ViewModel owners. */
     private val processScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
@@ -84,11 +90,15 @@ class MicaApp : Application() {
 
     /** Process-lifetime on-demand remote lyric loader; remote sync never fetches lyric payloads. */
     val remoteLyricsRepository: RemoteLyricsRepository by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
-        RemoteLyricsRepository(remoteCatalogRepository, remoteCredentialStore, context = this)
+        RemoteLyricsRepository(remoteCatalogRepository, remoteCredentialStore, context = this) { ref, isPrefetch ->
+            lxSourceOwner.onlineLyrics(ref, isPrefetch)
+        }
     }
 
     /** Process-lifetime playback lookup; it must not capture a ViewModel or Activity callback. */
-    val playbackSongResolver = ProcessPlaybackSongResolver(transientPlaybackCatalog)
+    val playbackSongResolver = ProcessPlaybackSongResolver(transientPlaybackCatalog) { id ->
+        lxSourceOwner.onlineTracks.value[id]?.toPlaybackSong()
+    }
 
     /** UI-facing loudness scan seam; decoding/persistence remains owned by media. */
     val loudnessScanPort: LoudnessScanPort by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {

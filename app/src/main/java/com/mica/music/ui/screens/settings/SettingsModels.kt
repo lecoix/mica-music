@@ -241,4 +241,8 @@ internal enum class SettingsCategory(
         title = "诊断与系统",
         subtitle = "元数据调试、空间音频、系统权限",
     ),
+    ONLINE_MUSIC(
+        title = "在线音乐",
+        subtitle = "在线搜索、默认播放音质、音源管理",
+    ),
 }

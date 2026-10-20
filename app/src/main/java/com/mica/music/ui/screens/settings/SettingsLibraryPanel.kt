@@ -27,7 +27,6 @@ internal fun LibraryScanSettingsPanel(
     onOpenRemoteMusic: () -> Unit,
 ) {
     SettingsSectionTitle("曲库来源")
-
     SettingsToggleRow(
         title = "在侧栏显示远程曲库",
         modifier = settingsSearchAnchor("library.remote-sidebar"),

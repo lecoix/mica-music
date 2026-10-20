@@ -155,6 +155,13 @@ internal object SettingsSearchIndex {
         setting("lyrics.classic-immersive", "经典列表：沉浸模式", "沉浸", "全屏", category = SettingsCategory.LYRICS, section = SettingsIndexSections.LYRICS_CLASSIC, availability = "仅经典列表主题"),
         setting("lyrics.font", "歌词字体", "字体", "TTF", "OTF", "系统默认", "导入", "重新导入", category = SettingsCategory.LYRICS, section = SettingsIndexSections.LYRICS_FONT),
 
+        setting(
+            "library.online",
+            "在线音乐",
+            "在线搜索", "音源", "导入音源", "替换音源", "启用音源", "重新初始化", "删除音源",
+            "默认播放音质", "128k", "320k", "无损", "每次询问", "TX", "KW", "WY", "KG",
+            category = SettingsCategory.ONLINE_MUSIC,
+        ),
         setting("library.remote", "远程曲库", "Navidrome", "OpenSubsonic", "WebDAV", "SMB", "网络音乐", "远程来源", "自动同步", "后台同步", category = SettingsCategory.LIBRARY, section = SettingsIndexSections.LIBRARY_SOURCE),
         setting(
             "library.remote-sidebar",

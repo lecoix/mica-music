@@ -5,7 +5,14 @@ import android.content.ContentValues
 import android.database.Cursor
 import android.net.Uri
 import android.os.ParcelFileDescriptor
+import android.system.Os
+import android.system.OsConstants
+import android.system.ErrnoException
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeout
 import com.mica.music.MicaApp
+import com.mica.music.data.lx.lxOnlinePlatformForSource
+import com.mica.music.data.lx.readBytesBounded
 import com.mica.music.data.remote.navidrome.NavidromeArtworkHttpStreamer
 import com.mica.music.data.remote.navidrome.NavidromeArtworkRequestResolver
 import com.mica.music.data.remote.smb.SmbArtworkByteLoader
@@ -19,6 +26,10 @@ import com.mica.music.data.remote.webdav.WebDavEmbeddedArtworkRequestResolver
 import com.mica.music.util.DiagnosticLog
 import java.io.ByteArrayOutputStream
 import java.io.FileNotFoundException
+import java.io.IOException
+import java.util.concurrent.TimeUnit
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -47,6 +58,9 @@ class RemoteArtworkContentProvider : ContentProvider() {
             ),
         )
     }
+    private val lxArtworkClient = OkHttpClient.Builder()
+        .callTimeout(15, TimeUnit.SECONDS)
+        .build()
 
     override fun onCreate(): Boolean = true
 
@@ -78,6 +92,7 @@ class RemoteArtworkContentProvider : ContentProvider() {
             ?: throw FileNotFoundException("Invalid remote artwork URI")
         val app = context?.applicationContext as? MicaApp
             ?: throw FileNotFoundException("Remote artwork provider is unavailable")
+        if (lxOnlinePlatformForSource(ref.sourceInstanceId) != null) return openLxArtwork(app, ref)
         val request = runBlocking(Dispatchers.IO) { resolveRequest(app, ref) }
             ?: throw FileNotFoundException("Remote artwork source is unavailable")
         val catalogRevision = runBlocking(Dispatchers.IO) {
@@ -175,6 +190,52 @@ class RemoteArtworkContentProvider : ContentProvider() {
             credentialRevision = smbEmbedded.credentialRevision,
             load = { com.mica.music.data.remote.smb.SmbOptionalIo.runWhenSourceReady(smbEmbedded.sourceInstanceId) { smbEmbeddedLoader.load(smbEmbedded) } },
         )
+    }
+
+    private fun openLxArtwork(app: MicaApp, ref: RemoteArtworkRef): ParcelFileDescriptor {
+        val pipe = ParcelFileDescriptor.createPipe()
+        val fd = pipe[1].fileDescriptor
+        try {
+            Os.fcntlInt(fd, OsConstants.F_SETFL, Os.fcntlInt(fd, OsConstants.F_GETFL, 0) or OsConstants.O_NONBLOCK)
+        } catch (failure: Exception) {
+            pipe.forEach { it.close() }
+            throw failure
+        }
+        scope.launch {
+            pipe[1].use {
+                runCatching {
+                    val bytes = app.lxSourceOwner.onlineArtwork(ref, ::loadLxArtwork)
+                        ?: throw FileNotFoundException("LX artwork is unavailable")
+                    withTimeout(15_000) {
+                        var offset = 0
+                        while (offset < bytes.size) {
+                            // A reader that stops draining must not block the source owner gate.
+                            val written = app.lxSourceOwner.publishOnlineArtwork(ref, bytes) {
+                                try {
+                                    Os.write(fd, bytes, offset, minOf(4096, bytes.size - offset))
+                                } catch (failure: ErrnoException) {
+                                    if (failure.errno == OsConstants.EAGAIN) 0 else throw failure
+                                }
+                            }
+                            if (written == 0) delay(10) else offset += written
+                        }
+                    }
+                }.onFailure {
+                    DiagnosticLog.event("LXArtwork", "stream-failed error=" + it.javaClass.simpleName)
+                }
+            }
+        }
+        return pipe[0]
+    }
+
+    private fun loadLxArtwork(url: String): ByteArray = lxArtworkClient.newCall(
+        Request.Builder().url(url).get().build(),
+    ).execute().use { response ->
+        if (!response.isSuccessful) throw IOException("LX artwork HTTP ${response.code}")
+        val contentType = response.header("Content-Type").orEmpty().lowercase()
+        if (!contentType.startsWith("image/")) throw IOException("LX artwork response is not an image")
+        response.body?.byteStream()?.use { it.readBytesBounded(8 * 1024 * 1024) }
+            ?: throw IOException("LX artwork response is empty")
     }
 }
 

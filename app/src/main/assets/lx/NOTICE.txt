@@ -1,0 +1,19 @@
+Mica LX source experiment
+
+user-api-preload.js is adapted from LX Music Mobile by lyswhut and contributors.
+Source: https://github.com/lyswhut/lx-music-mobile
+Revision: d2956044533150057d65bfeaf2ae0fb5179433f5
+Original path: android/app/src/main/assets/script/user-api-preload.js
+License: Apache License 2.0 (LICENSE-LX.txt).
+Mica modifications (2026-09-11): native timer cancellation; binary Base64 and
+UTF-8 byte conversions; Mica-owned lifecycle, persistence, HTTP and crypto host.
+Mica also includes Kotlin platform search and lyric adapters aligned with the
+LX Music Mobile platform protocols. No third-party music source script is
+bundled in the application; compatibility fixtures are androidTest assets only.
+
+QuickJS wrapper by Harlon Wang: wang.harlon.quickjs:wrapper-android:2.4.0
+https://github.com/HarlonWang/quickjs-wrapper
+Revision: d561f7b99a09bbf9ff5017a4152eca5359eccfa3
+Apache License 2.0 (LICENSE-QuickJS-wrapper.txt).
+QuickJS engine by Fabrice Bellard and Charlie Gordon: MIT license.
+See LICENSE-QuickJS.txt for the engine copyright and full license.

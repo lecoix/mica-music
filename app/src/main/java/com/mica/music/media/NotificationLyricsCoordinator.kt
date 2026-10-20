@@ -57,15 +57,17 @@ internal class NotificationLyricsCoordinator(
             if (remoteRef != null) {
                 val app = context.applicationContext as? MicaApp
                     ?: error("Remote lyrics require the Mica application owner")
-                app.remoteCatalogRepository
-                    .find(listOf(remoteRef))
-                    .get(remoteRef)
-                    ?.toPlaybackSong()
-                    ?.let { remoteSong ->
-                        app.remoteLyricsRepository.songWithLyrics(remoteSong).also { hydrated ->
-                            check(hydrated.lyricsLoaded) { "Remote lyrics load did not complete" }
-                        }
+                app.lxSourceOwner.loadOnline()
+                val remoteSong = app.lxSourceOwner.findOnline(remoteRef)?.toPlaybackSong()
+                    ?: app.remoteCatalogRepository
+                        .find(listOf(remoteRef))
+                        .get(remoteRef)
+                        ?.toPlaybackSong()
+                remoteSong?.let { song ->
+                    app.remoteLyricsRepository.songWithLyrics(song).also { hydrated ->
+                        check(hydrated.lyricsLoaded) { "Remote lyrics load did not complete" }
                     }
+                }
             } else {
                 LibraryRepository(context.applicationContext).songById(spec.songId, spec.priority)
             }

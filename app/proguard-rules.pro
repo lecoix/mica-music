@@ -31,3 +31,6 @@
 -dontwarn org.ietf.jgss.GSSManager
 -dontwarn org.ietf.jgss.GSSName
 -dontwarn org.ietf.jgss.Oid
+
+# QuickJS performs JNI lookup of wrapper classes, callbacks and members.
+-keep class com.whl.quickjs.** { *; }

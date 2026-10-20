@@ -54,6 +54,12 @@ class SettingsSearchIndexTest {
         assertTrue(SettingsSearchIndex.search("HQ").any { it.id == "song-list.info" })
         assertTrue(SettingsSearchIndex.search("强制使用逐字歌词样式").any { it.id == "lyrics.classic-line-fill" })
         assertTrue(SettingsSearchIndex.search("状态栏歌词").any { it.id == "lyrics.external" })
+        assertTrue(SettingsSearchIndex.search("替换音源").any { it.id == "library.online" })
+        assertTrue(SettingsSearchIndex.search("默认播放音质").any { it.id == "library.online" })
+        assertEquals(
+            SettingsCategory.ONLINE_MUSIC,
+            SettingsSearchIndex.searchFromSettingsRoot("替换音源").first { it.id == "library.online" }.target.category,
+        )
     }
 
     @Test

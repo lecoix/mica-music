@@ -18,7 +18,8 @@ fun interface PlaybackSongResolver {
  */
 class ProcessPlaybackSongResolver(
     private val transientPlaybackCatalog: TransientPlaybackCatalog,
+    private val durableSongById: (String) -> Song? = { null },
 ) : PlaybackSongResolver {
     override fun resolve(id: String): Song? =
-        transientPlaybackCatalog.songById(id)
+        transientPlaybackCatalog.songById(id) ?: durableSongById(id)
 }

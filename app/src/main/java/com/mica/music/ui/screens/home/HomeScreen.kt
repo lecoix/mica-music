@@ -58,6 +58,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.mica.music.R
+import com.mica.music.MicaApp
+import com.mica.music.data.remote.toPlaybackSong
 import com.mica.music.data.AppUiSettings
 import com.mica.music.data.AlbumBrowseKey
 import com.mica.music.data.LyricsBilingualDisplayMode
@@ -128,6 +130,10 @@ fun HomeScreen(
     playerOverlayOpen: Boolean = false,
 ) {
     val context = LocalContext.current
+    val onlineOwner = remember(context) { (context.applicationContext as MicaApp).lxSourceOwner }
+    val onlineTracks by onlineOwner.onlineTracks.collectAsState()
+    val onlineSongsById = remember(onlineTracks) { onlineTracks.mapValues { it.value.toPlaybackSong() } }
+    LaunchedEffect(onlineOwner) { onlineOwner.loadOnline() }
     val configuration = LocalConfiguration.current
     val isLandscapeWindow = configuration.screenWidthDp > configuration.screenHeightDp
     var uiState by rememberSaveable(stateSaver = HomeUiStateSaver) {
@@ -170,7 +176,8 @@ fun HomeScreen(
         )
     }
     val resolvePlaylistSong: (String) -> Song? = { songId ->
-        library.songById(songId) ?: remoteSongsById[songId] ?: com.mica.music.data.remote.unavailableRemoteSong(songId)
+        library.songById(songId) ?: remoteSongsById[songId] ?: onlineSongsById[songId]
+            ?: com.mica.music.data.remote.unavailableRemoteSong(songId)
     }
     val activity = context as ComponentActivity
     val scope = rememberCoroutineScope()
@@ -465,6 +472,7 @@ fun HomeScreen(
     }
 
     fun onDrawerPick(target: HomeSection) {
+        if (target != HomeSection.Online) onlineOwner.leaveOnline()
         drawerOpen = false
         when (target) {
             HomeSection.Settings -> onOpenSettings()
@@ -946,7 +954,7 @@ fun HomeScreen(
                     uiState = uiState.copy(searchQuery = query)
                 },
                 motionEnabled = motionEnabled,
-                showSearchAction = true,
+                showSearchAction = uiState.section != HomeSection.Online,
                 onLeadingClick = {
                     when {
                         showFolderMenuButton -> drawerOpen = !drawerOpen
@@ -1135,6 +1143,13 @@ fun HomeScreen(
                             }
                         },
                     )
+                    HomePaneKey.Online -> OnlineMusicPane(
+                        owner = onlineOwner, playlistStore = playlistStore,
+                        onPlay = { song -> onQueueSongClick(listOf(song), song.id) },
+                        onNext = playbackActions.insertPlayNext,
+                        onAppend = { song -> playbackActions.appendToQueue(listOf(song)) },
+                        onSettings = { onlineOwner.leaveOnline(); onOpenSettings() }, bottomPadding = listBottomPadding,
+                    )
                     HomePaneKey.Remote -> RemoteLibraryPane(
                         playerOverlayOpen = playerOverlayOpen,
                         songs = sortedRemoteSongs,
@@ -1187,6 +1202,7 @@ fun HomeScreen(
                         playlistStore = playlistStore,
                         library = library,
                         remoteSongs = remoteSongs,
+                        onlineSongsById = onlineSongsById,
                         currentSongId = currentSong?.id,
                         isPlaying = playbackState.isPlaying,
                         onQueueSongs = playbackActions.setQueue,

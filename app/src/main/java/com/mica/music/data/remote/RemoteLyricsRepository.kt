@@ -26,6 +26,7 @@ class RemoteLyricsRepository internal constructor(
     private val persistentCache: RemoteLyricsDiskCache? = context?.applicationContext?.cacheDir
         ?.resolve("remote_lyrics")
         ?.let(::RemoteLyricsDiskCache),
+    private val onlineLyricsLoader: (suspend (RemoteTrackRef, Boolean) -> LyricsDocument?)? = null,
 ) {
     private val navidromeLoader = NavidromeLyricsLoader(
         catalogRepository = catalogRepository,
@@ -51,6 +52,20 @@ class RemoteLyricsRepository internal constructor(
         if (song.source != SongSource.REMOTE || song.lyricsLoaded) return song
         val ref = RemoteMediaIdCodec.decode(song.id)
             ?: return song.copy(lyricsDocument = LyricsDocument(), lyricsLoaded = true)
+        onlineLyricsLoader?.let { loader ->
+            val online = try {
+                loader(ref, isPrefetch)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                DiagnosticLog.event(
+                    "RemoteLyrics",
+                    "online-load-failed source=${ref.sourceInstanceId} song=${song.id.takeLast(12)} error=${error.javaClass.simpleName}",
+                )
+                return song
+            }
+            if (online != null) return song.copy(lyricsDocument = online, lyricsLoaded = true)
+        }
         val status = catalogRepository.sourceStatus(ref.sourceInstanceId)
             ?: return song.copy(lyricsDocument = LyricsDocument(), lyricsLoaded = true)
         if (!status.instance.enabled) {

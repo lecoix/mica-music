@@ -396,6 +396,10 @@ fun SettingsScreen(
                                     )
                                 }
 
+                                SettingsCategory.ONLINE_MUSIC -> {
+                                    LxSourceSettingsPanel()
+                                }
+
                                 SettingsCategory.AUDIO -> {
                                     AudioSettingsPanel(
                                         uiSettings = uiSettings,

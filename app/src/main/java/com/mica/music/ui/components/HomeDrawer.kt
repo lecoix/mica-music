@@ -111,6 +111,9 @@ fun HomeDrawerPanel(
                     },
                 )
             }
+            add(DrawerItem("在线音乐", Icons.Outlined.Cloud, selectedSection == HomeSection.Online) {
+                onSectionSelected(HomeSection.Online)
+            })
         } + if (playlistSidebarStyle == PlaylistSidebarStyle.OVERVIEW) {
         listOf(
             DrawerItem("歌单", Icons.Outlined.PlaylistPlay, selectedSection == HomeSection.Playlist) {

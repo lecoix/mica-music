@@ -6,6 +6,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.Text
@@ -24,6 +25,7 @@ internal fun HomePlaylistContent(
     playlistStore: PlaylistStore,
     library: MusicLibrary,
     remoteSongs: List<Song>,
+    onlineSongsById: Map<String, Song> = emptyMap(),
     currentSongId: String?,
     isPlaying: Boolean,
     onQueueSongs: (List<Song>) -> Unit,
@@ -50,7 +52,7 @@ internal fun HomePlaylistContent(
     if (
         library.isLoadingCachedLibrary &&
         library.songs.isEmpty() &&
-        playlist.songIds.none(remoteSongsById::containsKey)
+        playlist.songIds.none { it in remoteSongsById || it in onlineSongsById }
     ) {
         EmptyStatePresets.Scanning(progressLabel = "正在加载本地曲库…")
         return
@@ -60,12 +62,13 @@ internal fun HomePlaylistContent(
         playlist,
         library.songs,
         remoteSongsById,
+        onlineSongsById,
         playlistStore.revision,
         playlist.sortField,
         playlist.sortDirection,
     ) {
         playlistStore.songsForPlaylist(playlistId) { songId ->
-            library.songById(songId) ?: remoteSongsById[songId]
+            library.songById(songId) ?: remoteSongsById[songId] ?: onlineSongsById[songId]
         }
     }
 
@@ -97,6 +100,6 @@ internal fun HomePlaylistContent(
         emptyMessage = "歌单为空",
         listBottomPadding = listBottomPadding,
         infoVisibility = infoVisibility,
-        modifier = modifier,
+        modifier = modifier.testTag("playlist-content-$playlistId"),
     )
 }

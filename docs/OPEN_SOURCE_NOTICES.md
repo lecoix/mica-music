@@ -53,6 +53,10 @@ Last reviewed: **2026-09-11**
 
 ## Bundled Assets (non-Maven)
 
+LX experiment: `app/src/main/assets/lx/` contains the adapted LX Music Mobile preload / 在线平台协议参考,
+its Apache-2.0 license and provenance/modification NOTICE. QuickJS wrapper 2.4.0 is
+Apache-2.0; its QuickJS engine is MIT. Full texts are bundled alongside the preload.
+
 | Asset | License | Notes |
 |---|---|---|
 | d3-celestial star-map GeoJSON (`app/src/main/assets/star_map/`) | BSD-3-Clause | Bundled `stars.6.json`, `constellations.lines.json`, and `constellations.json`; Copyright (c) 2015 Olaf Frohn. Mica uses the data only and renders it with its own GLES renderer. Full BSD text and provenance are preserved beside the assets. |

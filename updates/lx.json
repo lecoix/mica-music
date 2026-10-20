@@ -1,0 +1,7 @@
+{
+  "versionName": "0.4.4-lx.1",
+  "versionCode": 1,
+  "changelog": "基于 Mica 0.4.4 的 LX 独立实验版，可与正式版同时安装。支持导入 LX 音源及在线搜索、播放。",
+  "domesticUrl": "",
+  "githubUrl": "https://github.com/lecoix/mica-music/releases/tag/lx-v0.4.4-lx.1"
+}

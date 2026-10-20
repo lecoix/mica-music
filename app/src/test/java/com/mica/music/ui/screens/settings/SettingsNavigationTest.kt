@@ -75,6 +75,7 @@ class SettingsNavigationTest {
     fun settingsScreenTitleShowsCategoryOrDefault() {
         assertEquals("设置", settingsScreenTitle(null))
         assertEquals("播放页", settingsScreenTitle(SettingsCategory.PLAYBACK))
+        assertEquals("在线音乐", settingsScreenTitle(SettingsCategory.ONLINE_MUSIC))
         assertEquals(
             "USB 独占输出",
             settingsScreenTitle(SettingsCategory.AUDIO, usbHybridSubpageOpen = true),
@@ -87,6 +88,12 @@ class SettingsNavigationTest {
             "外部歌词",
             settingsScreenTitle(SettingsCategory.LYRICS, externalLyricsSubpageOpen = true),
         )
+    }
+
+
+    @Test
+    fun onlineMusicIsAFirstLevelCategoryAfterExistingSettings() {
+        assertEquals(SettingsCategory.ONLINE_MUSIC, SettingsCategory.entries.last())
     }
 
     @Test
@@ -114,5 +121,10 @@ class SettingsNavigationTest {
         assertFalse(tutorial)
         assertFalse(equalizer)
         assertEquals(SettingsCategory.LYRICS, category)
+
+        category = null
+        SettingsSearchIndex.entries.first { it.id == "library.online" }
+            .navigateFromSettingsRoot({ category = it }, { tutorial = true }, { equalizer = true })
+        assertEquals(SettingsCategory.ONLINE_MUSIC, category)
     }
 }

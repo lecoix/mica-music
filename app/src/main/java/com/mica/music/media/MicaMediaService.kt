@@ -133,7 +133,12 @@ class MicaMediaService : MediaSessionService() {
             },
         )
         val libraryRepository = LibraryRepository(this)
-        val remoteMediaItemProvider = TrustedRemoteMediaItemProvider(micaApp.remoteCatalogRepository)
+        val remoteMediaItemProvider = TrustedRemoteMediaItemProvider { refs ->
+            if (refs.any { com.mica.music.data.lx.lxOnlinePlatformForSource(it.sourceInstanceId) != null }) micaApp.lxSourceOwner.loadOnline()
+            micaApp.remoteCatalogRepository.find(refs) + refs.mapNotNull { ref ->
+                (micaApp.lxSourceOwner.findOnline(ref) ?: micaApp.lxSourceOwner.findTrial(ref))?.let { ref to it }
+            }.toMap()
+        }
         trustedMediaItemResolver = TrustedMediaItemResolver(
             transientSongById = micaApp.transientPlaybackCatalog::songById,
             librarySongsById = libraryRepository::songSummariesByIds,
@@ -143,6 +148,7 @@ class MicaMediaService : MediaSessionService() {
             },
         )
         remoteHttpPlaybackResolver = CompositeRemoteHttpPlaybackRequestResolver(
+            micaApp.lxSourceOwner,
             NavidromeStreamRequestResolver(
                 sourceOwnerById = micaApp.remoteCatalogRepository::sourceOwner,
                 credentialStore = micaApp.remoteCredentialStore,

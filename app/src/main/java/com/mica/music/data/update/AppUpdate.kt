@@ -116,7 +116,13 @@ class AppUpdateRepository(
         var lastFailure: Throwable? = null
         for (url in urls) {
             try {
-                return AppUpdateResult(currentVersion, fetchManifest(url))
+                val manifest = fetchManifest(url)
+                require(manifest.versionName.matches(Regex("[0-9]+[.][0-9]+[.][0-9]+-lx[.][0-9]+"))) { "更新清单不属于 Mica LX" }
+                require(manifest.domesticUrl.isBlank() && manifest.githubUrl ==
+                    "https://github.com/lecoix/mica-music/releases/tag/lx-v" + manifest.versionName) {
+                    "更新下载地址不属于 Mica LX"
+                }
+                return AppUpdateResult(currentVersion, manifest)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Throwable) {

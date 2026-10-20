@@ -90,6 +90,7 @@ internal fun restoreHomeLocation(
         HomeSection.Songs,
         HomeSection.Artists,
         HomeSection.Albums,
+        HomeSection.Online,
         HomeSection.Folders -> section to null
         HomeSection.Remote -> if (remoteLibraryEnabled) section to null else HomeSection.Songs to null
         HomeSection.Playlist -> HomeSection.Playlist to playlistId?.takeIf(String::isNotBlank)

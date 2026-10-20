@@ -128,7 +128,7 @@ internal fun resolveLibraryStatsBarModel(
     songListInfoVisibility: SongListInfoVisibility = SongListInfoVisibility(),
     browseListInfoVisibility: BrowseListInfoVisibility = BrowseListInfoVisibility(),
 ): LibraryStatsBarModel? {
-    if (section == HomeSection.Settings) {
+    if (section == HomeSection.Settings || section == HomeSection.Online) {
         return null
     }
 

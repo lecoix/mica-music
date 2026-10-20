@@ -69,6 +69,7 @@ internal fun resolveTopBarTitle(
         HomeSection.Albums -> "专辑"
         HomeSection.Folders -> "文件夹"
         HomeSection.Remote -> "远程曲库"
+        HomeSection.Online -> "在线音乐"
         HomeSection.Recent -> "最近播放"
         HomeSection.LibraryAnalysis -> "音乐库分析"
         HomeSection.Settings -> "设置"
