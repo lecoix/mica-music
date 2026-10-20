@@ -2,8 +2,6 @@
 
 > 极简直角 · 多种主题 · 自定义
 
-> **代码基线（2026-10-09）**：当前工作树分支 `codex/enable-r8` 已提交 HEAD `57f3b989`。应用版本 **0.4.3 / code 58**，Room **v35**。`v0.4.3` tag 位于 `cb15dca5`，其后 4 个提交不等于该 tag 已发布内容；未提交的 R8/诊断/UI 改动不算已完成。
-
 一款以本地曲库为核心的 **HiFi 播放器**，支持多种播放页主题与自定义、内嵌/外挂/结构化歌词、ALAC/DSF/APE、USB 独占，并可选接入 Navidrome/OpenSubsonic、WebDAV 与 SMB 远程曲库。
 
 ---
@@ -148,4 +146,4 @@ SMB 范围导入协议见 [`ADR-0007`](docs/adr/0007-smb-browse-and-selected-tra
 
 ---
 #爱发电：https://ifdian.net/a/lwcoz
-**Made with AI · 2026-09**
+**Made with AI · 2026-010**
