@@ -125,7 +125,7 @@ fun AboutScreen(
             LicenseRow("Kotlin / Kotlinx Coroutines", "Apache License 2.0")
             LicenseRow("OkHttp", "Apache License 2.0")
             LicenseRow("LX Music Mobile preload（实验兼容层）", "Apache License 2.0 · lyswhut")
-            LicenseRow("QuickJS wrapper 2.4.0 / QuickJS", "Apache License 2.0 / MIT")
+            LicenseRow("QuickJS wrapper 3.2.3 / QuickJS", "Apache License 2.0 / MIT")
             LicenseRow("sardine-android（WebDAV）", "Apache License 2.0")
             LicenseRow("okhttp-digest（WebDAV Digest）", "Apache License 2.0")
             LicenseRow("smbj（SMB2 / SMB3；未启用 SMB1）", "Apache License 2.0")

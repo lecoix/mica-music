@@ -54,7 +54,7 @@ Last reviewed: **2026-09-11**
 ## Bundled Assets (non-Maven)
 
 LX experiment: `app/src/main/assets/lx/` contains the adapted LX Music Mobile preload / 在线平台协议参考,
-its Apache-2.0 license and provenance/modification NOTICE. QuickJS wrapper 2.4.0 is
+its Apache-2.0 license and provenance/modification NOTICE. QuickJS wrapper 3.2.3 is
 Apache-2.0; its QuickJS engine is MIT. Full texts are bundled alongside the preload.
 
 | Asset | License | Notes |

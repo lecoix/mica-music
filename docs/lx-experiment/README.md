@@ -27,7 +27,7 @@
 | 项目 | 实验边界 |
 |---|---|
 | 元数据 | 首个文件头注释块中的 name/description/author/homepage/version，按 LX 上游长度裁切；接受 UTF-8 BOM；无名称时 Mica 提供默认名称 |
-| JS 引擎 | `wang.harlon.quickjs:wrapper-android:2.4.0`，QuickJS 2024-02-14；不使用 WebView 或 React Native |
+| JS 引擎 | `wang.harlon.quickjs:wrapper-android:3.2.3`，QuickJS 2024-02-14；不使用 WebView 或 React Native |
 | lx 信息 | `env=mobile`, `version=2.0.0`, currentScriptInfo 与上游事件名 |
 | 初始化 | `lx.send(lx.EVENT_NAMES.inited, {sources})`，筛选 musicUrl 与上述五平台/四品质；无可用组合时报错 |
 | 请求 | `lx.on(request, handler)`，传入 `{source, action:'musicUrl', info:{type,musicInfo}}`，Promise 成功值必须是 HTTP(S) URL |
@@ -59,7 +59,7 @@ JVM 测试验证真实 owner 的持久化/状态副作用，不仅检查取消�
 ## 限制和容量
 
 - 初始化 15 秒、musicUrl 20 秒、HTTP 默认 13 秒且最大 60 秒；单次同步 JS turn 5 秒 watchdog，失败后拒绝该进程继续启动脚本。
-- **没有进程隔离，也没有原生执行中断。** Wrapper 2.4.0 的 Java API 不提供 interrupt。Watchdog 能让等待者失败并关闭网络/计时资源，不能终止无限循环的 native JS；这种情况需要彻底结束并重启应用。不能将此实现宣称为恶意脚本沙箱或可靠 crash isolation。
+- **没有进程隔离，也没有原生执行中断。** Wrapper 3.2.3 的 Java API 不提供 interrupt。Watchdog 能让等待者失败并关闭网络/计时资源，不能终止无限循环的 native JS；这种情况需要彻底结束并重启应用。不能将此实现宣称为恶意脚本沙箱或可靠 crash isolation。
 - 单个 QuickJS context 堆限制 32 MiB、栈限制 512 KiB；单个脚本 512 KiB、MusicInfo 32 KiB、唯一 trial、最多 4 个 1 MiB HTTP 响应。二进制响应的 JSON/boxed byte 转换有数倍临时开销。旧 context 销毁和新 context 创建在同一线程排序；挂死后不增加工作线程。
 - 本地曲库 snapshot、扫描与音频处理沿用 0.4.4。在线歌曲最多 10,000 条；启动只载入摘要，逐行读取至多 8 KiB 的 MusicInfo 后丢弃原始 JSON，不常驻全部歌词。歌词和封面分别有 16 MiB 缓存预算，二者合计最多 2 个并发加载。详细内存边界与尚未测量的设备风险见 MIGRATION_044.md。
 - 临时测试 MusicInfo 不持久化；应用重启后旧测试队列不能重新解析，需重新填写测试播放。脚本存于 noBackupFilesDir 的 AtomicFile，不进入云备份。
@@ -89,7 +89,7 @@ $env:LIBRARY_PATH = $null
 ## 来源
 
 - LX Mobile [上游](https://github.com/lyswhut/lx-music-mobile/tree/d2956044533150057d65bfeaf2ae0fb5179433f5)：preload、QuickJS Android host、`src/core/init/userApi`、`src/utils/data.ts`；LICENSE 为 Apache-2.0，README 另有项目使用声明。此实验未移植其平台 SDK。
-- [QuickJS wrapper 2.4.0](https://github.com/HarlonWang/quickjs-wrapper/tree/d561f7b99a09bbf9ff5017a4152eca5359eccfa3)，引擎 submodule `c46516996da53eaf2f9aca516264870e25719d76`。资产目录保留两个 Apache 文本、QuickJS MIT 文本和 Mica 修改 NOTICE。
+- [QuickJS wrapper 3.2.3](https://github.com/HarlonWang/quickjs-wrapper/tree/cfdc05fa11ac866558297e888fbac5580905e194)，引擎 submodule `c46516996da53eaf2f9aca516264870e25719d76`。资产目录保留两个 Apache 文本、QuickJS MIT 文本和 Mica 修改 NOTICE。
 - 独立工作树基线 `4e794210` 自带 `LibraryScanOrchestrator.kt` 扫描提示字符串缺少引号；为构建实验版仅修复该行文案/语法，未改扫描控制流。
 
 本次执行结果见 `VALIDATION.md`；真实第三方脚本样本未提供，兼容率未知。

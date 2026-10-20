@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import re
 import subprocess
+import struct
 import zipfile
 
 parser = argparse.ArgumentParser()
@@ -41,6 +42,17 @@ if args.apks:
             names = set(archive.namelist())
             abis = {name.split('/')[1] for name in names if name.startswith('lib/') and name.endswith('.so')}
             assert abis <= {'arm64-v8a', 'armeabi-v7a'} and abis
+            # Android 16 KiB devices require every ARM64 ELF load segment aligned.
+            for name in names:
+                if name.startswith('lib/arm64-v8a/') and name.endswith('.so'):
+                    elf = archive.read(name)
+                    assert elf[:5] == b'\x7fELF\x02', name
+                    phoff = struct.unpack_from('<Q', elf, 32)[0]
+                    size, count = struct.unpack_from('<HH', elf, 54)
+                    alignments = [struct.unpack_from('<Q', elf, phoff + i * size + 48)[0]
+                                  for i in range(count)
+                                  if struct.unpack_from('<I', elf, phoff + i * size)[0] == 1]
+                    assert alignments and min(alignments) >= 16384, (name, alignments)
             for abi in abis:
                 for lib in ('libquickjs-android-wrapper.so', 'libffmpegJNI.so', 'libtaglib.so', 'libsylvakru_usb_exclusive.so', 'libusb-1.0.so'):
                     assert f'lib/{abi}/{lib}' in names, (apk, abi, lib)

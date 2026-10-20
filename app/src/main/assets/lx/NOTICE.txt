@@ -11,9 +11,9 @@ Mica also includes Kotlin platform search and lyric adapters aligned with the
 LX Music Mobile platform protocols. No third-party music source script is
 bundled in the application; compatibility fixtures are androidTest assets only.
 
-QuickJS wrapper by Harlon Wang: wang.harlon.quickjs:wrapper-android:2.4.0
+QuickJS wrapper by Harlon Wang: wang.harlon.quickjs:wrapper-android:3.2.3
 https://github.com/HarlonWang/quickjs-wrapper
-Revision: d561f7b99a09bbf9ff5017a4152eca5359eccfa3
+Revision: cfdc05fa11ac866558297e888fbac5580905e194
 Apache License 2.0 (LICENSE-QuickJS-wrapper.txt).
 QuickJS engine by Fabrice Bellard and Charlie Gordon: MIT license.
 See LICENSE-QuickJS.txt for the engine copyright and full license.

@@ -195,7 +195,7 @@ configurations.configureEach {
 }
 
 dependencies {
-    implementation("wang.harlon.quickjs:wrapper-android:2.4.0")
+    implementation("wang.harlon.quickjs:wrapper-android:3.2.3")
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.documentfile)
     implementation(libs.androidx.lifecycle.runtime.ktx)
