@@ -29,6 +29,31 @@ class LetterLyricsBilingualDisplayTest {
     }
 
     @Test
+    fun ttmlOriginalOnlySlashNeverTurnsIntoTranslationColumn() {
+        val plainLine = line(LyricTextRole.ORIGINAL to "你好 / hello")
+        val structured = letterDisplayPieces(
+            line = plainLine,
+            bilingualDisplayMode = LyricsBilingualDisplayMode.ALL,
+            readingEnabled = true,
+            splitEnabled = true,
+            sourceFormat = com.mica.music.data.LyricsFormat.TTML,
+        )
+        assertEquals(listOf(LetterDisplayKind.MAIN to "你好 / hello"),
+            structured.map { it.kind to it.text })
+        val legacy = letterDisplayPieces(
+            line = plainLine,
+            bilingualDisplayMode = LyricsBilingualDisplayMode.ALL,
+            readingEnabled = true,
+            splitEnabled = true,
+            sourceFormat = com.mica.music.data.LyricsFormat.LRC,
+        )
+        assertEquals(listOf(
+            LetterDisplayKind.MAIN to "你好",
+            LetterDisplayKind.TRANSLATION to "hello",
+        ), legacy.map { it.kind to it.text })
+    }
+
+    @Test
     fun thinSpaceLineStaysOneColumnWhenSplitDisabled() {
         val pieces = letterDisplayPieces(
             line = line(LyricTextRole.ORIGINAL to "原文\u2009译文"),

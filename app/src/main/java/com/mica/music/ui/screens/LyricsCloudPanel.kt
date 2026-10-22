@@ -105,15 +105,13 @@ internal fun LyricsCloudPanel(
     }
     val displayRows = remember(lyrics, renderState.document, splitEnabled, bilingualDisplayMode, readingEnabled) {
         lyrics.mapIndexed { index, line ->
-            LyricDisplayRows.rowsFromParts(
-                parts = renderState.document.lines.getOrNull(index)?.parts.orEmpty(),
-                mode = bilingualDisplayMode,
-                readingEnabled = readingEnabled,
-                splitEnabled = splitEnabled,
-            ) ?: LyricDisplayRows.rowsForBilingualDisplayMode(
+            LyricDisplayRows.rowsForDocumentLine(
+                document = renderState.document,
+                index = index,
                 text = line.text,
                 enabled = splitEnabled,
                 mode = bilingualDisplayMode,
+                readingEnabled = readingEnabled,
             )
         }
     }

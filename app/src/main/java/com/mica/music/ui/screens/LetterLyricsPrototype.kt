@@ -189,6 +189,7 @@ internal fun LetterLyricsPrototype(
             val translationInkStyle = translationLetterStyle.copy(color = LETTER_INK)
             buildLetterPages(
                 lines = renderState.document.lines,
+                sourceFormat = renderState.document.format,
                 bilingualDisplayMode = bilingualDisplayMode,
                 splitEnabled = splitEnabled,
                 metrics = metrics,
@@ -952,6 +953,7 @@ internal fun letterDisplayPieces(
     bilingualDisplayMode: LyricsBilingualDisplayMode,
     readingEnabled: Boolean,
     splitEnabled: Boolean,
+    sourceFormat: com.mica.music.data.LyricsFormat = com.mica.music.data.LyricsFormat.UNKNOWN,
 ): List<LetterDisplayPiece> {
     val flatText = line.parts
         .filter { it.role != LyricTextRole.READING }
@@ -961,6 +963,7 @@ internal fun letterDisplayPieces(
         mode = bilingualDisplayMode,
         readingEnabled = readingEnabled,
         splitEnabled = splitEnabled,
+        authoritativeOriginalOnly = LyricDisplayRows.hasAuthoritativeOriginalRole(sourceFormat),
     ) ?: LyricDisplayRows.rowsForBilingualDisplayMode(
         text = flatText,
         enabled = splitEnabled,
@@ -1003,6 +1006,7 @@ internal fun letterDisplayPieces(
 
 private fun buildLetterPages(
     lines: List<LyricLineNode>,
+    sourceFormat: com.mica.music.data.LyricsFormat = com.mica.music.data.LyricsFormat.UNKNOWN,
     bilingualDisplayMode: LyricsBilingualDisplayMode,
     splitEnabled: Boolean,
     metrics: LetterPageMetrics,
@@ -1044,6 +1048,7 @@ private fun buildLetterPages(
             bilingualDisplayMode = bilingualDisplayMode,
             readingEnabled = readingEnabled,
             splitEnabled = splitEnabled,
+            sourceFormat = sourceFormat,
         )
         val scheduledText = pieces
             .filter { it.usePrimaryWordSchedule }

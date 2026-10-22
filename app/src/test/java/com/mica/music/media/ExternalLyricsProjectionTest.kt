@@ -251,6 +251,53 @@ class ExternalLyricsProjectionTest {
     }
 
     @Test
+    fun ttmlOriginalOnlySlashIsNotProjectedAsTranslationOrSecondaryDisplayLine() {
+        val text = "你好 / hello"
+        val document = LyricsDocument(
+            format = com.mica.music.data.LyricsFormat.TTML,
+            lines = listOf(LyricLineNode(
+                id = "raw", startMs = 1_000, endMs = 2_000,
+                parts = listOf(LyricTextPart(LyricTextRole.ORIGINAL, text)),
+            )),
+        )
+        val line = buildExternalLyricsLine(
+            document, document.toLegacyLyricLines(), 0,
+            LyricsDisplayOptions(splitEnabled = true, bilingualMode = LyricsBilingualDisplayMode.ALL),
+        )
+        assertEquals(listOf(text), line?.rows?.map { it.text.text })
+        assertEquals(listOf(LyricTextRole.ORIGINAL), line?.rows?.map { it.role })
+        assertNull(line?.translation)
+    }
+
+    @Test
+    fun ttmlReadingAndOriginalWithoutTranslationProjectEachRoleExactlyOnce() {
+        val document = LyricsDocument(
+            format = com.mica.music.data.LyricsFormat.TTML,
+            lines = listOf(LyricLineNode(
+                id = "reading-only", startMs = 0, endMs = 1_000,
+                parts = listOf(
+                    LyricTextPart(LyricTextRole.READING, "ni hao"),
+                    LyricTextPart(LyricTextRole.ORIGINAL, "你好 / hello"),
+                ),
+            )),
+        )
+        val line = buildExternalLyricsLine(
+            document, document.toLegacyLyricLines(), 0,
+            LyricsDisplayOptions(
+                splitEnabled = true,
+                bilingualMode = LyricsBilingualDisplayMode.ALL,
+                readingEnabled = true,
+            ),
+        )
+        assertEquals(
+            listOf(LyricTextRole.READING, LyricTextRole.ORIGINAL),
+            line?.rows?.map { it.role },
+        )
+        assertEquals(listOf("ni hao", "你好 / hello"), line?.rows?.map { it.text.text })
+        assertNull(line?.translation)
+    }
+
+    @Test
     fun wordByWordProjectionCanBeDisabledForExternalLyrics() {
         val lyrics = listOf(
             LyricLine(

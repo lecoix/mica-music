@@ -27,10 +27,25 @@ MIT licence, source includes both inline slash translation and credits using sla
 - Targeted seven-class Gradle unit suite: first run finished 81 tests, 79 passed and 2 failed; both failures were fixed (three-physical-row predicate and obsolete cloud display fixture).
 - Second full targeted Gradle run was attempted but timed out while compiling unit-test Kotlin sources on a memory-constrained machine. It did NOT report a final test pass; do not treat the suite as fully green.
 - Direct Java smoke harness loading the **actual compiled Kotlin classes** from app/build/tmp/kotlin-classes/debug passed 21 checks (three explicit physical lines in all display modes, slash credit/title guards, visual-only secondary rows). Harness lives outside the repo at D:\\AI\\mica-slash-offline-20261022\\SlashSmoke.java.
-- `git diff --check`: clean. This branch is an isolated fix candidate, not yet merged/pushed, and UI/device integration acceptance has not been completed.
+- Phase 2: structured `TTML`/`SYLT` ORIGINAL-only keeps source text intact; LRC/PLAIN ORIGINAL-only stays eligible for visual legacy compatibility. Shared projection applied to cloud, expanded, compact, landscape, Letter, photo stack, external lyrics; structured READING + ORIGINAL no longer duplicates READING in external originals.
+- **Final phase-2 directed Gradle JUnit: 7 classes, 86 tests / 0 failures / 0 errors / 0 skips, BUILD SUCCESSFUL** (2026-10-22, 5m28s), including traditional Chinese prefix guard and READING+ORIGINAL tests. Earlier 81-test failure and timeout above are historical phase-1 run diagnostics, not current results.
+- Source-level natural corpus running `NaturalSlashCorpusSmoke.java` against actual generated Kotlin classes: 226/226 spaced-slash bilingual candidate rows with exact left/right text slices and ORIGINAL roles; 5/5 naturally sourced lyric-credit slash negatives intact; **231/231 passed**. Samples sourced from three distinct public GitHub repos; tested raw lyric lines only, not UI/device rendering and not independently human-labeled semantic truth for every positive candidate.
+- `git diff --check`: clean. This branch remains an isolated fix candidate, not merged/pushed, and UI/device integration acceptance has not been completed.
+
+## Independent natural slash corpus (read-only, no lyric text vendoring)
+
+Five complete public LRC files were inspected from TWO separate repositories. Metadata-only registry: D:\\AI\\mica-slash-offline-20261022\\natural_slash_positive_sources_phase2.json.
+
+- AdingApkgg/YuanShenSFqun: 3 LRC files (majiko, LiSA, Goose house), 128 time-stamped spaced-slash bilingual candidates, all showing a Japanese-kana / Chinese-Han script contrast.
+- we1005/music: 2 LRC files (EXO Baby Don't Cry and EXO-CBX Crush U), 98 spaced-slash bilingual candidates. Of these, 78 have the stricter Hangul / Chinese-Han contrast; other English lyric/Chinese-translation pairs are retained as candidates only.
+- The EXO Baby Don't Cry file also includes one no-space slash composer credit on a different time-stamped line. This supplies an independently sourced mixed positive/negative **same-song** contract.
+- Aggregate candidates: 226 across 5 songs, with 206 higher-confidence cross-script rows; **not** 226 independently manually verified semantic gold labels. The songs are grouped in 2 distinct repository sources.
+- Public accessibility is not proof of a copyright licence to reproduce lyrics; only per-file URLs, Git blob IDs and aggregate counts are retained. No complete lyric file is vendored into Mica.
+- Independent naturally occurring **negative controls**: a third public repository `sonikkk-526/lrc-lyrics-library` contains four spaced-slash credit rows across three songs, using traditional Chinese abbreviations `詞`, `編`, `監`. These prefixes are explicitly protected in Mica, with short negative examples in unit tests; source file SHA/path references are stored locally in `D:\\AI\\mica-slash-offline-20261022\\natural_slash_negative_sources_phase2.json`.
+- Bare-slash TRUE bilingual and same-script bilingual remain data gaps. They should not be assumed to work after the bare-slash fallback removal.
 
 ## Still needed
 
-- Real source-owned slash bilingual files, including no-space slash and same-script pairs, tagged by provenance and timestamp.
-- A multi-row original-only structured TTML coverage pass and display consumer QA.
+- Verified provenance is now available for five natural spaced-slash bilingual **candidate** files; follow-up requires separately sourced bare-slash TRUE bilingual and same-script bilingual songs, with human labels per boundary.
+- Additional complex multi-row ORIGINAL-only TTML render/geometry and visible UI consumer QA, beyond the current per-line contract tests.
 - Functional app/device regression beyond Kotlin/unit tests; no production release is implied.

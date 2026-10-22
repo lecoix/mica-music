@@ -147,15 +147,13 @@ internal fun LyricsCloudLayoutPrewarm(
     }
     val displayRows = remember(lyrics, document, splitEnabled, bilingualDisplayMode, readingEnabled) {
         lyrics.mapIndexed { index, line ->
-            LyricDisplayRows.rowsFromParts(
-                parts = document.lines.getOrNull(index)?.parts.orEmpty(),
-                mode = bilingualDisplayMode,
-                readingEnabled = readingEnabled,
-                splitEnabled = splitEnabled,
-            ) ?: LyricDisplayRows.rowsForBilingualDisplayMode(
+            LyricDisplayRows.rowsForDocumentLine(
+                document = document,
+                index = index,
                 text = line.text,
                 enabled = splitEnabled,
                 mode = bilingualDisplayMode,
+                readingEnabled = readingEnabled,
             )
         }
     }

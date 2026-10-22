@@ -75,17 +75,13 @@ private fun lyricOriginalAndTranslation(
     splitEnabled: Boolean,
 ): Pair<String, String?>? {
     val line = renderState.lyrics.getOrNull(index) ?: return null
-    val rows = renderState.document.lines.getOrNull(index)?.let { node ->
-        LyricDisplayRows.rowsFromParts(
-            parts = node.parts,
-            mode = LyricsBilingualDisplayMode.ALL,
-            readingEnabled = false,
-            splitEnabled = splitEnabled,
-        )
-    } ?: LyricDisplayRows.rowsForBilingualDisplayMode(
+    val rows = LyricDisplayRows.rowsForDocumentLine(
+        document = renderState.document,
+        index = index,
         text = line.text,
         enabled = splitEnabled,
         mode = LyricsBilingualDisplayMode.ALL,
+        readingEnabled = false,
     )
     val original = rows
         .filter { it.role == LyricTextRole.ORIGINAL && !it.inferredSecondary }

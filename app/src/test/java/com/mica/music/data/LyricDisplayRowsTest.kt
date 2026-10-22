@@ -133,6 +133,8 @@ class LyricDisplayRowsTest {
             "演唱：小A/小B", "Composed by：Ed Sheeran/Johnny McDaid",
             "Acoustic Guitar / Electric Guitar：甲", "录音棚 Studio：A / B / C",
             "A/B", "AC/DC", "A//B", "小A/小B/小C",
+            "詞 : 陳耀森 / KW 朱敏希", "編 : 蘇道哲 / Nic Tsui",
+            "編：徐浩 / 黃兆銘",
         )
         inputs.forEach { text ->
             val rows = LyricDisplayRows.rowsForBilingualDisplayMode(text)
@@ -179,6 +181,54 @@ class LyricDisplayRowsTest {
         assertEquals(listOf(LyricTextRole.ORIGINAL, LyricTextRole.ORIGINAL), rows.map { it.role })
         assertEquals(listOf(false, true), rows.map { it.inferredSecondary })
         assertEquals(listOf(credit), LyricDisplayRows.splitForDisplay(credit))
+    }
+
+    @Test
+    fun originalOnlyStructuredTtmlDoesNotInventSecondaryTranslationOnSlashOrThinSpace() {
+        val text = "你好 / hello\u2009more"
+        for (format in listOf(LyricsFormat.TTML, LyricsFormat.SYLT)) {
+            val document = LyricsDocument(
+                format = format,
+                lines = listOf(LyricLineNode(
+                    id = "one",
+                    startMs = 1_000,
+                    parts = listOf(LyricTextPart(LyricTextRole.ORIGINAL, text)),
+                )),
+            )
+            for (mode in LyricsBilingualDisplayMode.entries) {
+                val rows = LyricDisplayRows.rowsForDocumentLine(document, 0, text, mode = mode)
+                assertEquals(listOf(text), rows.map { it.text })
+                assertEquals(listOf(LyricTextRole.ORIGINAL), rows.map { it.role })
+                assertEquals(listOf(false), rows.map { it.inferredSecondary })
+            }
+        }
+    }
+
+    @Test
+    fun originalOnlyLegacyLrcKeepsVisualSecondaryWhileStructuredTranslationStaysSemantic() {
+        val text = "星が降らない街 / 星星不落的街道"
+        val lrc = LyricsDocument(
+            format = LyricsFormat.LRC,
+            lines = listOf(LyricLineNode(
+                id = "original", startMs = 0,
+                parts = listOf(LyricTextPart(LyricTextRole.ORIGINAL, text)),
+            )),
+        )
+        val inferred = LyricDisplayRows.rowsForDocumentLine(lrc, 0, text)
+        assertEquals(listOf("星が降らない街", "星星不落的街道"), inferred.map { it.text })
+        assertEquals(listOf(LyricTextRole.ORIGINAL, LyricTextRole.ORIGINAL),
+            inferred.map { it.role })
+        assertEquals(listOf(false, true), inferred.map { it.inferredSecondary })
+        val structured = LyricsDocument(format = LyricsFormat.TTML, lines = listOf(
+            LyricLineNode(id = "two", startMs = 0, parts = listOf(
+                LyricTextPart(LyricTextRole.ORIGINAL, "星が降らない街"),
+                LyricTextPart(LyricTextRole.TRANSLATION, "星星不落的街道"),
+            )),
+        ))
+        assertEquals(
+            listOf(LyricTextRole.ORIGINAL, LyricTextRole.TRANSLATION),
+            LyricDisplayRows.rowsForDocumentLine(structured, 0, text).map { it.role },
+        )
     }
 
     @Test

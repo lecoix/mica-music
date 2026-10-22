@@ -770,13 +770,19 @@ internal fun buildExternalLyricsLine(
         }
         if (!hasSemanticTranslation) {
             // Legacy separators make visual rows, never semantic translation.
-            val plainRows = LyricDisplayRows.rowsForBilingualDisplayMode(
+            val plainRows = LyricDisplayRows.rowsForDocumentLine(
+                document = document,
+                index = index,
                 text = rawText,
                 enabled = display.splitEnabled,
                 mode = bilingualMode,
+                readingEnabled = display.readingEnabled,
             )
             val displayTexts = if (display.splitEnabled) {
-                plainRows.map { it.text }
+                // READING is already projected independently; only source-original
+                // rows belong on the ORIGINAL external lyric surface.
+                plainRows.filter { it.role == LyricTextRole.ORIGINAL || it.role == LyricTextRole.EXTRA }
+                    .map { it.text }
             } else {
                 listOf(rawText.replace(Regex("\\s+"), " ").trim())
             }

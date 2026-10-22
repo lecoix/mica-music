@@ -110,6 +110,7 @@ private fun LyricsDocument.displayRoleShapeSummary(
         mode = mode,
         readingEnabled = readingEnabled,
         splitEnabled = splitEnabled,
+        authoritativeOriginalOnly = LyricDisplayRows.hasAuthoritativeOriginalRole(format),
     )?.joinToString("+") { it.role.name }
         ?.ifBlank { "EMPTY" }
         ?: "FALLBACK"

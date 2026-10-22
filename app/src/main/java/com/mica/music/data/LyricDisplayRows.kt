@@ -38,7 +38,7 @@ object LyricDisplayRows {
 
     /** Recognised metadata/credit prefixes, including mixed CJK/English credits. */
     private val creditPrefix = Regex(
-        """(?i)^\s*(?:作词|作曲|编曲|词|曲|演唱|歌手|合唱|原唱|翻唱|和声|混音|母带|""" +
+        """(?i)^\s*(?:作词|作詞|作曲|编曲|編曲|词|詞|曲|编|編|监|監|演唱|歌手|合唱|原唱|翻唱|和声|混音|母带|""" +
             """录音|录音棚|录音师|录音监督|编写|制作|制作人|助理|谱务|指挥|乐团|""" +
             """音乐监制|录音承办人|人声编辑|艺术家|艺人|歌曲|歌名|标题|""" +
             """lyrics?\s+by|composed\s+by|composer|arranger|lyricist|vocal|""" +
@@ -98,11 +98,35 @@ object LyricDisplayRows {
      * Structured parts path for TTML / LRC-SPL: READING above ORIGINAL, TRANSLATION below.
      * Returns null when [parts] cannot drive display (caller should fall back to text split).
      */
+    /**
+     * Source roles are authoritative for TTML / SYLT, including an ORIGINAL-only line.
+     * LRC/PLAIN may be created by toLyricsDocumentCompat and must retain visual splitting.
+     */
+    fun hasAuthoritativeOriginalRole(format: LyricsFormat): Boolean =
+        format == LyricsFormat.TTML || format == LyricsFormat.SYLT
+
+    fun rowsForDocumentLine(
+        document: LyricsDocument,
+        index: Int,
+        text: String,
+        enabled: Boolean = true,
+        mode: LyricsBilingualDisplayMode = LyricsBilingualDisplayMode.ALL,
+        readingEnabled: Boolean = true,
+    ): List<DisplayRow> =
+        rowsFromParts(
+            parts = document.lines.getOrNull(index)?.parts.orEmpty(),
+            mode = mode,
+            readingEnabled = readingEnabled,
+            splitEnabled = enabled,
+            authoritativeOriginalOnly = hasAuthoritativeOriginalRole(document.format),
+        ) ?: rowsForBilingualDisplayMode(text, enabled, mode)
+
     fun rowsFromParts(
         parts: List<LyricTextPart>,
         mode: LyricsBilingualDisplayMode = LyricsBilingualDisplayMode.ALL,
         readingEnabled: Boolean = true,
         splitEnabled: Boolean = true,
+        authoritativeOriginalOnly: Boolean = false,
     ): List<DisplayRow>? {
         if (parts.isEmpty()) return null
         val reading = parts
@@ -117,7 +141,8 @@ object LyricDisplayRows {
             .filter { it.role == LyricTextRole.TRANSLATION }
             .joinToString(" ") { it.text.trim() }
             .trim()
-        val structured = reading.isNotEmpty() || translation.isNotEmpty()
+        val structured = reading.isNotEmpty() || translation.isNotEmpty() ||
+            (authoritativeOriginalOnly && original.isNotEmpty())
         if (!structured) return null
 
         fun row(role: LyricTextRole, text: String, splitIndex: Int): DisplayRow? {
