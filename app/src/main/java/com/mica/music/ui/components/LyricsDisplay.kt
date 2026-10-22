@@ -317,7 +317,7 @@ fun LyricLineBlock(
                 LyricTextRole.READING -> readingTextStyle
                 LyricTextRole.TRANSLATION -> translationTextStyle
                 LyricTextRole.ORIGINAL, LyricTextRole.EXTRA ->
-                    if (row.splitIndex > 0 && parts.isNullOrEmpty()) translationTextStyle else textStyle
+                    if (row.inferredSecondary) translationTextStyle else textStyle
             }
             if (rowCueRanges.isNotEmpty() && rowHasCueRanges && rowCueLine != null) {
                 val wordSync = if (isCurrent) {

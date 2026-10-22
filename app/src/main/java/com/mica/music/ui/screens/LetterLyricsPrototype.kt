@@ -979,8 +979,10 @@ internal fun letterDisplayPieces(
             )
             LyricTextRole.ORIGINAL, LyricTextRole.EXTRA -> LetterDisplayPiece(
                 text = row.text,
-                kind = LetterDisplayKind.MAIN,
-                usePrimaryWordSchedule = true,
+                // Legacy display halves are secondary styling, not semantic translations.
+                kind = if (row.inferredSecondary) LetterDisplayKind.TRANSLATION
+                    else LetterDisplayKind.MAIN,
+                usePrimaryWordSchedule = !row.inferredSecondary,
             )
             LyricTextRole.TRANSLATION -> if (hasMainOriginal) {
                 LetterDisplayPiece(

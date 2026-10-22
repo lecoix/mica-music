@@ -601,7 +601,7 @@ internal fun ExpandedLyricsPanel(
             lineHeightPx
         } else {
             currentRows.sumOf { row ->
-                if (row.splitIndex > 0) translationLineHeightPx else lineHeightPx
+                if (row.usesSecondaryStyle) translationLineHeightPx else lineHeightPx
             } + bilingualGapPx * (currentRows.size - 1).coerceAtLeast(0)
         }
         val offset = expandedLyricsScrollOffset(

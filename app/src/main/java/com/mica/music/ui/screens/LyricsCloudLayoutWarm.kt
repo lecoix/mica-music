@@ -90,9 +90,7 @@ internal fun measureLyricsCloudLinePrecise(
     translationNormalStyle: TextStyle,
     textMeasurer: TextMeasurer,
 ): List<LyricsCloudMeasuredRow> = rows.map { row ->
-    val useSecondary = row.role == LyricTextRole.READING ||
-        row.role == LyricTextRole.TRANSLATION ||
-        row.splitIndex > 0
+    val useSecondary = row.usesSecondaryStyle
     val style = if (useSecondary) translationStyle else lineStyle
     val normalStyle = if (useSecondary) translationNormalStyle else lineNormalStyle
     val whole = textMeasurer.measure(

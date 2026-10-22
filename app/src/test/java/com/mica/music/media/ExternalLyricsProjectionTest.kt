@@ -170,8 +170,9 @@ class ExternalLyricsProjectionTest {
             ),
         )
 
-        assertEquals("original", line?.original?.text)
-        assertEquals("translation", line?.translation?.text)
+        assertEquals(listOf("original", "translation"), line?.rows?.map { it.text.text })
+        assertEquals(listOf(LyricTextRole.ORIGINAL, LyricTextRole.ORIGINAL), line?.rows?.map { it.role })
+        assertNull(line?.translation)
     }
 
     @Test
@@ -197,10 +198,12 @@ class ExternalLyricsProjectionTest {
             ),
         )
 
-        assertEquals("original", original?.original?.text)
+        assertEquals(listOf("original", "translation"), original?.rows?.map { it.text.text })
+        assertEquals(listOf("original", "translation"), translation?.rows?.map { it.text.text })
+        assertEquals(listOf(LyricTextRole.ORIGINAL, LyricTextRole.ORIGINAL),
+            translation?.rows?.map { it.role })
         assertNull(original?.translation)
-        assertNull(translation?.original)
-        assertEquals("translation", translation?.translation?.text)
+        assertNull(translation?.translation)
     }
 
     @Test
@@ -217,8 +220,8 @@ class ExternalLyricsProjectionTest {
             ),
         )?.let { it.original?.text ?: it.translation?.text }
 
-        assertEquals("original", text(LyricsBilingualDisplayMode.ORIGINAL))
-        assertEquals("translation", text(LyricsBilingualDisplayMode.TRANSLATION))
+        assertEquals("original translation", text(LyricsBilingualDisplayMode.ORIGINAL))
+        assertEquals("original translation", text(LyricsBilingualDisplayMode.TRANSLATION))
         assertEquals("original translation", text(LyricsBilingualDisplayMode.ALL))
 
         val translationLine = buildExternalLyricsLine(
@@ -230,8 +233,21 @@ class ExternalLyricsProjectionTest {
                 bilingualMode = LyricsBilingualDisplayMode.TRANSLATION,
             ),
         )
-        assertNull(translationLine?.original)
-        assertEquals("translation", translationLine?.translation?.text)
+        assertEquals("original translation", translationLine?.original?.text)
+        assertNull(translationLine?.translation)
+    }
+
+    @Test
+    fun legacyThinSpaceNeverLeaksTranslationRoleToExternalSurfaces() {
+        val lyrics = listOf(LyricLine(1_000, "愛は\u2009爱"))
+        val document = lyrics.toLyricsDocumentCompat()
+        val line = buildExternalLyricsLine(
+            document, lyrics, 0,
+            LyricsDisplayOptions(splitEnabled = true, bilingualMode = LyricsBilingualDisplayMode.ALL),
+        )
+        assertEquals(listOf("愛は", "爱"), line?.rows?.map { it.text.text })
+        assertEquals(listOf(LyricTextRole.ORIGINAL, LyricTextRole.ORIGINAL), line?.rows?.map { it.role })
+        assertNull(line?.translation)
     }
 
     @Test

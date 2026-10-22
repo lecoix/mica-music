@@ -375,7 +375,7 @@ internal fun approximateLyricsCloudLayoutSizes(
         var widthPx = 0f
         var heightPx = 0f
         for (row in rows) {
-            val fontSp = if (row.splitIndex > 0) {
+            val fontSp = if (row.usesSecondaryStyle) {
                 (mainFont - 3).coerceAtLeast(14)
             } else {
                 mainFont
@@ -592,7 +592,7 @@ private fun CloudLyricLine(
             val style = when (row.role) {
                 LyricTextRole.READING, LyricTextRole.TRANSLATION -> translationTextStyle
                 LyricTextRole.ORIGINAL, LyricTextRole.EXTRA ->
-                    if (row.splitIndex > 0) translationTextStyle else textStyle
+                    if (row.inferredSecondary) translationTextStyle else textStyle
             }
             val pressedStyle = style.copy(
                 fontWeight = FontWeight.Normal,

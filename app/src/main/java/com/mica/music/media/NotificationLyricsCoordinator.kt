@@ -742,23 +742,9 @@ internal fun buildExternalLyricsLine(
             .filter { it.role == LyricTextRole.TRANSLATION }
             .joinToString(" ") { it.text.trim() }
             .trim()
-        val allRows = LyricDisplayRows.splitForDisplayRows(
-            text = rawText,
-            // Always recover the source bilingual parts. The output toggle controls layout,
-            // not whether the projection is allowed to understand an existing separator.
-            enabled = true,
-        )
         val hasSemanticTranslation = translationPart.isNotBlank()
-        val baseOriginalCore = when {
-            hasSemanticTranslation -> originalPart
-            allRows.size >= 2 -> allRows.firstOrNull()?.text.orEmpty()
-            else -> rawText
-        }.trim()
-        val baseTranslation = when {
-            hasSemanticTranslation -> translationPart
-            allRows.size >= 2 -> allRows.drop(1).joinToString(" ") { it.text.trim() }
-            else -> ""
-        }.trim()
+        val baseOriginalCore = originalPart.ifBlank { rawText }.trim()
+        val baseTranslation = translationPart
         val originalCues = externalLyricsWordCues(
             tokens = node.tokens.filter {
                 it.partRole == LyricTextRole.ORIGINAL || it.partRole == LyricTextRole.EXTRA
@@ -774,13 +760,49 @@ internal fun buildExternalLyricsLine(
             enabled = display.wordByWordEnabled,
         )
 
-        val bilingual = hasSemanticTranslation || allRows.size >= 2
+        val bilingual = hasSemanticTranslation
         val bilingualMode = if (
             display.wordByWordEnabled && display.hideTranslationWhenWordByWordEnabled
         ) {
             LyricsBilingualDisplayMode.ORIGINAL
         } else {
             display.bilingualMode
+        }
+        if (!hasSemanticTranslation) {
+            // Legacy separators make visual rows, never semantic translation.
+            val plainRows = LyricDisplayRows.rowsForBilingualDisplayMode(
+                text = rawText,
+                enabled = display.splitEnabled,
+                mode = bilingualMode,
+            )
+            val displayTexts = if (display.splitEnabled) {
+                plainRows.map { it.text }
+            } else {
+                listOf(rawText.replace(Regex("\\s+"), " ").trim())
+            }
+            return ExternalLyricsLine(
+                lineIndex = index,
+                startMs = node.startMs,
+                endMs = node.endMs ?: document.lines.getOrNull(index + 1)?.startMs,
+                rows = buildList {
+                    if (display.readingEnabled && readingPart.isNotBlank() &&
+                        bilingualMode != LyricsBilingualDisplayMode.TRANSLATION
+                    ) {
+                        add(ExternalLyricsRow(LyricTextRole.READING, ExternalLyricsText(readingPart, readingCues)))
+                    }
+                    displayTexts.filter { it.isNotBlank() }.forEach { text ->
+                        add(ExternalLyricsRow(
+                            LyricTextRole.ORIGINAL,
+                            ExternalLyricsText(
+                                text,
+                                // Without token source ranges, never misassign a full cue
+                                // track to one independently rendered display slice.
+                                if (displayTexts.size == 1) originalCues else emptyList(),
+                            ),
+                        ))
+                    }
+                },
+            )
         }
         if (!display.splitEnabled) {
             val collapsedText = when (bilingualMode) {

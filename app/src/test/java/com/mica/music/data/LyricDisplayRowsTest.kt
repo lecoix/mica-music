@@ -114,23 +114,71 @@ class LyricDisplayRowsTest {
     }
 
     @Test
-    fun newlineSeparatedTtmlBilingualTextUsesTheSameDisplayModes() {
-        val text = "original\ntranslation"
+    fun explicitNewlinesRemainMultipleOriginalRowsInEveryBilingualMode() {
+        val text = "original\nsecond original\nthird original"
+        LyricsBilingualDisplayMode.entries.forEach { mode ->
+            val rows = LyricDisplayRows.rowsForBilingualDisplayMode(text, mode = mode)
+            assertEquals(listOf("original", "second original", "third original"), rows.map { it.text })
+            assertEquals(listOf(LyricTextRole.ORIGINAL, LyricTextRole.ORIGINAL, LyricTextRole.ORIGINAL),
+                rows.map { it.role })
+            assertEquals(listOf(false, false, false), rows.map { it.inferredSecondary })
+            assertEquals(listOf(0, 9, 25), rows.map { it.start })
+        }
+    }
 
-        assertEquals(
-            listOf("original"),
-            LyricDisplayRows.rowsForBilingualDisplayMode(
-                text,
-                mode = LyricsBilingualDisplayMode.ORIGINAL,
-            ).map { it.text },
+    @Test
+    fun ordinarySlashAndCjkCreditLinesStayIntact() {
+        val inputs = listOf(
+            "作曲:小A/小B/小C", "作曲：小A / 小B / 小C", "编曲 : 玉井健二/南田健吾",
+            "演唱：小A/小B", "Composed by：Ed Sheeran/Johnny McDaid",
+            "Acoustic Guitar / Electric Guitar：甲", "录音棚 Studio：A / B / C",
+            "A/B", "AC/DC", "A//B", "小A/小B/小C",
         )
-        assertEquals(
-            listOf("translation"),
-            LyricDisplayRows.rowsForBilingualDisplayMode(
-                text,
-                mode = LyricsBilingualDisplayMode.TRANSLATION,
-            ).map { it.text },
-        )
+        inputs.forEach { text ->
+            val rows = LyricDisplayRows.rowsForBilingualDisplayMode(text)
+            assertEquals(text, listOf(text), rows.map { it.text })
+            assertEquals(listOf(LyricTextRole.ORIGINAL), rows.map { it.role })
+        }
+    }
+
+    @Test
+    fun legacySeparatorsPreserveVisualSubrowsWithoutCreatingSemanticTranslations() {
+        for (text in listOf("A / B", "A // B", "A | B", "愛は\u2009爱", "愛は\u200a爱")) {
+            val rows = LyricDisplayRows.rowsForBilingualDisplayMode(text)
+            assertEquals(2, rows.size)
+            assertEquals(listOf(LyricTextRole.ORIGINAL, LyricTextRole.ORIGINAL),
+                rows.map { it.role })
+            assertEquals(listOf(false, true), rows.map { it.inferredSecondary })
+            assertEquals(listOf(false, true), rows.map { it.usesSecondaryStyle })
+            val translationOnly = LyricDisplayRows.rowsForBilingualDisplayMode(
+                text, mode = LyricsBilingualDisplayMode.TRANSLATION)
+            assertEquals(LyricTextRole.ORIGINAL, translationOnly.single().role)
+        }
+    }
+
+    @Test
+    fun structuredRolesKeepOriginalTranslationAndReadingIndependent() {
+        val rows = LyricDisplayRows.rowsFromParts(listOf(
+            LyricTextPart(LyricTextRole.READING, "ni hao"),
+            LyricTextPart(LyricTextRole.ORIGINAL, "你好/世界"),
+            LyricTextPart(LyricTextRole.TRANSLATION, "hello / world"),
+        ))!!
+        assertEquals(listOf(LyricTextRole.READING, LyricTextRole.ORIGINAL, LyricTextRole.TRANSLATION),
+            rows.map { it.role })
+        assertEquals(listOf("ni hao", "你好/世界", "hello / world"), rows.map { it.text })
+    }
+
+    @Test
+    fun independentAirLyricsFormatExampleKeepsDisplayOnlyTranslationAndTimedCredits() {
+        // Independent MIT-licensed format contract:
+        // https://github.com/AirLyrics/AirLyrics/blob/main/app/src/test/java/com/andsi/airlyrics/lyrics/parser/LrcParserTest.kt
+        val realFormatExample = "星が降らない街 / 星星不落的街道"
+        val credit = "作曲 : 宇佐美宏 / 哈哇哇"
+        val rows = LyricDisplayRows.rowsForBilingualDisplayMode(realFormatExample)
+        assertEquals(listOf("星が降らない街", "星星不落的街道"), rows.map { it.text })
+        assertEquals(listOf(LyricTextRole.ORIGINAL, LyricTextRole.ORIGINAL), rows.map { it.role })
+        assertEquals(listOf(false, true), rows.map { it.inferredSecondary })
+        assertEquals(listOf(credit), LyricDisplayRows.splitForDisplay(credit))
     }
 
     @Test

@@ -87,12 +87,15 @@ private fun lyricOriginalAndTranslation(
         enabled = splitEnabled,
         mode = LyricsBilingualDisplayMode.ALL,
     )
-    val original = rows.firstOrNull { it.role != LyricTextRole.TRANSLATION }
-        ?.text?.trim()
-        ?.takeIf { it.isNotBlank() }
+    val original = rows
+        .filter { it.role == LyricTextRole.ORIGINAL && !it.inferredSecondary }
+        .joinToString("\n") { it.text.trim() }
+        .takeIf { it.isNotBlank() }
         ?: return null
-    val translation = rows.firstOrNull { it.role == LyricTextRole.TRANSLATION }
-        ?.text?.trim()
-        ?.takeIf { it.isNotBlank() }
-    return original to translation
+    // Second display half can occupy the caption's secondary visual slot without
+    // inventing a semantic TRANSLATION part or exporting it to Lyricon.
+    val secondary = rows.firstOrNull {
+        it.role == LyricTextRole.TRANSLATION || it.inferredSecondary
+    }?.text?.trim()?.takeIf { it.isNotBlank() }
+    return original to secondary
 }
