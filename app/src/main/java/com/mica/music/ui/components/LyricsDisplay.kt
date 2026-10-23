@@ -267,7 +267,7 @@ fun LyricLineBlock(
     val rows = remember(text, parts, tokens, sourceFormat, lyricSplitEnabled, lyricReadingEnabled, bilingualDisplayMode) {
         LyricDisplayRows.rowsFromParts(
             parts = parts.orEmpty(),
-            mode = LyricDisplayRows.effectiveBilingualMode(lyricSplitEnabled, bilingualDisplayMode),
+            mode = bilingualDisplayMode,
             readingEnabled = lyricReadingEnabled,
             splitEnabled = lyricSplitEnabled,
             authoritativeOriginalOnly = LyricDisplayRows.hasAuthoritativeOriginalRole(sourceFormat) ||

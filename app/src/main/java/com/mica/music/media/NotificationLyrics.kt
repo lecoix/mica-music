@@ -5,7 +5,6 @@ import android.os.Bundle
 import androidx.media3.common.MediaMetadata
 import com.mica.music.data.preferences.LyricsPreferences
 import com.mica.music.data.Song
-import com.mica.music.data.LyricDisplayRows
 import com.mica.music.lyrics.LyricsDisplayOptions
 import com.mica.music.lyrics.LyricsDisplayProjection
 
@@ -17,12 +16,7 @@ object NotificationLyrics {
         val lineSplitEnabled = LyricsPreferences.lyricSplitEnabled(context)
         return LyricsDisplayOptions(
             splitEnabled = lineSplitEnabled,
-            // Global settings' OFF hides the previous bilingual selection.
-            // Status bar/desktop modes may override this separately.
-            bilingualMode = LyricDisplayRows.effectiveBilingualMode(
-                lineSplitEnabled,
-                LyricsPreferences.lyricsBilingualDisplayMode(context),
-            ),
+            bilingualMode = LyricsPreferences.lyricsBilingualDisplayMode(context),
         )
     }
 

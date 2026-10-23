@@ -115,23 +115,12 @@ object LyricDisplayRows {
     ): List<DisplayRow> =
         rowsFromParts(
             parts = document.lines.getOrNull(index)?.parts.orEmpty(),
-            mode = effectiveBilingualMode(enabled, mode),
+            mode = mode,
             readingEnabled = readingEnabled,
             splitEnabled = enabled,
             authoritativeOriginalOnly = hasAuthoritativeOriginalRole(document.format) ||
                 LyricsSync.isWordTimedTokens(document.lines.getOrNull(index)?.tokens.orEmpty()),
         ) ?: rowsForBilingualDisplayMode(text, enabled, mode)
-
-    /**
-     * Lyrics settings expose OFF as a fourth composite mode.  When OFF,
-     * the saved original/translation preference is dormant, not active.
-     * Semantic tracks stay separate; only text-only line splitting is OFF.
-     */
-    fun effectiveBilingualMode(
-        splitEnabled: Boolean,
-        savedMode: LyricsBilingualDisplayMode,
-    ): LyricsBilingualDisplayMode =
-        if (splitEnabled) savedMode else LyricsBilingualDisplayMode.ALL
 
     fun rowsFromParts(
         parts: List<LyricTextPart>,

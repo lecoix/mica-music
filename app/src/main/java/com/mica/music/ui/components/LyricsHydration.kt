@@ -107,7 +107,7 @@ private fun LyricsDocument.displayRoleShapeSummary(
 ): String = roleShapeSummary { line ->
     LyricDisplayRows.rowsFromParts(
         parts = line.parts,
-        mode = LyricDisplayRows.effectiveBilingualMode(splitEnabled, mode),
+        mode = mode,
         readingEnabled = readingEnabled,
         splitEnabled = splitEnabled,
         authoritativeOriginalOnly = LyricDisplayRows.hasAuthoritativeOriginalRole(format) ||

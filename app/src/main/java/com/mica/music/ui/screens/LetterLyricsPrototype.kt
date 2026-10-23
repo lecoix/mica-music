@@ -960,7 +960,7 @@ internal fun letterDisplayPieces(
         .joinToString("\n") { it.text }
     val rows = LyricDisplayRows.rowsFromParts(
         parts = line.parts,
-        mode = LyricDisplayRows.effectiveBilingualMode(splitEnabled, bilingualDisplayMode),
+        mode = bilingualDisplayMode,
         readingEnabled = readingEnabled,
         splitEnabled = splitEnabled,
         authoritativeOriginalOnly = LyricDisplayRows.hasAuthoritativeOriginalRole(sourceFormat) ||

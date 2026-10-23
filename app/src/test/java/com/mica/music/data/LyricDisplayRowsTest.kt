@@ -67,7 +67,7 @@ class LyricDisplayRowsTest {
     }
 
     @Test
-    fun settingsOffIgnoresDormantPreviousBilingualChoiceButPreservesStructuredTracks() {
+    fun splitToggleNeverOverridesLanguageSelectionForSemanticRows() {
         for (format in listOf(LyricsFormat.LRC, LyricsFormat.TTML, LyricsFormat.SYLT)) {
             val node = LyricLineNode("dual", 0, parts=listOf(
                 LyricTextPart(LyricTextRole.ORIGINAL, "Hello / world"),
@@ -77,9 +77,8 @@ class LyricDisplayRowsTest {
             val rows=LyricDisplayRows.rowsForDocumentLine(
                 document,0,"Hello / world",enabled=false,
                 mode=LyricsBilingualDisplayMode.TRANSLATION)
-            assertEquals(listOf("Hello / world","你好世界"),rows.map{it.text})
-            assertEquals(listOf(LyricTextRole.ORIGINAL,LyricTextRole.TRANSLATION),
-                rows.map{it.role})
+            assertEquals(listOf("你好世界"),rows.map{it.text})
+            assertEquals(listOf(LyricTextRole.TRANSLATION), rows.map{it.role})
         }
         val pureText=LyricsDocument(format=LyricsFormat.LRC,lines=listOf(
             LyricLineNode("plain",0,parts=listOf(

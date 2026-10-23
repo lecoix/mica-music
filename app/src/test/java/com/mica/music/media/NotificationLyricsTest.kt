@@ -21,7 +21,7 @@ import com.mica.music.data.preferences.LyricsPreferences
 class NotificationLyricsTest {
 
     @Test
-    fun globalBilingualOffHidesDormantSavedModeWithoutChangingStoredPreference() {
+    fun independentLanguageSettingSurvivesTurningVisualSplitOff() {
         val context=ApplicationProvider.getApplicationContext<Context>()
         val beforeSplit=LyricsPreferences.lyricSplitEnabled(context)
         val beforeMode=LyricsPreferences.lyricsBilingualDisplayMode(context)
@@ -31,7 +31,7 @@ class NotificationLyricsTest {
             LyricsPreferences.setLyricSplitEnabled(context,false)
             val off=NotificationLyrics.displayOptions(context)
             assertEquals(false,off.splitEnabled)
-            assertEquals(LyricsBilingualDisplayMode.ALL,off.bilingualMode)
+            assertEquals(LyricsBilingualDisplayMode.TRANSLATION,off.bilingualMode)
             LyricsPreferences.setLyricSplitEnabled(context,true)
             assertEquals(LyricsBilingualDisplayMode.TRANSLATION,
                 NotificationLyrics.displayOptions(context).bilingualMode)

@@ -59,3 +59,13 @@ Five complete public LRC files were inspected from TWO separate repositories. Me
 - The prior split-disabled structured merger was an old code/test contract; Letter and PhotoStack tests now preserve original/translation roles.
 - Directed JVM regression: 7 test classes, 90/90 PASS (0 failed/0 error/0 skipped). One first-pass test run found two obsolete structured-merge assertions (87/89 PASS), corrected only after checking the new contract.
 - This phase is a local fix candidate, not a new release. Android device checks need QA branch integration before final acceptance.
+
+## Phase 4: Split and display-language independent (2026-10-23)
+
+- Combined bilingual 0/1/2/3 UI is now separate automatic line-split boolean and language content ALL / ORIGINAL / TRANSLATION selection.
+- SPLIT is a visual heuristic only on ordinary untimed LRC/PLAIN, never on trusted source roles or word timing. Language selection still works with SPLIT off when a real translation is supplied.
+- For ordinary LRC without an authoritative translation, SPLIT on may provide left/right inferred visual pieces, without persisting or exporting a semantic translation; SPLIT off keeps the whole source line.
+- All previous effectiveBilingualMode(splitEnabled,mode) call sites are removed. Independent desktop/status-bar mode preferences remain separate.
+- A one-time shared-preference migration marker lyrics_split_language_decoupled_v1 maps legacy combined OFF plus any hidden old language mode to SPLIT-off + ALL, avoiding unexpected text disappearance. Existing active language selections are retained. After migration the two keys are independent.
+- Settings search has two independently addressable items: lyrics.split and lyrics.bilingual.
+- Pre-fix reproduction: four failures among five focused tests. After implementation: 8 relevant JVM classes, 93 tests all pass. The independent QA Android regression remains a separate acceptance step.
