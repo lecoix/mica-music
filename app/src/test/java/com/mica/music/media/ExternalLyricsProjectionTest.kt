@@ -298,6 +298,27 @@ class ExternalLyricsProjectionTest {
     }
 
     @Test
+    fun explicitExternalTranslationModeIgnoresItsPhysicalSplitToggle() {
+        val doc = LyricsDocument(
+            format = com.mica.music.data.LyricsFormat.TTML,
+            lines = listOf(LyricLineNode(
+                id="dual",startMs=1000,endMs=2000,
+                parts=listOf(
+                    LyricTextPart(LyricTextRole.ORIGINAL,"Hello / world"),
+                    LyricTextPart(LyricTextRole.TRANSLATION,"你好世界")
+                ),
+            )),
+        )
+        val line=buildExternalLyricsLine(doc,doc.toLegacyLyricLines(),0,
+            LyricsDisplayOptions(
+                splitEnabled=false,bilingualMode=LyricsBilingualDisplayMode.TRANSLATION,
+            ))
+        assertEquals(listOf("你好世界"),line?.rows?.map{it.text.text})
+        assertEquals(listOf(LyricTextRole.TRANSLATION),line?.rows?.map{it.role})
+        assertEquals("你好世界",line?.translation?.text)
+    }
+
+    @Test
     fun wordByWordProjectionCanBeDisabledForExternalLyrics() {
         val lyrics = listOf(
             LyricLine(

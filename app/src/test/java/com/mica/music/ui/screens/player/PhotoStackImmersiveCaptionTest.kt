@@ -107,7 +107,7 @@ class PhotoStackImmersiveCaptionTest {
     }
 
     @Test
-    fun splitDisabledTreatsBilingualLineAsMonolingual() {
+    fun splitDisabledPreservesRealStructuredTranslationInCaption() {
         val document = LyricsDocument(
             format = LyricsFormat.TTML,
             lines = listOf(
@@ -124,7 +124,7 @@ class PhotoStackImmersiveCaptionTest {
         val state = LyricsSession(document).snapshotAt(1_500)
 
         assertEquals(
-            PhotoStackImmersiveCaption("原文\u2009译文", "晴天 - 周杰伦"),
+            PhotoStackImmersiveCaption("原文", "译文"),
             photoStackImmersiveCaption(
                 song = song,
                 isPlaying = true,

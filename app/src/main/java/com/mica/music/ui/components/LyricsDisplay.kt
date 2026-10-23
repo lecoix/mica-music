@@ -264,13 +264,14 @@ fun LyricLineBlock(
     val lyricSplitEnabled = LocalLyricSplitEnabled.current
     val lyricReadingEnabled = LocalLyricReadingEnabled.current
     val lyricLineFillEnabled = LocalLyricLineFillEnabled.current
-    val rows = remember(text, parts, sourceFormat, lyricSplitEnabled, lyricReadingEnabled, bilingualDisplayMode) {
+    val rows = remember(text, parts, tokens, sourceFormat, lyricSplitEnabled, lyricReadingEnabled, bilingualDisplayMode) {
         LyricDisplayRows.rowsFromParts(
             parts = parts.orEmpty(),
-            mode = bilingualDisplayMode,
+            mode = LyricDisplayRows.effectiveBilingualMode(lyricSplitEnabled, bilingualDisplayMode),
             readingEnabled = lyricReadingEnabled,
             splitEnabled = lyricSplitEnabled,
-            authoritativeOriginalOnly = LyricDisplayRows.hasAuthoritativeOriginalRole(sourceFormat),
+            authoritativeOriginalOnly = LyricDisplayRows.hasAuthoritativeOriginalRole(sourceFormat) ||
+                com.mica.music.data.LyricsSync.isWordTimedTokens(tokens.orEmpty()),
         ) ?: LyricDisplayRows.rowsForBilingualDisplayMode(
             text = text.orEmpty(),
             enabled = lyricSplitEnabled,

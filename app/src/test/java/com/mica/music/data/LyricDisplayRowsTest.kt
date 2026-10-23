@@ -50,16 +50,64 @@ class LyricDisplayRowsTest {
     }
 
     @Test
-    fun rowsFromPartsMergesWhenSplitDisabled() {
-        val rows = LyricDisplayRows.rowsFromParts(
-            parts = listOf(
-                LyricTextPart(LyricTextRole.ORIGINAL, "原文"),
-                LyricTextPart(LyricTextRole.TRANSLATION, "译文"),
-            ),
-            splitEnabled = false,
-        )!!
+    fun structuredRowsNeverMergeWhenSplitDisabled() {
+        val parts = listOf(
+            LyricTextPart(LyricTextRole.ORIGINAL, "原文"),
+            LyricTextPart(LyricTextRole.TRANSLATION, "译文"),
+        )
+        val all = LyricDisplayRows.rowsFromParts(parts, splitEnabled = false)!!
+        assertEquals(listOf("原文", "译文"), all.map { it.text })
+        assertEquals(listOf(LyricTextRole.ORIGINAL, LyricTextRole.TRANSLATION),
+            all.map { it.role })
+        // Explicit semantic mode remains meaningful at the low-level parts API.
+        val translated = LyricDisplayRows.rowsFromParts(
+            parts, mode = LyricsBilingualDisplayMode.TRANSLATION, splitEnabled = false)!!
+        assertEquals(listOf("译文"), translated.map { it.text })
+        assertEquals(listOf(LyricTextRole.TRANSLATION), translated.map { it.role })
+    }
 
-        assertEquals(listOf("原文\u2009译文"), rows.map { it.text })
+    @Test
+    fun settingsOffIgnoresDormantPreviousBilingualChoiceButPreservesStructuredTracks() {
+        for (format in listOf(LyricsFormat.LRC, LyricsFormat.TTML, LyricsFormat.SYLT)) {
+            val node = LyricLineNode("dual", 0, parts=listOf(
+                LyricTextPart(LyricTextRole.ORIGINAL, "Hello / world"),
+                LyricTextPart(LyricTextRole.TRANSLATION, "你好世界"),
+            ))
+            val document=LyricsDocument(format=format,lines=listOf(node))
+            val rows=LyricDisplayRows.rowsForDocumentLine(
+                document,0,"Hello / world",enabled=false,
+                mode=LyricsBilingualDisplayMode.TRANSLATION)
+            assertEquals(listOf("Hello / world","你好世界"),rows.map{it.text})
+            assertEquals(listOf(LyricTextRole.ORIGINAL,LyricTextRole.TRANSLATION),
+                rows.map{it.role})
+        }
+        val pureText=LyricsDocument(format=LyricsFormat.LRC,lines=listOf(
+            LyricLineNode("plain",0,parts=listOf(
+                LyricTextPart(LyricTextRole.ORIGINAL,"Hello / 你好")))))
+        assertEquals(listOf("Hello / 你好"),
+            LyricDisplayRows.rowsForDocumentLine(pureText,0,"Hello / 你好",
+                enabled=false,mode=LyricsBilingualDisplayMode.TRANSLATION).map{it.text})
+        assertEquals(listOf("你好"),
+            LyricDisplayRows.rowsForDocumentLine(pureText,0,"Hello / 你好",
+                enabled=true,mode=LyricsBilingualDisplayMode.TRANSLATION).map{it.text})
+    }
+
+    @Test
+    fun trulyWordTimedLrcOriginalOnlyDoesNotUseTextSlashSplitter() {
+        val txt="Hello / 你好"
+        val doc=LyricsDocument(format=LyricsFormat.LRC,lines=listOf(
+            LyricLineNode("timed",1000,parts=listOf(
+                LyricTextPart(LyricTextRole.ORIGINAL,txt)),
+                tokens=listOf(
+                    LyricToken("Hello ",1000,1250),
+                    LyricToken("/",1300,1400),
+                    LyricToken("你好",1450,1600)
+                ))))
+        assertEquals(listOf(txt),
+            LyricDisplayRows.rowsForDocumentLine(doc,0,txt,
+                enabled=true,mode=LyricsBilingualDisplayMode.TRANSLATION).map{it.text})
+        assertEquals(listOf(LyricTextRole.ORIGINAL),
+            LyricDisplayRows.rowsForDocumentLine(doc,0,txt).map{it.role})
     }
 
     @Test

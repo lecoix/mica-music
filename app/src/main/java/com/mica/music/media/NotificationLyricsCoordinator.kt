@@ -760,12 +760,12 @@ internal fun buildExternalLyricsLine(
             enabled = display.wordByWordEnabled,
         )
 
-        val bilingual = hasSemanticTranslation
         val bilingualMode = if (
             display.wordByWordEnabled && display.hideTranslationWhenWordByWordEnabled
         ) {
             LyricsBilingualDisplayMode.ORIGINAL
         } else {
+            // Explicit status-bar/desktop mode is independent of its own split toggle.
             display.bilingualMode
         }
         if (!hasSemanticTranslation) {
@@ -810,53 +810,8 @@ internal fun buildExternalLyricsLine(
                 },
             )
         }
-        if (!display.splitEnabled) {
-            val collapsedText = when (bilingualMode) {
-                LyricsBilingualDisplayMode.ORIGINAL -> baseOriginalCore
-                LyricsBilingualDisplayMode.TRANSLATION -> baseTranslation.ifBlank { baseOriginalCore }
-                LyricsBilingualDisplayMode.ALL -> listOf(baseOriginalCore, baseTranslation)
-                    .filter { it.isNotBlank() }
-                    .joinToString(" ")
-            }.ifBlank { rawText.replace(Regex("\\s+"), " ").trim() }
-            val selectedCues = when {
-                !bilingual -> originalCues
-                bilingualMode == LyricsBilingualDisplayMode.ORIGINAL -> originalCues
-                bilingualMode == LyricsBilingualDisplayMode.TRANSLATION ->
-                    translationCues.ifEmpty { originalCues }
-                else -> emptyList()
-            }
-            val selectedText = ExternalLyricsText(
-                text = collapsedText,
-                // A collapsed bilingual line has one shared phrase-level progress. Keeping
-                // both languages' word cues would fill the text serially.
-                cues = selectedCues,
-            )
-            val renderAsTranslation =
-                bilingualMode == LyricsBilingualDisplayMode.TRANSLATION &&
-                    baseTranslation.isNotBlank()
-            return ExternalLyricsLine(
-                lineIndex = index,
-                startMs = node.startMs,
-                endMs = node.endMs ?: document.lines.getOrNull(index + 1)?.startMs,
-                rows = buildList {
-                    if (display.readingEnabled && readingPart.isNotBlank() && !renderAsTranslation) {
-                        add(
-                            ExternalLyricsRow(
-                                LyricTextRole.READING,
-                                ExternalLyricsText(readingPart, readingCues),
-                            ),
-                        )
-                    }
-                    add(
-                        ExternalLyricsRow(
-                            if (renderAsTranslation) LyricTextRole.TRANSLATION else LyricTextRole.ORIGINAL,
-                            selectedText,
-                        ),
-                    )
-                },
-            )
-        }
-
+        // For true semantic TRANSLATION, external surfaces use the same
+        // role selection as Compose regardless of the line SPLIT toggle.
         val rows = buildList {
             if (bilingualMode != LyricsBilingualDisplayMode.TRANSLATION) {
                 if (display.readingEnabled && readingPart.isNotBlank()) {

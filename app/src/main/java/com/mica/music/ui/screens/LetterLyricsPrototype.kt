@@ -960,10 +960,11 @@ internal fun letterDisplayPieces(
         .joinToString("\n") { it.text }
     val rows = LyricDisplayRows.rowsFromParts(
         parts = line.parts,
-        mode = bilingualDisplayMode,
+        mode = LyricDisplayRows.effectiveBilingualMode(splitEnabled, bilingualDisplayMode),
         readingEnabled = readingEnabled,
         splitEnabled = splitEnabled,
-        authoritativeOriginalOnly = LyricDisplayRows.hasAuthoritativeOriginalRole(sourceFormat),
+        authoritativeOriginalOnly = LyricDisplayRows.hasAuthoritativeOriginalRole(sourceFormat) ||
+            com.mica.music.data.LyricsSync.isWordTimedTokens(line.tokens),
     ) ?: LyricDisplayRows.rowsForBilingualDisplayMode(
         text = flatText,
         enabled = splitEnabled,

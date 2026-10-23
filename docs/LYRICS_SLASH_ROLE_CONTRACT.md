@@ -49,3 +49,13 @@ Five complete public LRC files were inspected from TWO separate repositories. Me
 - Verified provenance is now available for five natural spaced-slash bilingual **candidate** files; follow-up requires separately sourced bare-slash TRUE bilingual and same-script bilingual songs, with human labels per boundary.
 - Additional complex multi-row ORIGINAL-only TTML render/geometry and visible UI consumer QA, beyond the current per-line contract tests.
 - Functional app/device regression beyond Kotlin/unit tests; no production release is implied.
+
+## Phase 3: scope of SPLIT versus genuine semantic tracks (2026-10-23)
+
+- The settings UI has one composite switch: OFF versus ALL/ORIGINAL/TRANSLATION. OFF retains the old preference for later re-enable but its effective *global* mode is ALL while OFF.
+- SPLIT governs only legacy visual separator inference on untimed, original-only LRC/PLAIN; it never merges or re-tags authentic TRANSLATION/READING tracks.
+- LRC lines with real multiple-timestamp tokens do not enter slash text heuristics: no mid-cue role/style corruption.
+- Independent status bar/desktop bilingual mode is not reset by that surface's visual split flag. The global NotificationLyrics options normalize only the global OFF state.
+- The prior split-disabled structured merger was an old code/test contract; Letter and PhotoStack tests now preserve original/translation roles.
+- Directed JVM regression: 7 test classes, 90/90 PASS (0 failed/0 error/0 skipped). One first-pass test run found two obsolete structured-merge assertions (87/89 PASS), corrected only after checking the new contract.
+- This phase is a local fix candidate, not a new release. Android device checks need QA branch integration before final acceptance.

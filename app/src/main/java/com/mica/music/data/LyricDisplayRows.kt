@@ -115,11 +115,23 @@ object LyricDisplayRows {
     ): List<DisplayRow> =
         rowsFromParts(
             parts = document.lines.getOrNull(index)?.parts.orEmpty(),
-            mode = mode,
+            mode = effectiveBilingualMode(enabled, mode),
             readingEnabled = readingEnabled,
             splitEnabled = enabled,
-            authoritativeOriginalOnly = hasAuthoritativeOriginalRole(document.format),
+            authoritativeOriginalOnly = hasAuthoritativeOriginalRole(document.format) ||
+                LyricsSync.isWordTimedTokens(document.lines.getOrNull(index)?.tokens.orEmpty()),
         ) ?: rowsForBilingualDisplayMode(text, enabled, mode)
+
+    /**
+     * Lyrics settings expose OFF as a fourth composite mode.  When OFF,
+     * the saved original/translation preference is dormant, not active.
+     * Semantic tracks stay separate; only text-only line splitting is OFF.
+     */
+    fun effectiveBilingualMode(
+        splitEnabled: Boolean,
+        savedMode: LyricsBilingualDisplayMode,
+    ): LyricsBilingualDisplayMode =
+        if (splitEnabled) savedMode else LyricsBilingualDisplayMode.ALL
 
     fun rowsFromParts(
         parts: List<LyricTextPart>,
@@ -156,13 +168,8 @@ object LyricDisplayRows {
             )
         }
 
-        if (!splitEnabled && translation.isNotEmpty()) {
-            val merged = listOf(original, translation)
-                .filter { it.isNotEmpty() }
-                .joinToString("\u2009")
-            return listOfNotNull(row(LyricTextRole.ORIGINAL, merged, 0))
-        }
-
+        // Do not merge source-provided semantic tracks. SPLIT only governs
+        // heuristic visual rows of ordinary untimed LRC text.
         val built = when (mode) {
             LyricsBilingualDisplayMode.ALL -> buildList {
                 if (readingEnabled) row(LyricTextRole.READING, reading, 0)?.let(::add)

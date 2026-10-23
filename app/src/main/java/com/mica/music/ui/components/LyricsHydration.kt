@@ -107,10 +107,11 @@ private fun LyricsDocument.displayRoleShapeSummary(
 ): String = roleShapeSummary { line ->
     LyricDisplayRows.rowsFromParts(
         parts = line.parts,
-        mode = mode,
+        mode = LyricDisplayRows.effectiveBilingualMode(splitEnabled, mode),
         readingEnabled = readingEnabled,
         splitEnabled = splitEnabled,
-        authoritativeOriginalOnly = LyricDisplayRows.hasAuthoritativeOriginalRole(format),
+        authoritativeOriginalOnly = LyricDisplayRows.hasAuthoritativeOriginalRole(format) ||
+            com.mica.music.data.LyricsSync.isWordTimedTokens(line.tokens),
     )?.joinToString("+") { it.role.name }
         ?.ifBlank { "EMPTY" }
         ?: "FALLBACK"

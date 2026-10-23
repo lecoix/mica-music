@@ -69,7 +69,7 @@ class LetterLyricsBilingualDisplayTest {
     }
 
     @Test
-    fun structuredTranslationUsesASeparateColumnOnlyWhenSplitEnabled() {
+    fun structuredTranslationKeepsSeparateColumnsRegardlessOfLineSplitToggle() {
         val line = line(
             LyricTextRole.ORIGINAL to "原文",
             LyricTextRole.TRANSLATION to "译文",
@@ -88,7 +88,10 @@ class LetterLyricsBilingualDisplayTest {
             ).map { it.kind to it.text },
         )
         assertEquals(
-            listOf(LetterDisplayKind.MAIN to "原文\u2009译文"),
+            listOf(
+                LetterDisplayKind.MAIN to "原文",
+                LetterDisplayKind.TRANSLATION to "译文",
+            ),
             letterDisplayPieces(
                 line = line,
                 bilingualDisplayMode = LyricsBilingualDisplayMode.ALL,
