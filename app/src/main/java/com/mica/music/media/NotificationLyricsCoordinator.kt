@@ -546,7 +546,7 @@ internal class NotificationLyricsCoordinator(
         effectiveLyricsOffsetMs: Int,
     ) {
         val display = NotificationLyrics.displayOptions(appContext)
-        val displayLine = LyricsDisplayProjection.lyricLineText(session.lyrics, index, display)
+        val displayLine = LyricsDisplayProjection.lyricLineText(session, index, display)
         if (displayLine == null) {
             // Preserve phase-one behavior: a blank line keeps the previous notification lyric.
             lastPublishedIndex = index

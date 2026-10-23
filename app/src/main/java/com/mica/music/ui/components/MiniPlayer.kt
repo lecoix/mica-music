@@ -270,7 +270,7 @@ private fun miniPlayerText(
     if (lyricIndex < 0) return miniPlayerText(song, isPlaying, enabled, lyricText = null)
 
     val lyric = LyricsDisplayProjection.lyricLineText(
-        lyrics = lyricsSession.lyrics,
+        session = lyricsSession,
         index = lyricIndex,
         display = LyricsDisplayOptions(
             splitEnabled = lyricSplitEnabled,

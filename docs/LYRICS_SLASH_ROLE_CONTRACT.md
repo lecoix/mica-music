@@ -69,3 +69,5 @@ Five complete public LRC files were inspected from TWO separate repositories. Me
 - A one-time shared-preference migration marker lyrics_split_language_decoupled_v1 maps legacy combined OFF plus any hidden old language mode to SPLIT-off + ALL, avoiding unexpected text disappearance. Existing active language selections are retained. After migration the two keys are independent.
 - Settings search has two independently addressable items: lyrics.split and lyrics.bilingual.
 - Pre-fix reproduction: four failures among five focused tests. After implementation: 8 relevant JVM classes, 93 tests all pass. The independent QA Android regression remains a separate acceptance step.
+
+- Audit extension: small/single-line consumers (mini player, home stats/info row, notification MediaSession title) now pass their LyricsSession document into a provenance-aware display projection. Legacy text-only overload remains for genuinely document-less callers. This ensures independent language filtering works on every displayed surface, not just full lyrics pages.
