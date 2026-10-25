@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -46,6 +47,51 @@ import org.robolectric.annotation.GraphicsMode
 class LyricsOwnedDepartureProbeTest {
     @get:Rule val rule = createComposeRule()
 
+    @Test fun synchronousPlacementDoesNotAnimateOrdinaryAcceleratingScroll() {
+        lateinit var scroll: (Float) -> Unit
+        lateinit var state: androidx.compose.foundation.lazy.LazyListState
+        lateinit var owned: OwnedLyricsPositionMotion
+        rule.mainClock.autoAdvance = false
+        rule.setContent {
+            state = rememberLazyListState(8, 5)
+            val scope = rememberCoroutineScope()
+            owned = remember { OwnedLyricsPositionMotion(scope) }
+            DisposableEffect(owned) { onDispose { owned.dispose() } }
+            LaunchedEffect(owned, state) {
+                snapshotFlow { state.layoutInfo }.collect {
+                    owned.acceptLayout(state.layoutInfo, true, 170f, state.isScrollInProgress)
+                }
+            }
+            scroll = { delta -> scope.launch { state.scrollBy(delta) }; Unit }
+            LazyColumn(
+                state = state,
+                modifier = Modifier.fillMaxWidth().height(600.dp)
+                    .nestedScroll(owned.nestedScrollConnection),
+                contentPadding = PaddingValues(top = 200.dp, bottom = 200.dp),
+            ) {
+                items((0 until 50).toList(), key = { it.toString() }) { index ->
+                    Box(Modifier.fillMaxWidth().height(40.dp)
+                        .onPlaced { owned.acceptLayout(state.layoutInfo, true, 170f, state.isScrollInProgress) }
+                        .graphicsLayer { translationY = owned.translationFor(index.toString()) }
+                        .background(Color.Gray))
+                }
+            }
+        }
+        rule.mainClock.advanceTimeBy(100)
+        rule.waitForIdle()
+        for (delta in (1..20).map { it.toFloat() } + (20 downTo 1).map { -it.toFloat() }) {
+            rule.runOnIdle { scroll(delta) }
+            rule.mainClock.advanceTimeByFrame()
+            rule.waitForIdle()
+            rule.runOnIdle {
+                val residual = state.layoutInfo.visibleItemsInfo.maxOf {
+                    kotlin.math.abs(owned.translationFor(it.key.toString()))
+                }
+                assertTrue("Pure scroll $delta created $residual px structural motion", residual < 0.75f)
+            }
+        }
+    }
+
     @Test fun originalPlus463PxSequenceDoesNotDropOldRow() {
         val grow = mutableStateOf(false)
         val locations = mutableMapOf<Int, LayoutCoordinates>()
@@ -57,12 +103,8 @@ class LyricsOwnedDepartureProbeTest {
             val owned = remember { OwnedLyricsPositionMotion(scope) }
             DisposableEffect(owned) { onDispose { owned.dispose() } }
             LaunchedEffect(owned, state) {
-                snapshotFlow {
-                    state.layoutInfo.visibleItemsInfo.map {
-                        OwnedLyricGeometry(it.key.toString(), it.offset, it.size)
-                    }
-                }.collect {
-                    owned.accept(it, animate = true, stiffness = 170f,
+                snapshotFlow { state.layoutInfo }.collect {
+                    owned.acceptLayout(state.layoutInfo, animate = true, stiffness = 170f,
                         scrolling = state.isScrollInProgress)
                 }
             }
@@ -85,6 +127,7 @@ class LyricsOwnedDepartureProbeTest {
                         DisposableEffect(index) { onDispose { locations.remove(index) } }
                         Box(
                             Modifier.fillMaxWidth().height(height.dp)
+                                .onPlaced { owned.acceptLayout(state.layoutInfo, true, 170f, state.isScrollInProgress) }
                                 .graphicsLayer {
                                     translationY = owned.translationFor(index.toString())
                                 }
@@ -130,12 +173,8 @@ class LyricsOwnedDepartureProbeTest {
             val owned = remember { OwnedLyricsPositionMotion(scope) }
             DisposableEffect(owned) { onDispose { owned.dispose() } }
             LaunchedEffect(owned, state) {
-                snapshotFlow {
-                    state.layoutInfo.visibleItemsInfo.map {
-                        OwnedLyricGeometry(it.key.toString(), it.offset, it.size)
-                    }
-                }.collect {
-                    owned.accept(it, animate = true, stiffness = 170f,
+                snapshotFlow { state.layoutInfo }.collect {
+                    owned.acceptLayout(state.layoutInfo, animate = true, stiffness = 170f,
                         scrolling = state.isScrollInProgress)
                 }
             }
@@ -156,7 +195,8 @@ class LyricsOwnedDepartureProbeTest {
                 items(rows, key = { it }) { key ->
                     Box(
                         Modifier.fillMaxWidth().height(if (key == "interlude") 27.dp else 60.dp)
-                            .graphicsLayer { translationY = owned.translationFor(key) }
+                            .onPlaced { owned.acceptLayout(state.layoutInfo, true, 170f, state.isScrollInProgress) }
+                                .graphicsLayer { translationY = owned.translationFor(key) }
                             .onGloballyPositioned { locations[key] = it }
                             .background(Color.Gray)
                     )
@@ -203,12 +243,8 @@ class LyricsOwnedDepartureProbeTest {
             owned = remember { OwnedLyricsPositionMotion(scope) }
             DisposableEffect(owned) { onDispose { owned.dispose() } }
             LaunchedEffect(owned, state) {
-                snapshotFlow {
-                    state.layoutInfo.visibleItemsInfo.map {
-                        OwnedLyricGeometry(it.key.toString(), it.offset, it.size)
-                    }
-                }.collect {
-                    owned.accept(it, animate = true, stiffness = 170f,
+                snapshotFlow { state.layoutInfo }.collect {
+                    owned.acceptLayout(state.layoutInfo, animate = true, stiffness = 170f,
                         scrolling = state.isScrollInProgress)
                 }
             }
@@ -227,7 +263,8 @@ class LyricsOwnedDepartureProbeTest {
                     val height = if (index == 5 && grow.value) 77 else 47
                     Box(
                         Modifier.fillMaxWidth().height(height.dp)
-                            .graphicsLayer { translationY = owned.translationFor(index.toString()) }
+                            .onPlaced { owned.acceptLayout(state.layoutInfo, true, 170f, state.isScrollInProgress) }
+                                .graphicsLayer { translationY = owned.translationFor(index.toString()) }
                             .background(Color.Gray)
                     )
                 }

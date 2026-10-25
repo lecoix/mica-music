@@ -1,8 +1,10 @@
 package com.mica.music.ui.screens
 
 import androidx.compose.animation.core.TargetBasedAnimation
+import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.lazy.LazyListLayoutInfo
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -58,10 +60,14 @@ internal class OwnedLyricsPositionMotion(
     private class RowMotion {
         var translationPx by mutableFloatStateOf(0f)
         var animation: Job? = null
+        var revision: Long = 0L
+        var followCompensation: FollowCompensation? = null
 
         fun cancel() {
+            revision++
             animation?.cancel()
             animation = null
+            followCompensation = null
         }
     }
 
@@ -70,6 +76,48 @@ internal class OwnedLyricsPositionMotion(
     private var sampledScrollTravelPx = 0f
     private val visibleRows = mutableStateMapOf<String, RowMotion>()
     private val pinnedKeys = mutableSetOf<String>()
+    private var committedLayout: LazyListLayoutInfo? = null
+    private var committedAnimate = false
+    private data class FollowFrame(val playTimeNanos: Long, val delays: Map<String, Long>)
+    private data class FollowCompensation(
+        val curve: TargetBasedAnimation<Float, AnimationVector1D>,
+        val multiplier: Float,
+        val delayNanos: Long,
+        val stiffness: Float,
+    )
+    private var followFrame: FollowFrame? = null
+    private var followRevision = 0L
+
+    fun beginFollow(): Long {
+        clearFollowFrame(followRevision)
+        return ++followRevision
+    }
+
+    fun recordFollowFrame(token: Long, playTimeNanos: Long, delays: Map<String, Long>): Boolean {
+        if (token != followRevision) return false
+        followFrame = FollowFrame(playTimeNanos, delays)
+        visibleRows.values.forEach { row ->
+            row.followCompensation?.let { compensation ->
+                val time = (playTimeNanos - compensation.delayNanos).coerceAtLeast(0L)
+                row.translationPx = compensation.curve.getValueFromNanos(
+                    time.coerceAtMost(compensation.curve.durationNanos),
+                ) * compensation.multiplier
+            }
+        }
+        return true
+    }
+
+    fun clearFollowFrame(token: Long): Boolean {
+        if (token != followRevision) return false
+        followRevision++
+        followFrame = null
+        // A user drag may interrupt follow. Continue any remaining compensation
+        // from its current value instead of dropping it at the cancellation boundary.
+        visibleRows.values.forEach { row ->
+            row.followCompensation?.let { startSpring(row, row.translationPx, it.stiffness) }
+        }
+        return true
+    }
 
     val nestedScrollConnection: NestedScrollConnection = object : NestedScrollConnection {
         override fun onPostScroll(
@@ -102,6 +150,28 @@ internal class OwnedLyricsPositionMotion(
     }
 
     /**
+     * Called from row placement BEFORE its layer is drawn, with the current list receipt.
+     * Multiple rows and the asynchronous observer share one commit; observing the same
+     * layout again must not restart springs or account for scroll a second time.
+     * Reset retires this receipt along with the row animations. Main/UI thread only.
+     */
+    fun acceptLayout(
+        layout: LazyListLayoutInfo,
+        animate: Boolean,
+        stiffness: Float,
+        scrolling: Boolean,
+    ) {
+        if (committedLayout === layout && committedAnimate == animate) return
+        acceptMeasured(
+            layout.visibleItemsInfo.map { OwnedLyricGeometry(it.key.toString(), it.offset, it.size) },
+            animate, stiffness, scrolling,
+            structureChanged = committedLayout?.let { it.totalItemsCount != layout.totalItemsCount } == true,
+        )
+        committedLayout = layout
+        committedAnimate = animate
+    }
+
+    /**
      * One measured layout snapshot = one authority commit. Stale rows are retired
      * as soon as LazyColumn recycles them, so no detached row can animate down.
      */
@@ -110,6 +180,14 @@ internal class OwnedLyricsPositionMotion(
         animate: Boolean,
         stiffness: Float,
         scrolling: Boolean,
+    ) = acceptMeasured(measured, animate, stiffness, scrolling, structureChanged = false)
+
+    private fun acceptMeasured(
+        measured: List<OwnedLyricGeometry>,
+        animate: Boolean,
+        stiffness: Float,
+        scrolling: Boolean,
+        structureChanged: Boolean,
     ) {
         val scrollTravel = totalScrollTravelPx - sampledScrollTravelPx
         val next = measured.associateBy { it.key }
@@ -127,7 +205,8 @@ internal class OwnedLyricsPositionMotion(
                 val observedMove = (after.offsetPx - before.offsetPx).toFloat()
                 // When a scroll bypasses nested dispatch (e.g. scrollToItem), skip
                 // compensation rather than mistake scrolling for remeasurement.
-                val untrackedScroll = scrolling && abs(scrollTravel) < 0.5f &&
+                // Item insertion/removal is a real structural change even mid-scroll.
+                val untrackedScroll = !structureChanged && scrolling && abs(scrollTravel) < 0.5f &&
                     abs(observedMove) > 0.5f
                 // In an interlude insertion, the compensated NEXT row is already
                 // visually stationary (raw delta ~= 0). Do not undo that anchor.
@@ -138,25 +217,17 @@ internal class OwnedLyricsPositionMotion(
                     val continuation = ownedLyricContinuationPx(row.translationPx, structural)
                     row.cancel()
                     row.translationPx = continuation
-                    row.animation = scope.launch {
-                        val curve = TargetBasedAnimation(
-                            animationSpec = spring<Float>(
-                                stiffness = stiffness,
-                                dampingRatio = 1.16f,
-                            ),
-                            typeConverter = Float.VectorConverter,
-                            initialValue = continuation,
-                            targetValue = 0f,
-                        )
-                        val start = withFrameNanos { it }
-                        while (true) {
-                            val elapsed = (withFrameNanos { it } - start).coerceAtLeast(0L)
-                            row.translationPx = curve.getValueFromNanos(
-                                elapsed.coerceAtMost(curve.durationNanos),
-                            )
-                            if (elapsed >= curve.durationNanos) break
-                        }
-                        row.translationPx = 0f
+                    // Apply removal compensation in the SAME follow frame as scroll,
+                    // with the same phase, instead of adding another frame coroutine.
+                    val follow = followFrame?.takeIf { structureChanged && scrolling }
+                    val curve = positionCurve(continuation, stiffness)
+                    val delay = follow?.delays?.get(after.key) ?: 0L
+                    val phase = ((follow?.playTimeNanos ?: 0L) - delay).coerceIn(0L, curve.durationNanos)
+                    val phaseValue = curve.getValueFromNanos(phase)
+                    if (follow != null && abs(phaseValue) > 0.001f) {
+                        row.followCompensation = FollowCompensation(curve, continuation / phaseValue, delay, stiffness)
+                    } else {
+                        startSpring(row, continuation, stiffness)
                     }
                 }
             } else if (!animate) {
@@ -168,12 +239,41 @@ internal class OwnedLyricsPositionMotion(
         sampledScrollTravelPx = totalScrollTravelPx
     }
 
+    private fun positionCurve(value: Float, stiffness: Float) = TargetBasedAnimation(
+        animationSpec = spring<Float>(stiffness = stiffness, dampingRatio = 1.16f),
+        typeConverter = Float.VectorConverter,
+        initialValue = value,
+        targetValue = 0f,
+    )
+
+    private fun startSpring(row: RowMotion, value: Float, stiffness: Float) {
+        row.cancel()
+        row.translationPx = value
+        if (abs(value) < 0.001f) return
+        val revision = row.revision
+        row.animation = scope.launch {
+            val curve = positionCurve(value, stiffness)
+            val start = withFrameNanos { it }
+            if (row.revision != revision) return@launch
+            while (true) {
+                val elapsed = (withFrameNanos { it } - start).coerceAtLeast(0L)
+                if (row.revision != revision) return@launch
+                row.translationPx = curve.getValueFromNanos(elapsed.coerceAtMost(curve.durationNanos))
+                if (elapsed >= curve.durationNanos) break
+            }
+            row.translationPx = 0f
+        }
+    }
+
     /** Hard seek / new document / viewport reset: never carry an obsolete spring. */
     fun reset() {
         visibleRows.values.forEach { it.cancel() }
         visibleRows.clear()
         pinnedKeys.clear()
         lastGeometry = emptyMap()
+        committedLayout = null
+        followFrame = null
+        followRevision++
         sampledScrollTravelPx = totalScrollTravelPx
     }
 

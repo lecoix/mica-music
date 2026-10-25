@@ -1,5 +1,7 @@
 package com.mica.music.ui.screens
 
+import androidx.compose.animation.core.TargetBasedAnimation
+import androidx.compose.animation.core.VectorConverter
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -152,6 +154,31 @@ class ExpandedLyricsInterludeIntegrationTest {
         assertTransitionDriftBelowEight(frames, 55_000, 8, "second-opening")
     }
 
+    @Test fun firstInterludeUpperLineNeverFlashesToTargetAndBack() {
+        assertUpperLineContinuous(runProductionWindow(13_000, 17_400, 4), 17_000, 3)
+    }
+
+    @Test fun secondInterludeUpperLineNeverFlashesToTargetAndBack() {
+        assertUpperLineContinuous(runProductionWindow(49_000, 55_400, 8), 55_000, 7)
+    }
+
+    private fun assertUpperLineContinuous(
+        frames: List<ExpandedLyricsMotionTrace>,
+        transitionMs: Int,
+        upperIndex: Int,
+    ) {
+        val before = frames.last { it.positionMs < transitionMs && line(it, upperIndex) != null }
+        val after = frames.filter { it.positionMs >= transitionMs && line(it, upperIndex) != null }
+        val positions = (listOf(before) + after).map {
+            line(it, upperIndex)!!.visualRootYPx + it.followConsumedPx - before.followConsumedPx
+        }
+        val steps = positions.zipWithNext { a, b -> b - a }
+        println("UPPER_CONTINUITY t=$transitionMs y=${positions.take(12)}")
+        assertTrue("Upper lyric must still rise", positions.last() < positions.first() - 20f)
+        assertTrue("Upper lyric flashed down: $steps", steps.all { it <= 2f })
+        assertTrue("Upper lyric jumped to its endpoint: $steps", steps.all { it >= -12f })
+    }
+
     @Test fun firstGapRemainsStableThroughout17To29() {
         val frames = runProductionWindow(17_500, 28_900, 4)
         // The initial seek into an already-running interlude also settles a
@@ -194,6 +221,62 @@ class ExpandedLyricsInterludeIntegrationTest {
     @Test fun exitAt68RunsNaturalFollowAndDropsExpiredInterlude() {
         val frames = runProductionWindow(67_000, 68_400, 8)
         assertNaturalExit(frames, 68_000, 8, "68-exit")
+    }
+
+    @Test fun firstInterludeCollapseDoesNotFlashOrRebound() {
+        assertCollapseContinuous(runProductionWindow(28_000, 30_000, 4), 29_000, 4)
+    }
+
+    @Test fun secondInterludeCollapseDoesNotFlashOrRebound() {
+        assertCollapseContinuous(runProductionWindow(67_000, 69_000, 8), 68_000, 8)
+    }
+
+    @Test fun firstInterludeCollapseAtAnchor60DoesNotFlashOrRebound() {
+        assertCollapseContinuous(runProductionWindow(28_000, 30_000, 4, anchor = 60), 29_000, 4)
+    }
+
+    @Test fun naturallyPlayedFirstInterludeCollapsesWithoutRebound() {
+        assertCollapseContinuous(runProductionWindow(13_000, 30_000, 4), 29_000, 4)
+    }
+
+    @Test fun naturallyPlayedSecondInterludeCollapsesWithoutRebound() {
+        assertCollapseContinuous(runProductionWindow(49_000, 69_000, 8), 68_000, 8)
+    }
+
+    private fun assertCollapseContinuous(
+        frames: List<ExpandedLyricsMotionTrace>,
+        transitionMs: Int,
+        nextIndex: Int,
+    ) {
+        val window = frames.filter { it.positionMs >= transitionMs - 100 }
+        for (index in listOf(nextIndex - 1, nextIndex)) {
+            val samples = window.mapNotNull { frame -> line(frame, index)?.let { frame to it } }
+            assertTrue("Missing collapse samples for row $index", samples.size > 10)
+            val steps = samples.zipWithNext { a, b -> b.second.visualRootYPx - a.second.visualRootYPx }
+            println("COLLAPSE row=$index t=$transitionMs maxDown=${steps.maxOrNull()} maxUp=${steps.minOrNull()}")
+            assertTrue("Collapse row $index bounced downward: $steps", steps.all { it <= 3f })
+            // The visible journey includes both scroll and slot collapse. At a
+            // lower anchor the NEXT row itself reflows, so scroll speed alone
+            // is not its speed limit. Bound the complete journey by the peak
+            // speed of its prescribed spring, with 2px for layout rounding.
+            val travel = abs(samples.last().second.visualRootYPx - samples.first().second.visualRootYPx)
+            val envelope = TargetBasedAnimation(
+                classicLyricsScrollSpring(1_000), Float.VectorConverter, 0f, travel,
+            )
+            val frameStep = 16_000_000L
+            val maxStep = (0L..envelope.durationNanos step frameStep).maxOf { time ->
+                abs(envelope.getValueFromNanos((time + frameStep).coerceAtMost(envelope.durationNanos)) -
+                    envelope.getValueFromNanos(time))
+            }
+            assertTrue("Collapse row $index exceeded the full-journey spring speed $maxStep: $steps",
+                steps.all { it >= -(maxStep + 2f) })
+            var lowest = Float.POSITIVE_INFINITY
+            samples.forEach { (_, row) ->
+                lowest = minOf(lowest, row.visualRootYPx)
+                assertTrue("Collapse row $index gradually rebounded by ${row.visualRootYPx - lowest} px",
+                    row.visualRootYPx - lowest <= 3f)
+            }
+        }
     }
 
     @Test fun firstOpeningAtAnchor60StillKeepsLowerNextLineStable() {
