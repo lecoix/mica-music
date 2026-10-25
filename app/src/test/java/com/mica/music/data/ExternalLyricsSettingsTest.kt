@@ -34,15 +34,19 @@ class ExternalLyricsSettingsTest {
     fun effectStrengthsPreserveCurrentDefaultsAndClampForRendering() {
         val defaults = ExternalLyricsStyle()
         assertEquals(1f, defaults.opacityFraction)
+        assertEquals(0.42f, defaults.unfilledOpacityFraction)
         assertEquals(1f, defaults.shadowStrengthFraction)
         assertEquals(0f, defaults.glowStrengthFraction)
 
         val invalid = ExternalLyricsStyle(
             opacityPercent = -20,
+            unfilledOpacityPercent = -20,
             shadowStrengthPercent = 140,
             glowStrengthPercent = 250,
         )
         assertEquals(0f, invalid.opacityFraction)
+        assertEquals(0f, invalid.unfilledOpacityFraction)
+        assertEquals(1f, invalid.copy(unfilledOpacityPercent = 140).unfilledOpacityFraction)
         assertEquals(1f, invalid.shadowStrengthFraction)
         assertEquals(1f, invalid.glowStrengthFraction)
     }

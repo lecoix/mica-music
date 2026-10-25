@@ -11,6 +11,7 @@ import com.mica.music.data.DEFAULT_EXTERNAL_LYRICS_GRADIENT_ANGLE
 import com.mica.music.data.DEFAULT_EXTERNAL_LYRICS_WIDTH_PERCENT
 import com.mica.music.data.DEFAULT_EXTERNAL_LYRICS_GLOW_STRENGTH_PERCENT
 import com.mica.music.data.DEFAULT_EXTERNAL_LYRICS_OPACITY_PERCENT
+import com.mica.music.data.DEFAULT_EXTERNAL_LYRICS_UNFILLED_OPACITY_PERCENT
 import com.mica.music.data.DEFAULT_EXTERNAL_LYRICS_SHADOW_STRENGTH_PERCENT
 import com.mica.music.data.DEFAULT_STATUS_BAR_LYRICS_HORIZONTAL_OFFSET_DP
 import com.mica.music.data.DEFAULT_STATUS_BAR_LYRICS_TOP_OFFSET_DP
@@ -105,6 +106,7 @@ object LyricsPreferences {
     private const val KEY_EXTERNAL_LYRICS_GRADIENT_ANGLE = "external_lyrics_gradient_angle"
     private const val KEY_EXTERNAL_LYRICS_COLOR_PREFIX = "external_lyrics_color_"
     private const val KEY_EXTERNAL_LYRICS_UNFILLED_COLOR = "external_lyrics_unfilled_color"
+    private const val KEY_EXTERNAL_LYRICS_UNFILLED_OPACITY_PERCENT = "external_lyrics_unfilled_opacity_percent"
     private const val KEY_EXTERNAL_LYRICS_OPACITY_PERCENT = "external_lyrics_opacity_percent"
     private const val KEY_EXTERNAL_LYRICS_SHADOW_STRENGTH_PERCENT =
         "external_lyrics_shadow_strength_percent"
@@ -716,6 +718,20 @@ object LyricsPreferences {
         }.apply()
     }
 
+    fun externalLyricsUnfilledOpacityPercent(context: Context): Int =
+        externalLyricsEffectPercent(
+            context,
+            KEY_EXTERNAL_LYRICS_UNFILLED_OPACITY_PERCENT,
+            DEFAULT_EXTERNAL_LYRICS_UNFILLED_OPACITY_PERCENT,
+        )
+
+    fun setExternalLyricsUnfilledColorAndOpacity(context: Context, colorArgb: Int, opacityPercent: Int) {
+        MicaSettingsStore.prefs(context).edit()
+            .putInt(KEY_EXTERNAL_LYRICS_UNFILLED_COLOR, colorArgb)
+            .putInt(KEY_EXTERNAL_LYRICS_UNFILLED_OPACITY_PERCENT, normalizeExternalLyricsEffectPercent(opacityPercent))
+            .apply()
+    }
+
     fun externalLyricsOpacityPercent(context: Context): Int =
         externalLyricsEffectPercent(
             context,
@@ -754,6 +770,7 @@ object LyricsPreferences {
         colorMode = externalLyricsColorMode(context),
         colorsArgb = externalLyricsColors(context),
         unfilledColorArgb = externalLyricsUnfilledColorArgb(context),
+        unfilledOpacityPercent = externalLyricsUnfilledOpacityPercent(context),
         gradientAngleDegrees = externalLyricsGradientAngleDegrees(context),
         desktopOriginalFontSizeSp = desktopLyricsOriginalFontSizeSp(context),
         desktopTranslationFontSizeSp = desktopLyricsTranslationFontSizeSp(context),
@@ -818,6 +835,7 @@ object LyricsPreferences {
                 KEY_EXTERNAL_LYRICS_COLOR_MODE,
                 KEY_EXTERNAL_LYRICS_COLOR_COUNT,
                 KEY_EXTERNAL_LYRICS_UNFILLED_COLOR,
+                KEY_EXTERNAL_LYRICS_UNFILLED_OPACITY_PERCENT,
                 KEY_EXTERNAL_LYRICS_GRADIENT_ANGLE,
                 KEY_EXTERNAL_LYRICS_OPACITY_PERCENT,
                 KEY_EXTERNAL_LYRICS_SHADOW_STRENGTH_PERCENT,

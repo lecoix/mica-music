@@ -322,6 +322,11 @@ class AppUiSettings(context: Context) {
     var externalLyricsUnfilledColorArgb by mutableStateOf(LyricsPreferences.externalLyricsUnfilledColorArgb(appContext))
         private set
 
+    var externalLyricsUnfilledOpacityPercent by mutableIntStateOf(
+        LyricsPreferences.externalLyricsUnfilledOpacityPercent(appContext),
+    )
+        private set
+
     var externalLyricsOpacityPercent by mutableIntStateOf(
         LyricsPreferences.externalLyricsOpacityPercent(appContext),
     )
@@ -908,6 +913,14 @@ class AppUiSettings(context: Context) {
     fun updateExternalLyricsUnfilledColorArgb(colorArgb: Int?) {
         externalLyricsUnfilledColorArgb = colorArgb
         LyricsPreferences.setExternalLyricsUnfilledColorArgb(appContext, colorArgb)
+    }
+
+    fun updateExternalLyricsUnfilledColorAndOpacity(colorArgb: Int, opacityPercent: Int) {
+        externalLyricsUnfilledColorArgb = colorArgb
+        externalLyricsUnfilledOpacityPercent = normalizeExternalLyricsEffectPercent(opacityPercent)
+        LyricsPreferences.setExternalLyricsUnfilledColorAndOpacity(
+            appContext, colorArgb, externalLyricsUnfilledOpacityPercent,
+        )
     }
 
     fun updateExternalLyricsShadowStrengthPercent(percent: Int) {

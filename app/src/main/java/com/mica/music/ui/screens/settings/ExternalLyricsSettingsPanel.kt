@@ -4,6 +4,7 @@ import android.widget.Toast
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
@@ -262,7 +263,7 @@ internal fun ExternalLyricsSettingsPanel(
 
         SettingsToggleRow(
             title = "自定义未填充颜色",
-            subtitle = "关闭时跟随已填充的第一个颜色；透明度固定为 42%",
+            subtitle = "关闭时颜色跟随已填充；未填充透明度 ${uiSettings.externalLyricsUnfilledOpacityPercent}%",
             checked = uiSettings.externalLyricsUnfilledColorArgb != null,
             onCheckedChange = { enabled ->
                 uiSettings.updateExternalLyricsUnfilledColorArgb(
@@ -274,19 +275,32 @@ internal fun ExternalLyricsSettingsPanel(
         uiSettings.externalLyricsUnfilledColorArgb?.let { unfilledColor ->
             SettingsActionRow(
                 title = "编辑未填充歌词颜色",
-                subtitle = "当前 ${formatExternalLyricsHex(unfilledColor)}",
+                subtitle = "当前 ${formatExternalLyricsHex(unfilledColor)} · 透明度 ${uiSettings.externalLyricsUnfilledOpacityPercent}%",
                 onClick = { showUnfilledColor = true },
             )
 
             if (showUnfilledColor) {
+                var opacityPercent by remember {
+                    mutableIntStateOf(uiSettings.externalLyricsUnfilledOpacityPercent)
+                }
                 ExternalLyricsColorDialog(
                     title = "未填充歌词颜色",
                     initialColors = listOf(unfilledColor),
                     colorCount = 1,
                     onDismiss = { showUnfilledColor = false },
                     onConfirm = { colors ->
-                        uiSettings.updateExternalLyricsUnfilledColorArgb(colors.first())
+                        uiSettings.updateExternalLyricsUnfilledColorAndOpacity(colors.first(), opacityPercent)
                         showUnfilledColor = false
+                    },
+                    contentAfterColors = {
+                        SettingsSliderRow(
+                            title = "未填充歌词透明度",
+                            subtitle = "文字颜色的不透明度；阴影和发光单独调整",
+                            value = opacityPercent,
+                            valueRange = MIN_EXTERNAL_LYRICS_EFFECT_PERCENT..MAX_EXTERNAL_LYRICS_EFFECT_PERCENT,
+                            suffix = "%",
+                            onValueChange = { opacityPercent = it },
+                        )
                     },
                 )
             }

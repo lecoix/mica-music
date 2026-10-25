@@ -5,7 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import com.mica.music.data.LyricCue
-import com.mica.music.ui.overlay.ExternalLyricsUnfilledAlpha
+import com.mica.music.data.ExternalLyricsStyle
 import com.mica.music.ui.overlay.externalLyricsEffectTuning
 import com.mica.music.ui.overlay.externalLyricsFilledAlpha
 
@@ -36,12 +36,13 @@ class DesktopLyricsOverlayStateStoreTest {
     }
 
     @Test
-    fun filledOpacityOverridesStoredColorAlphaWhileUnfilledOpacityStaysFixed() {
+    fun filledOpacityOverridesStoredColorAlphaWhileUnfilledOpacityIsIndependent() {
         val translucentMagenta = 0x40FF00FF
 
         assertEquals(1f, externalLyricsFilledAlpha(translucentMagenta, 1f))
         assertEquals(0.65f, externalLyricsFilledAlpha(translucentMagenta, 0.65f))
-        assertEquals(0.42f, ExternalLyricsUnfilledAlpha)
+        assertEquals(0.42f, ExternalLyricsStyle().unfilledOpacityFraction)
+        assertEquals(0.65f, ExternalLyricsStyle(unfilledOpacityPercent = 65).unfilledOpacityFraction)
     }
 
     @Test

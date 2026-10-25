@@ -26,6 +26,7 @@ internal fun ExternalLyricsColorDialog(
     onDismiss: () -> Unit,
     onConfirm: (List<Int>) -> Unit,
     title: String = "已填充歌词颜色",
+    contentAfterColors: @Composable () -> Unit = {},
 ) {
     val safeCount = colorCount.coerceIn(1, MAX_EXTERNAL_LYRICS_COLORS)
     val defaults = (initialColors + DEFAULT_EXTERNAL_LYRICS_COLORS).take(MAX_EXTERNAL_LYRICS_COLORS)
@@ -64,6 +65,7 @@ internal fun ExternalLyricsColorDialog(
                         },
                     )
                 }
+                contentAfterColors()
             }
         },
         confirmButton = {

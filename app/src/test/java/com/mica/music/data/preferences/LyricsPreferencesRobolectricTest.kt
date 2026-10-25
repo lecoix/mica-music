@@ -266,6 +266,61 @@ class LyricsPreferencesRobolectricTest {
     }
 
     @Test
+    fun unfilledColorAndOpacitySaveAtomicallyAndRemainIndependentOfFilledOpacity() {
+        val settings = com.mica.music.data.AppUiSettings(context)
+        val custom = 0xFF00FF00.toInt()
+        assertEquals(42, settings.externalLyricsUnfilledOpacityPercent)
+        val observed = mutableListOf<Pair<Int?, Int>>()
+        val unregister = LyricsPreferences.registerNotificationLyricsChangeListener(context) { change ->
+            assertEquals(LyricsPreferences.NotificationLyricsChange.DISPLAY, change)
+            val style = LyricsPreferences.externalLyricsStyle(context)
+            observed += style.unfilledColorArgb to style.unfilledOpacityPercent
+        }
+        try {
+            settings.updateExternalLyricsUnfilledColorAndOpacity(custom, 65)
+        } finally {
+            unregister()
+        }
+        assertTrue(observed.isNotEmpty())
+        assertTrue(observed.all { it == (custom to 65) })
+        val restored = com.mica.music.data.AppUiSettings(context)
+        assertEquals(custom, restored.externalLyricsUnfilledColorArgb)
+        assertEquals(65, restored.externalLyricsUnfilledOpacityPercent)
+        assertEquals(100, restored.externalLyricsOpacityPercent)
+        settings.updateExternalLyricsUnfilledColorArgb(null)
+        assertEquals(0.65f, LyricsPreferences.externalLyricsStyle(context).unfilledOpacityFraction)
+        settings.updateExternalLyricsUnfilledColorAndOpacity(custom, -1)
+        assertEquals(0, LyricsPreferences.externalLyricsStyle(context).unfilledOpacityPercent)
+        settings.updateExternalLyricsUnfilledColorAndOpacity(custom, 200)
+        assertEquals(100, LyricsPreferences.externalLyricsStyle(context).unfilledOpacityPercent)
+    }
+
+    @Test
+    fun delayedUnfilledOpacityRefreshCannotOverwriteNewerColorAndOpacity() {
+        val store = com.mica.music.media.DesktopLyricsOverlayStateStore()
+        val pending = mutableListOf<() -> Unit>()
+        val unregister = LyricsPreferences.registerNotificationLyricsChangeListener(context) {
+            pending.add { store.setStyle(LyricsPreferences.externalLyricsStyle(context)) }
+        }
+        try {
+            LyricsPreferences.setExternalLyricsUnfilledColorAndOpacity(context, 0xFFFF0000.toInt(), 65)
+            assertTrue(pending.isNotEmpty())
+            val oldRefreshes = pending.toList()
+            pending.clear()
+            LyricsPreferences.setExternalLyricsUnfilledColorAndOpacity(context, 0xFF00FF00.toInt(), 7)
+            assertTrue(pending.isNotEmpty())
+            pending.forEach { it() }
+            oldRefreshes.forEach { it() }
+            assertEquals(0xFF00FF00.toInt(), store.state.value.style.unfilledColorArgb)
+            assertEquals(0.07f, store.state.value.style.unfilledOpacityFraction)
+            assertEquals(7, LyricsPreferences.externalLyricsUnfilledOpacityPercent(context))
+            assertEquals(0xFF00FF00.toInt(), LyricsPreferences.externalLyricsUnfilledColorArgb(context))
+        } finally {
+            unregister()
+        }
+    }
+
+    @Test
     fun delayedUnfilledColorRefreshPublishesLatestPreferenceInsteadOfOldColor() {
         val store = com.mica.music.media.DesktopLyricsOverlayStateStore()
         val pending = mutableListOf<() -> Unit>()

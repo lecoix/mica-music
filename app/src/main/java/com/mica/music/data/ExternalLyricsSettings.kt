@@ -68,6 +68,7 @@ data class ExternalLyricsStyle(
     val glowStrengthPercent: Int = DEFAULT_EXTERNAL_LYRICS_GLOW_STRENGTH_PERCENT,
     /** Null preserves the existing behavior: follow the first filled color. */
     val unfilledColorArgb: Int? = null,
+    val unfilledOpacityPercent: Int = DEFAULT_EXTERNAL_LYRICS_UNFILLED_OPACITY_PERCENT,
 ) {
     val normalizedColors: List<Int>
         get() = normalizeExternalLyricsColors(colorsArgb)
@@ -77,6 +78,9 @@ data class ExternalLyricsStyle(
 
     val opacityFraction: Float
         get() = normalizeExternalLyricsEffectPercent(opacityPercent) / 100f
+
+    val unfilledOpacityFraction: Float
+        get() = normalizeExternalLyricsEffectPercent(unfilledOpacityPercent) / 100f
 
     val shadowStrengthFraction: Float
         get() = normalizeExternalLyricsEffectPercent(shadowStrengthPercent) / 100f
@@ -99,6 +103,7 @@ const val MAX_EXTERNAL_LYRICS_COLORS = 4
 const val MIN_EXTERNAL_LYRICS_EFFECT_PERCENT = 0
 const val MAX_EXTERNAL_LYRICS_EFFECT_PERCENT = 100
 const val DEFAULT_EXTERNAL_LYRICS_OPACITY_PERCENT = 100
+const val DEFAULT_EXTERNAL_LYRICS_UNFILLED_OPACITY_PERCENT = 42
 const val DEFAULT_EXTERNAL_LYRICS_SHADOW_STRENGTH_PERCENT = 100
 const val DEFAULT_EXTERNAL_LYRICS_GLOW_STRENGTH_PERCENT = 0
 

@@ -166,7 +166,7 @@ class SettingsOrganizationFlowTest {
             settings.updateExternalLyricsMode(ExternalLyricsMode.STATUS_BAR)
         }
         compose.onNodeWithText("编辑未填充歌词颜色").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("当前 #FFFF80B5").assertIsDisplayed()
+        compose.onNodeWithText("当前 #FFFF80B5 · 透明度 42%").assertIsDisplayed()
         compose.onNodeWithText("自定义未填充颜色").performScrollTo().performClick()
         compose.onNodeWithText("编辑未填充歌词颜色").assertDoesNotExist()
         compose.runOnIdle {
