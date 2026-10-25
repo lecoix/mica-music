@@ -265,9 +265,10 @@ fun LyricLineBlock(
     val lyricSplitEnabled = LocalLyricSplitEnabled.current
     val lyricReadingEnabled = LocalLyricReadingEnabled.current
     val lyricLineFillEnabled = LocalLyricLineFillEnabled.current
-    val rows = remember(text, parts, lyricSplitEnabled, lyricReadingEnabled, bilingualDisplayMode) {
-        LyricDisplayRows.rowsFromParts(
+    val rows = remember(text, parts, tokens, lyricSplitEnabled, lyricReadingEnabled, bilingualDisplayMode) {
+        LyricDisplayRows.rowsFromPartsWithRuby(
             parts = parts.orEmpty(),
+            tokens = tokens.orEmpty(),
             mode = bilingualDisplayMode,
             readingEnabled = lyricReadingEnabled,
             splitEnabled = lyricSplitEnabled,
@@ -314,7 +315,33 @@ fun LyricLineBlock(
                 LyricTextRole.ORIGINAL, LyricTextRole.EXTRA ->
                     if (row.splitIndex > 0 && parts.isNullOrEmpty()) translationTextStyle else textStyle
             }
-            if (rowCueRanges.isNotEmpty() && rowHasCueRanges && rowCueLine != null) {
+            if (row.ruby.isNotEmpty()) {
+                val sync = if (isCurrent && rowCueLine != null && rowHasCueRanges) {
+                    wordSyncedFill(rowCueLine, row, rowCueRanges, fillPositionMs, nextLineTimeMs,
+                        discreteActiveCue = karaokeDiscreteActiveCue)
+                } else WordSyncedFill.Empty
+                val fraction = if (isCurrent && !rowHasCueRanges && lineTimedSource != null) {
+                    lineTimedFillFraction(lineTimedSource, row, fillPositionMs, nextLineTimeMs, rows.size > 1)
+                } else sync.fillFraction
+                val lift = if (karaokeSyllableLift && isCurrent) {
+                    val progress = sync.activeProgress.coerceIn(0f, 1f)
+                    with(LocalDensity.current) { 2.dp.toPx() } *
+                        if (progress < 0.5f) AppleLyricsWordEasing.transform(progress * 2f)
+                        else 1f - AppleLyricsWordEasing.transform((progress - 0.5f) * 2f)
+                } else 0f
+                RubyLyricText(
+                    text = row.text,
+                    ruby = row.ruby,
+                    textStyle = rowTextStyle.copy(fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal),
+                    color = if (isCurrent && !rowHasCueRanges && lineTimedSource == null) colors.primary else colors.tertiary,
+                    sungColor = colors.primary,
+                    fillFraction = fraction,
+                    textAlign = textAlign,
+                    maxLines = maxLines,
+                    liftedRange = sync.activeRange,
+                    liftPx = lift,
+                )
+            } else if (rowCueRanges.isNotEmpty() && rowHasCueRanges && rowCueLine != null) {
                 val wordSync = if (isCurrent) {
                     wordSyncedFill(
                         line = rowCueLine,

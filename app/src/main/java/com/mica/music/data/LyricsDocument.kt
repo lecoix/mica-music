@@ -86,7 +86,11 @@ data class LyricLineNode(
 data class LyricTextPart(
     val role: LyricTextRole,
     val text: String,
+    /** Source-owned UTF-16 ranges in [text]; a range may cover more than one grapheme. */
+    val ruby: List<LyricRuby> = emptyList(),
 )
+
+data class LyricRuby(val start: Int, val endExclusive: Int, val reading: String)
 
 enum class LyricTextRole {
     ORIGINAL,

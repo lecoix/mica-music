@@ -11,6 +11,7 @@ IMPLEMENTATION_VERIFICATION = "IMPLEMENTATION_VERIFICATION"
 OBSOLETE = "OBSOLETE"
 
 REVIEWED_SUITE_CATEGORIES = {
+    "LyricsRubyTest": BEHAVIOR_CONTRACT,
     "PlaybackErrorMapperTest": BEHAVIOR_CONTRACT,
     "LibraryAccessCoordinatorTest": BEHAVIOR_CONTRACT,
     "PlaylistStoreTest": BEHAVIOR_CONTRACT,
@@ -133,6 +134,13 @@ REVIEWED_SUITE_DEFAULTS = {
 }
 
 REVIEWED_TEST_CATEGORIES = {
+    ("RubyLyricTextTest", "sourceGroupsStayIntactAcrossWrappingAndVerticalColumns"): BEHAVIOR_CONTRACT,
+    ("RubyLyricTextTest", "rubyLayoutKeepsBaseBaselineAndCentersWideReadingsAtLargeFontScale"): IMPLEMENTATION_VERIFICATION,
+    ("RubyLyricTextTest", "captureAlignedWrappedAndFallbackRows"): IMPLEMENTATION_VERIFICATION,
+    ("RubyLyricTextTest", "captureCloudAndVerticalSourceRuby"): IMPLEMENTATION_VERIFICATION,
+    ("LyricsDocumentMemoryCacheTest", "rubyPayloadCountsTowardTheCacheBudgetAcrossTenThousandSongs"): BEHAVIOR_CONTRACT,
+    ("LyricsDocumentMemoryCacheTest", "oldRubyLoadCannotReplaceANewerPublishedReading"): BEHAVIOR_CONTRACT,
+    ("LibraryRepositoryTest", "sourceRubySurvivesRoomLyricsBatchAndReload"): BEHAVIOR_CONTRACT,
     ("LibraryBrowseTest", "browseGroupPresentationPrecomputesFastScrollIndexWhenAlphabetical"): IMPLEMENTATION_VERIFICATION,
     ("LibraryBrowseTest", "browseGroupPresentationSkipsFastScrollIndexForCountSorts"): IMPLEMENTATION_VERIFICATION,
 

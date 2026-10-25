@@ -1,6 +1,8 @@
 package com.mica.music.data.local
 
 import com.mica.music.data.LyricCue
+import com.mica.music.data.LyricRuby
+import com.mica.music.data.validLyricRuby
 import com.mica.music.data.LyricLine
 import com.mica.music.data.LyricLineNode
 import com.mica.music.data.LyricTextPart
@@ -28,7 +30,12 @@ internal object LyricsDocumentCodec {
                     .put("startMs", line.startMs)
                     .put("parts", JSONArray().apply {
                         line.parts.forEach { part ->
-                            put(JSONObject().put("role", part.role.name).put("text", part.text))
+                            put(JSONObject().put("role", part.role.name).put("text", part.text).apply {
+                                if (part.ruby.isNotEmpty()) put("ruby", JSONArray().apply {
+                                    part.ruby.forEach { ruby -> put(JSONObject()
+                                        .put("start", ruby.start).put("end", ruby.endExclusive).put("text", ruby.reading)) }
+                                })
+                            })
                         }
                     })
                     .put("tokens", JSONArray().apply {
@@ -96,6 +103,7 @@ internal object LyricsDocumentCodec {
                 add(LyricTextPart(
                     role = enumValueOrNull<LyricTextRole>(part.optString("role")) ?: LyricTextRole.EXTRA,
                     text = part.getString("text"),
+                    ruby = decodeRuby(part.optJSONArray("ruby"), part.getString("text")),
                 ))
             }
         }
@@ -116,6 +124,17 @@ internal object LyricsDocumentCodec {
                 ))
             }
         }
+    }
+
+    private fun decodeRuby(values: JSONArray?, text: String): List<LyricRuby> {
+        if (values == null || values.length() > text.length) return emptyList()
+        val ruby = buildList {
+            for (index in 0 until values.length()) {
+                val value = values.optJSONObject(index) ?: return emptyList()
+                add(LyricRuby(value.optInt("start", -1), value.optInt("end", -1), value.optString("text")))
+            }
+        }
+        return ruby.takeIf { validLyricRuby(text, it) }.orEmpty()
     }
 
     private fun decodeLegacyLines(array: JSONArray): List<LyricLine> = buildList(array.length()) {

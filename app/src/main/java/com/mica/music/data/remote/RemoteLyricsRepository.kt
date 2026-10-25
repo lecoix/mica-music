@@ -116,6 +116,6 @@ class RemoteLyricsRepository internal constructor(
     }
 
     private companion object {
-        const val REMOTE_LYRICS_DATA_VERSION = 3
+        const val REMOTE_LYRICS_DATA_VERSION = 4
     }
 }

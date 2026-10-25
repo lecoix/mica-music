@@ -16,6 +16,7 @@ import com.mica.music.data.LyricTextRole
 import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.LyricsDocument
 import com.mica.music.ui.components.rememberLyricUniformStyle
+import com.mica.music.ui.components.measureRubyText
 import com.mica.music.ui.theme.LocalLyricReadingEnabled
 import com.mica.music.ui.theme.LocalLyricSplitEnabled
 import kotlin.random.Random
@@ -34,6 +35,7 @@ internal data class LyricsCloudWarmKey(
     val readingEnabled: Boolean = true,
     val density: Float,
     val lineCount: Int,
+    val fontScale: Float = 1f,
 )
 
 internal data class LyricsCloudWarmEntry(
@@ -62,7 +64,12 @@ internal object LyricsCloudLayoutWarmCache {
 }
 
 internal fun lyricsCloudDocumentSeed(document: LyricsDocument): Int =
-    document.lines.fold(17) { value, line -> value * 31 + line.id.hashCode() }
+    document.lines.fold(17) { value, line ->
+        val rubyIdentity = line.parts.filter { it.ruby.isNotEmpty() }.fold(0) { hash, part ->
+            hash * 31 + part.text.hashCode() + part.ruby.hashCode()
+        }
+        value * 31 + line.id.hashCode() + rubyIdentity
+    }
 
 internal fun lyricsCloudFontSizes(seed: Int, lineCount: Int): List<Int> {
     val random = Random(seed xor 0x51A7)
@@ -90,6 +97,10 @@ internal fun measureLyricsCloudLinePrecise(
     translationNormalStyle: TextStyle,
     textMeasurer: TextMeasurer,
 ): List<LyricsCloudMeasuredRow> = rows.map { row ->
+    if (row.ruby.isNotEmpty()) {
+        val geometry = measureRubyText(row.text, row.ruby, lineNormalStyle, textMeasurer)
+        return@map LyricsCloudMeasuredRow(geometry.size.width + 4, geometry.size.height)
+    }
     val useSecondary = row.role == LyricTextRole.READING ||
         row.role == LyricTextRole.TRANSLATION ||
         row.splitIndex > 0
@@ -149,8 +160,9 @@ internal fun LyricsCloudLayoutPrewarm(
     }
     val displayRows = remember(lyrics, document, splitEnabled, bilingualDisplayMode, readingEnabled) {
         lyrics.mapIndexed { index, line ->
-            LyricDisplayRows.rowsFromParts(
+            LyricDisplayRows.rowsFromPartsWithRuby(
                 parts = document.lines.getOrNull(index)?.parts.orEmpty(),
+                tokens = document.lines.getOrNull(index)?.tokens.orEmpty(),
                 mode = bilingualDisplayMode,
                 readingEnabled = readingEnabled,
                 splitEnabled = splitEnabled,
@@ -168,6 +180,7 @@ internal fun LyricsCloudLayoutPrewarm(
         readingEnabled = readingEnabled,
         density = density.density,
         lineCount = lyrics.size,
+        fontScale = density.fontScale,
     )
     LaunchedEffect(
         warmKey,

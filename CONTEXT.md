@@ -19,6 +19,10 @@ _Avoid_: caption、subtitle
 入库阶段不再用显示分隔符把普通文本改写成 `TRANSLATION`：`splitPartsAtIngest` 只保留源角色，文本分隔只是展示层启发式，结构化角色与逐字时间由源文档直接保留。
 _Avoid_: 让 UI 从 `LyricLine.text` 再猜双语结构；把 `songs.lyricsJson` 重新作为运行时歌词事实来源
 
+**Ruby annotation（逐字注音）**：
+原文 `LyricTextPart.ruby` 的 UTF-16 范围与读音对应关系，允许一字多音及多字共音。优先保留 TTML Ruby 的明确分组；独立读音轨只在文件实际提供的原文/读音起止时间严格、唯一对应时建立范围，不能使用后续推导的 end。无法完整确定时保留整行读音，不均分、不猜测。范围随可选 JSON 字段持久化；当前工作树 local parser 14 / remote cache 4，旧歌词重扫后补齐。显示与容量边界见 `docs/LYRICS_RUBY_ALIGNMENT.md`（2026-10-25 工作树实现，未做真机验收）。
+_Avoid_: 用整行罗马音长度或 token 数量猜对应；把注音拼进原文；用推导出的时间为旧载荷补猜范围
+
 **Lyrics cache coordinator（歌词缓存协调器）**：
 进程内共享的有界歌词缓存 owner：成功歌词批次按 `songId` 失效全部优先级缓存，运行时 content generation 防止失效前启动的旧查询重新污染缓存；同 key 请求 single-flight，不同 key 最多并发 2 个真实加载，预取最多占 1 个槽。播放页订阅按歌曲失效事件，通知歌词复用同一缓存。generation 只保留缓存中或加载中的少量歌曲，不随 10,000 首扫描常驻增长。
 _Avoid_: 用 parser 版本代替内容失效版本；为全部曲库歌曲常驻 generation；恢复全局加载 mutex 或允许无界并行歌词解码

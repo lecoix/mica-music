@@ -48,6 +48,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -69,11 +70,13 @@ import androidx.compose.ui.zIndex
 import com.mica.music.R
 import com.mica.music.data.LyricDisplayRows
 import com.mica.music.data.LyricLineNode
+import com.mica.music.data.LyricRuby
 import com.mica.music.data.LyricTextRole
 import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.LyricsRenderState
 import com.mica.music.data.LyricsTimelinePhase
 import com.mica.music.ui.components.rememberLyricUniformStyle
+import com.mica.music.ui.components.rubyReadingStyle
 import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import com.mica.music.ui.theme.LocalLyricReadingEnabled
@@ -211,6 +214,10 @@ internal fun LetterLyricsPrototype(
                         maxLines = 1,
                         softWrap = false,
                     )
+                },
+                measureRubyGrapheme = { text ->
+                    textMeasurer.measure(text, rubyReadingStyle(mainInkStyle),
+                        maxLines = 1, softWrap = false)
                 },
                 readingEnabled = readingEnabled,
             )
@@ -788,6 +795,21 @@ private fun DrawScope.drawLetterColumn(
         }
     }
     drawLetterInkGlyphs(maskedGlyphs)
+    column.ruby.forEach { ruby ->
+        if (visibleCount <= ruby.startGlyph) return@forEach
+        val groupHeight = (ruby.endGlyph - ruby.startGlyph) * characterStep
+        val naturalHeight = ruby.layouts.sumOf { it.size.height }.coerceAtLeast(1).toFloat()
+        val scale = minOf(1f, groupHeight / naturalHeight)
+        val rubyX = x + metrics.mainFontPx * 0.55f
+        var rubyY = metrics.verticalPaddingPx + ruby.startGlyph * characterStep +
+            (groupHeight - naturalHeight * scale) / 2f
+        ruby.layouts.forEach { layout ->
+            withTransform({ scale(scale, scale, pivot = Offset(rubyX, rubyY)) }) {
+                drawText(layout, topLeft = Offset(rubyX, rubyY), alpha = 0.64f)
+            }
+            rubyY += layout.size.height * scale
+        }
+    }
 }
 
 internal fun letterRotatedLatinTopLeft(
@@ -941,6 +963,7 @@ internal data class LetterDisplayPiece(
     val text: String,
     val kind: LetterDisplayKind,
     val usePrimaryWordSchedule: Boolean,
+    val ruby: List<LyricRuby> = emptyList(),
 )
 
 /**
@@ -952,16 +975,22 @@ internal fun letterDisplayPieces(
     bilingualDisplayMode: LyricsBilingualDisplayMode,
     readingEnabled: Boolean,
     splitEnabled: Boolean,
+    rubyEnabled: Boolean = true,
 ): List<LetterDisplayPiece> {
     val flatText = line.parts
         .filter { it.role != LyricTextRole.READING }
         .joinToString("\n") { it.text }
-    val rows = LyricDisplayRows.rowsFromParts(
+    val rows = LyricDisplayRows.rowsFromPartsWithRuby(
         parts = line.parts,
+        tokens = if (rubyEnabled) line.tokens else emptyList(),
         mode = bilingualDisplayMode,
         readingEnabled = readingEnabled,
         splitEnabled = splitEnabled,
-    ) ?: LyricDisplayRows.rowsForBilingualDisplayMode(
+    ).let { aligned ->
+        if (!rubyEnabled || aligned?.any { it.ruby.isNotEmpty() && it.text.isRotatedLatinPhrase() } == true) {
+            LyricDisplayRows.rowsFromParts(line.parts, bilingualDisplayMode, readingEnabled, splitEnabled)
+        } else aligned
+    } ?: LyricDisplayRows.rowsForBilingualDisplayMode(
         text = flatText,
         enabled = splitEnabled,
         mode = bilingualDisplayMode,
@@ -981,6 +1010,7 @@ internal fun letterDisplayPieces(
                 text = row.text,
                 kind = LetterDisplayKind.MAIN,
                 usePrimaryWordSchedule = true,
+                ruby = row.ruby,
             )
             LyricTextRole.TRANSLATION -> if (hasMainOriginal) {
                 LetterDisplayPiece(
@@ -1006,6 +1036,7 @@ private fun buildLetterPages(
     metrics: LetterPageMetrics,
     measureLatinTextWidthPx: (text: String, isTranslation: Boolean) -> Float,
     measureGraphemeLayout: (text: String, isTranslation: Boolean) -> TextLayoutResult,
+    measureRubyGrapheme: (String) -> TextLayoutResult,
     readingEnabled: Boolean = true,
 ): LetterPagesBuild {
     if (lines.isEmpty()) {
@@ -1037,12 +1068,17 @@ private fun buildLetterPages(
     }
 
     lines.forEachIndexed { lineIndex, line ->
-        val pieces = letterDisplayPieces(
+        var pieces = letterDisplayPieces(
             line = line,
             bilingualDisplayMode = bilingualDisplayMode,
             readingEnabled = readingEnabled,
             splitEnabled = splitEnabled,
         )
+        if (pieces.any { piece -> piece.ruby.any {
+                piece.text.substring(it.start, it.endExclusive).letterGraphemes().size > mainCharactersPerColumn
+            } }) {
+            pieces = letterDisplayPieces(line, bilingualDisplayMode, readingEnabled, splitEnabled, rubyEnabled = false)
+        }
         val scheduledText = pieces
             .filter { it.usePrimaryWordSchedule }
             .joinToString("") { it.text }
@@ -1061,7 +1097,9 @@ private fun buildLetterPages(
         val columnSpecs = buildList {
             pieces.forEach { piece ->
                 val segmentAsTranslation = piece.kind == LetterDisplayKind.TRANSLATION
-                val segments = splitIntoVerticalSegments(
+                val segments = if (piece.ruby.isNotEmpty()) {
+                    splitLetterRubySegments(piece.text, piece.ruby, mainCharactersPerColumn)
+                } else splitIntoVerticalSegments(
                     text = piece.text,
                     maxCharacters = if (segmentAsTranslation) {
                         translationCharactersPerColumn
@@ -1073,8 +1111,12 @@ private fun buildLetterPages(
                 )
                 val revealTotal = piece.text.letterGraphemes().size.coerceAtLeast(1)
                 val drawAsTranslation = piece.kind != LetterDisplayKind.MAIN
+                var segmentOffset = 0
                 segments.forEach { segment ->
                     val revealStart = revealCursor[piece.kind] ?: 0
+                    val segmentRuby = piece.ruby.filter {
+                        it.start >= segmentOffset && it.endExclusive <= segmentOffset + segment.length
+                    }.map { it.copy(start = it.start - segmentOffset, endExclusive = it.endExclusive - segmentOffset) }
                     add(
                         LetterColumnSpec(
                             text = segment,
@@ -1084,13 +1126,15 @@ private fun buildLetterPages(
                             widthUnits = if (drawAsTranslation) {
                                 TRANSLATION_COLUMN_UNITS
                             } else {
-                                MAIN_COLUMN_UNITS
+                                MAIN_COLUMN_UNITS + if (segmentRuby.isNotEmpty()) 0.6f else 0f
                             },
                             revealStartIndex = revealStart,
                             revealTotalCount = revealTotal,
+                            ruby = segmentRuby,
                         ),
                     )
                     revealCursor[piece.kind] = revealStart + segment.letterGraphemes().size
+                    segmentOffset += segment.length
                 }
             }
         }
@@ -1135,6 +1179,13 @@ private fun buildLetterPages(
                 fallbackEndMs = lineFallbackEndMs,
                 revealStartIndex = spec.revealStartIndex,
                 revealTotalCount = spec.revealTotalCount,
+                ruby = spec.ruby.map { ruby ->
+                    LetterRubyDraw(
+                        text.substring(0, ruby.start).letterGraphemes().size,
+                        text.substring(0, ruby.endExclusive).letterGraphemes().size,
+                        ruby.reading.letterGraphemes().map(measureRubyGrapheme),
+                    )
+                },
             )
             usedUnits += spec.widthUnits
         }
@@ -1197,6 +1248,34 @@ private fun splitIntoVerticalSegments(
     }
     val graphemes = text.letterGraphemes()
     return graphemes.chunked(maxCharacters).map { it.joinToString("") }
+}
+
+/** Keep a source-owned ruby group on one vertical column; never redistribute its reading. */
+internal fun splitLetterRubySegments(text: String, ruby: List<LyricRuby>, capacity: Int): List<String> {
+    val units = buildList {
+        var from = 0
+        ruby.forEach {
+            addAll(text.substring(from, it.start).letterGraphemes())
+            add(text.substring(it.start, it.endExclusive))
+            from = it.endExclusive
+        }
+        addAll(text.substring(from).letterGraphemes())
+    }
+    return buildList {
+        val current = StringBuilder()
+        var count = 0
+        units.forEach { unit ->
+            val size = unit.letterGraphemes().size
+            if (count > 0 && count + size > capacity) {
+                add(current.toString())
+                current.clear()
+                count = 0
+            }
+            current.append(unit)
+            count += size
+        }
+        if (current.isNotEmpty()) add(current.toString())
+    }
 }
 
 internal fun splitLatinPhraseIntoSegments(
@@ -1328,7 +1407,10 @@ private data class LetterColumn(
     val fallbackEndMs: Int?,
     val revealStartIndex: Int,
     val revealTotalCount: Int,
+    val ruby: List<LetterRubyDraw> = emptyList(),
 )
+
+private data class LetterRubyDraw(val startGlyph: Int, val endGlyph: Int, val layouts: List<TextLayoutResult>)
 
 private data class LetterColumnSpec(
     val text: String,
@@ -1337,6 +1419,7 @@ private data class LetterColumnSpec(
     val widthUnits: Float,
     val revealStartIndex: Int,
     val revealTotalCount: Int,
+    val ruby: List<LyricRuby> = emptyList(),
 )
 
 private data class LetterPage(

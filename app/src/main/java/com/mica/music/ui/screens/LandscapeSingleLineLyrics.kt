@@ -87,6 +87,8 @@ internal fun LandscapeSingleLineLyrics(
                     positionRevision = renderState.positionRevision,
                     isPlaying = isPlaying,
                     bilingualDisplayMode = singleRowMode,
+                    parts = renderState.document.lines.getOrNull(index)?.parts,
+                    tokens = renderState.document.lines.getOrNull(index)?.tokens,
                 )
             }
         }

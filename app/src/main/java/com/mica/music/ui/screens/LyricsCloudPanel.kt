@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.sp
 import com.mica.music.data.LyricDisplayRows
+import com.mica.music.ui.components.RubyLyricText
 import com.mica.music.data.LyricLineNode
 import com.mica.music.data.LyricToken
 import com.mica.music.data.LyricTextRole
@@ -105,8 +106,9 @@ internal fun LyricsCloudPanel(
     }
     val displayRows = remember(lyrics, renderState.document, splitEnabled, bilingualDisplayMode, readingEnabled) {
         lyrics.mapIndexed { index, line ->
-            LyricDisplayRows.rowsFromParts(
+            LyricDisplayRows.rowsFromPartsWithRuby(
                 parts = renderState.document.lines.getOrNull(index)?.parts.orEmpty(),
+                tokens = renderState.document.lines.getOrNull(index)?.tokens.orEmpty(),
                 mode = bilingualDisplayMode,
                 readingEnabled = readingEnabled,
                 splitEnabled = splitEnabled,
@@ -124,6 +126,7 @@ internal fun LyricsCloudPanel(
         readingEnabled = readingEnabled,
         density = density.density,
         lineCount = lyrics.size,
+        fontScale = density.fontScale,
     )
     val warmEntry by LyricsCloudLayoutWarmCache.entry.collectAsState()
     val preciseRowsPx = warmEntry?.takeIf { it.key == warmKey }?.rowsPx
@@ -382,7 +385,11 @@ internal fun approximateLyricsCloudLayoutSizes(
             }
             val fontPx = with(density) { fontSp.sp.toPx() }
             widthPx = maxOf(widthPx, row.text.length.coerceAtLeast(1) * fontPx * 0.95f)
-            heightPx += fontPx * 1.45f
+            if (row.ruby.isNotEmpty()) {
+                widthPx = maxOf(widthPx, row.text.length * fontPx +
+                    row.ruby.sumOf { it.reading.length }.toFloat() * fontPx * 0.5f)
+            }
+            heightPx += fontPx * if (row.ruby.isNotEmpty()) 2.2f else 1.45f
         }
         LyricsCloudSize(
             width = (widthPx + 4f) / safeUnit,
@@ -602,7 +609,21 @@ private fun CloudLyricLine(
                     blurRadius = 12f * pressEmphasis,
                 ),
             )
-            if (characterState != null && characterState.activeIndex in row.start until row.endExclusive) {
+            if (row.ruby.isNotEmpty()) {
+                val fraction = characterState?.let {
+                    ((it.activeIndex - row.start + it.progress) / row.text.length.coerceAtLeast(1)).coerceIn(0f, 1f)
+                } ?: 0f
+                RubyLyricText(
+                    text = row.text,
+                    ruby = row.ruby,
+                    textStyle = pressedStyle,
+                    color = if (isCurrent && characterState == null) colors.primary else colors.tertiary,
+                    sungColor = colors.primary,
+                    fillFraction = fraction,
+                    fillWidth = false,
+                    softWrap = false,
+                )
+            } else if (characterState != null && characterState.activeIndex in row.start until row.endExclusive) {
                 Row {
                     row.text.forEachIndexed { localIndex, character ->
                         val sourceIndex = row.start + localIndex

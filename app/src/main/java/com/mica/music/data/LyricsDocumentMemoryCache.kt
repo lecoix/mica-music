@@ -210,7 +210,10 @@ private fun LyricsDocument.estimatedRetainedBytes(): Int {
     var bytes = 256L
     lines.forEach { line ->
         bytes += 128L + line.id.length * 2L
-        line.parts.forEach { part -> bytes += 64L + part.text.length * 2L }
+        line.parts.forEach { part ->
+            bytes += 64L + part.text.length * 2L
+            part.ruby.forEach { ruby -> bytes += 96L + ruby.reading.length * 2L }
+        }
         line.tokens.forEach { token -> bytes += 80L + token.text.length * 2L }
     }
     return bytes.coerceIn(1L, Int.MAX_VALUE.toLong()).toInt()

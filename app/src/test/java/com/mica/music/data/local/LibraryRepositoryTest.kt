@@ -55,6 +55,23 @@ import org.robolectric.annotation.Config
 @Config(sdk = [34])
 class LibraryRepositoryTest {
 
+    @Test
+    fun sourceRubySurvivesRoomLyricsBatchAndReload() = runTest {
+        val document = com.mica.music.data.scanner.LyricsSanitizer.parseFilteredDocument(
+            """<tt xmlns:tts="http://www.w3.org/ns/ttml#styling"><body><p begin="1s"><span tts:ruby="container"><span tts:ruby="base">風</span><span tts:ruby="text">かぜ</span></span></p></body></tt>""",
+        )
+        val song = SongFixtures.song("ruby-roundtrip").copy(lyricsLoaded = false)
+        repository.save(listOf(song), 100, ScanSource.DEVICE, 1)
+        repository.applyLyricsBatch(listOf(ScannedSongLyrics(
+            song.id, song.lyricsCacheRevision, LyricsSlots(externalTtml = document),
+        )))
+        val reloaded = repository.lyricsById(song.id)
+        assertEquals(document, reloaded)
+        assertEquals(listOf(com.mica.music.data.LyricRuby(0, 1, "かぜ")),
+            com.mica.music.data.lyricRubyAlignment(reloaded.lines.single().parts, reloaded.lines.single().tokens))
+    }
+
+
     private lateinit var database: MicaDatabase
     private lateinit var repository: LibraryRepository
 

@@ -5,6 +5,8 @@ import com.mica.music.data.LyricLineNode
 import com.mica.music.data.LyricTextPart
 import com.mica.music.data.LyricTextRole
 import com.mica.music.data.LyricToken
+import com.mica.music.data.LyricRuby
+import com.mica.music.data.lyricRubyAlignment
 import com.mica.music.data.LyricsDocument
 import com.mica.music.data.LyricsFormat
 import com.mica.music.data.toLegacyLyricLines
@@ -75,7 +77,7 @@ internal object TtmlLyricsParser {
                     val rendered = renderParagraph(paragraph)
                     val itunesKey = paragraph.itunesKey()
                     val headReading = itunesKey?.let { headRomanizations[it] }
-                    val readingTokens = headReading?.tokens
+                    val readingTokens = if (rendered.rubyReading.isNotEmpty()) rendered.rubyTokens else headReading?.tokens
                         ?.takeIf { headReading.text.isNotBlank() }
                         ?: rendered.romanizationTokens
                     val headTranslation = itunesKey?.let { headTranslations[it] }
@@ -83,14 +85,21 @@ internal object TtmlLyricsParser {
                         ?.takeIf { headTranslation.text.isNotBlank() }
                         ?: rendered.translationTokens
                     val lineTokens = readingTokens + rendered.originalTokens + translationTokens
-                    totalCues += lineTokens.size
+                    totalCues += lineTokens.size + rendered.ruby.size
                     if (totalCues > MAX_CUES) return LyricsDocument(format = LyricsFormat.TTML)
-                    val originalText = MetadataTextFix.normalize(rendered.text).trim()
+                    val normalizedOriginal = MetadataTextFix.normalize(rendered.text)
+                    val originalText = normalizedOriginal.trim()
+                    val trimStart = normalizedOriginal.length - normalizedOriginal.trimStart().length
+                    val ruby = if (normalizedOriginal == rendered.text) rendered.ruby.map {
+                        it.copy(start = it.start - trimStart, endExclusive = it.endExclusive - trimStart)
+                    }.filter { it.start >= 0 && it.endExclusive <= originalText.length } else emptyList()
                     val translationText = MetadataTextFix.normalize(
                         headTranslation?.text?.ifBlank { rendered.translation } ?: rendered.translation,
                     ).trim()
                     val readingText = MetadataTextFix.normalize(
-                        headReading?.text?.ifBlank { rendered.romanization } ?: rendered.romanization,
+                        rendered.rubyReading.ifBlank {
+                            headReading?.text?.ifBlank { rendered.romanization } ?: rendered.romanization
+                        },
                     ).trim()
                     if (originalText.isEmpty() && translationText.isEmpty() && readingText.isEmpty()) continue
                     val lineStart = parseTime(paragraph.getAttribute("begin"))
@@ -110,11 +119,16 @@ internal object TtmlLyricsParser {
                                     add(LyricTextPart(LyricTextRole.READING, readingText))
                                 }
                                 if (originalText.isNotEmpty()) {
-                                    add(LyricTextPart(LyricTextRole.ORIGINAL, originalText))
+                                    add(LyricTextPart(LyricTextRole.ORIGINAL, originalText, ruby))
                                 }
                                 if (translationText.isNotEmpty()) {
                                     add(LyricTextPart(LyricTextRole.TRANSLATION, translationText))
                                 }
+                            }.let { parts ->
+                                val alignment = lyricRubyAlignment(parts, lineTokens, allowSourceTimingMatch = true)
+                                totalCues += (alignment.size - rendered.ruby.size).coerceAtLeast(0)
+                                if (totalCues > MAX_CUES) return LyricsDocument(format = LyricsFormat.TTML)
+                                parts.map { if (it.role == LyricTextRole.ORIGINAL) it.copy(ruby = alignment) else it }
                             },
                             tokens = normalizeTokensByRole(
                                 tokens = lineTokens,
@@ -136,6 +150,9 @@ internal object TtmlLyricsParser {
         val originalTokens: List<LyricToken>,
         val translationTokens: List<LyricToken>,
         val romanizationTokens: List<LyricToken>,
+        val ruby: List<LyricRuby>,
+        val rubyReading: String,
+        val rubyTokens: List<LyricToken>,
     )
 
     private data class ParsedTrack(
@@ -150,14 +167,49 @@ internal object TtmlLyricsParser {
         val originalTokens = mutableListOf<LyricToken>()
         val translationTokens = mutableListOf<LyricToken>()
         val romanizationTokens = mutableListOf<LyricToken>()
+        val ruby = mutableListOf<LyricRuby>()
+        val rubyReading = StringBuilder()
+        val rubyTokens = mutableListOf<LyricToken>()
 
-        fun append(node: Node) {
+        fun append(node: Node, inheritedBegin: Int? = null, inheritedEnd: Int? = null) {
             when (node.nodeType) {
                 Node.TEXT_NODE, Node.CDATA_SECTION_NODE -> node.nodeValue.orEmpty()
                     .takeIf { it.isNotBlank() }
-                    ?.let(text::append)
+                    ?.let { text.append(MetadataTextFix.normalizeFragment(it)) }
                 Node.ELEMENT_NODE -> {
                     val element = node as Element
+                    if (element.rubyMode() == "container") {
+                        val bases = element.children().filter { it.rubyMode() in setOf("base", "baseContainer") }
+                        val readings = element.children().filter { it.rubyMode() in setOf("text", "textContainer") }
+                        val baseText = element.rubyBaseText()
+                        val tracks = readings.map { extractRoleTrack(it, LyricTextRole.READING, false) }
+                        val baseTokens = bases.flatMap { extractRoleTrack(it, LyricTextRole.ORIGINAL, false).tokens }
+                        val readingText = tracks.joinToString("") { it.text }
+                        val offset = text.length
+                        text.append(baseText)
+                        rubyReading.append(readingText)
+                        // Multiple parallel base/text containers require a richer TTML association;
+                        // keep the full reading rather than inventing per-base pairings.
+                        val unambiguous = bases.size == 1 && readings.size == 1 &&
+                            baseText.isNotBlank() && readingText.isNotBlank()
+                        if (unambiguous) {
+                            ruby += LyricRuby(offset, text.length, readingText)
+                            rubyTokens += tracks.flatMap { it.tokens }
+                        }
+                        val begin = parseTime(element.getAttribute("begin"))
+                            ?: bases.singleOrNull()?.let { parseTime(it.getAttribute("begin")) }
+                            ?: tracks.flatMap { it.tokens }.minOfOrNull { it.startMs } ?: inheritedBegin
+                        val end = parseTime(element.getAttribute("end"))
+                            ?: bases.singleOrNull()?.let { parseTime(it.getAttribute("end")) }
+                            ?: tracks.flatMap { it.tokens }.mapNotNull { it.endMs }.maxOrNull() ?: inheritedEnd
+                        if (baseTokens.isNotEmpty()) {
+                            originalTokens += baseTokens
+                        } else if (begin != null && baseText.isNotBlank()) {
+                            originalTokens += LyricToken(baseText, begin, end)
+                        }
+                        return
+                    }
+                    if (element.rubyMode() in setOf("text", "textContainer", "delimiter")) return
                     when (element.localName?.lowercase() ?: element.tagName.substringAfter(':').lowercase()) {
                         "br" -> text.append('\n')
                         "span" -> {
@@ -188,8 +240,8 @@ internal object TtmlLyricsParser {
                                 }
                             }
                             val begin = parseTime(element.getAttribute("begin"))
-                            if (begin != null && visible.isNotEmpty()) {
-                                text.append(visible)
+                            if (begin != null && visible.isNotEmpty() && !element.containsRuby()) {
+                                text.append(MetadataTextFix.normalizeFragment(visible))
                                 originalTokens += LyricToken(
                                     text = MetadataTextFix.normalizeFragment(visible),
                                     startMs = begin.coerceAtLeast(0),
@@ -199,7 +251,7 @@ internal object TtmlLyricsParser {
                             } else {
                                 var child = element.firstChild
                                 while (child != null) {
-                                    append(child)
+                                    append(child, begin ?: inheritedBegin, parseTime(element.getAttribute("end")) ?: inheritedEnd)
                                     child = child.nextSibling
                                 }
                             }
@@ -228,7 +280,42 @@ internal object TtmlLyricsParser {
             originalTokens = originalTokens,
             translationTokens = translationTokens,
             romanizationTokens = romanizationTokens,
+            ruby = ruby,
+            rubyReading = rubyReading.toString(),
+            rubyTokens = rubyTokens,
         )
+    }
+
+    private fun Element.children(): List<Element> = buildList {
+        var child = firstChild
+        while (child != null) {
+            if (child is Element) add(child)
+            child = child.nextSibling
+        }
+    }
+
+    private fun Node.rubyBaseText(): String = when (nodeType) {
+        Node.TEXT_NODE, Node.CDATA_SECTION_NODE -> nodeValue.orEmpty()
+            .takeIf { it.isNotBlank() }?.let(MetadataTextFix::normalizeFragment).orEmpty()
+        Node.ELEMENT_NODE -> {
+            val element = this as Element
+            if (element.rubyMode() in setOf("text", "textContainer", "delimiter")) "" else buildString {
+                var child = firstChild
+                while (child != null) {
+                    append(child.rubyBaseText())
+                    child = child.nextSibling
+                }
+            }
+        }
+        else -> ""
+    }
+
+    private fun Element.rubyMode(): String =
+        getAttributeNS("http://www.w3.org/ns/ttml#styling", "ruby").ifBlank { getAttribute("tts:ruby") }
+
+    private fun Element.containsRuby(): Boolean {
+        val descendants = getElementsByTagNameNS("*", "span")
+        return (0 until descendants.length).any { (descendants.item(it) as? Element)?.rubyMode() == "container" }
     }
 
     /**

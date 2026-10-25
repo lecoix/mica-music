@@ -12,7 +12,28 @@ object LyricDisplayRows {
         val endExclusive: Int,
         val splitIndex: Int,
         val role: LyricTextRole = LyricTextRole.ORIGINAL,
+        val ruby: List<LyricRuby> = emptyList(),
     )
+
+    fun rowsFromPartsWithRuby(
+        parts: List<LyricTextPart>,
+        tokens: List<LyricToken>,
+        mode: LyricsBilingualDisplayMode = LyricsBilingualDisplayMode.ALL,
+        readingEnabled: Boolean = true,
+        splitEnabled: Boolean = true,
+    ): List<DisplayRow>? {
+        val rows = rowsFromParts(parts, mode, readingEnabled, splitEnabled) ?: return null
+        if (!readingEnabled) return rows
+        val original = parts.singleOrNull { it.role == LyricTextRole.ORIGINAL } ?: return rows
+        // Bound per-unit text layout allocation, including malformed or unusually long source lines.
+        if (original.text.length > 4096 || original.text.contains('\n') || original.text.contains('\r')) return rows
+        if (rows.none { it.role == LyricTextRole.ORIGINAL && it.text == original.text }) return rows
+        val ruby = lyricRubyAlignment(parts, tokens)
+        if (ruby.isEmpty()) return rows
+        return rows.filter { it.role != LyricTextRole.READING }.map {
+            if (it.role == LyricTextRole.ORIGINAL) it.copy(ruby = ruby) else it
+        }
+    }
 
     /** LRC 原文与译文之间常见的不可见窄空格 */
     private val specialSpaceSeparators = charArrayOf(

@@ -16,6 +16,43 @@ import org.robolectric.annotation.Config
 class LyricsDocumentMemoryCacheTest {
 
     @Test
+    fun rubyPayloadCountsTowardTheCacheBudgetAcrossTenThousandSongs() {
+        val document = document("字".repeat(64)).let { doc ->
+            doc.copy(lines = doc.lines.map { line -> line.copy(parts = line.parts.map { part ->
+                part.copy(ruby = (0 until 64).map { LyricRuby(it, it + 1, "reading") })
+            }) })
+        }
+        val cache = LyricsDocumentMemoryCache(maxBytes = 4_000)
+        repeat(10_000) { index -> cache.put(LyricsCacheKey("song-$index", "1", 14), document) }
+        assertEquals(0, cache.entryCount())
+        assertTrue(cache.sizeBytes() <= 4_000)
+    }
+
+    @Test
+    fun oldRubyLoadCannotReplaceANewerPublishedReading() = runTest {
+        fun withRuby(reading: String) = document("字").let { doc ->
+            doc.copy(lines = doc.lines.map { line -> line.copy(parts = listOf(
+                LyricTextPart(LyricTextRole.READING, reading),
+                LyricTextPart(LyricTextRole.ORIGINAL, "字", listOf(LyricRuby(0, 1, reading))),
+            )) })
+        }
+        val coordinator = LyricsCacheCoordinator()
+        val started = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val old = withRuby("old")
+        val fresh = withRuby("new")
+        val loading = async {
+            coordinator.load("song", "revision", 14) { started.complete(Unit); release.await(); old }
+        }
+        started.await()
+        coordinator.invalidateSongs(listOf("song"))
+        assertEquals(fresh, coordinator.load("song", "revision", 14) { fresh })
+        release.complete(Unit)
+        assertEquals(fresh, loading.await())
+        assertEquals(fresh, coordinator.get("song", "revision", 14))
+    }
+
+    @Test
     fun evictsLeastRecentlyUsedDocumentWhenByteBudgetIsExceeded() {
         val document = LyricsDocument(
             lines = listOf(

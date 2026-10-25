@@ -177,7 +177,7 @@ internal object LyricsSanitizer {
             val parts = line.parts.mapNotNull { part ->
                 MetadataTextFix.normalize(part.text.trim())
                     .takeIf { it.isNotEmpty() && !isIgnorableLyricText(it) }
-                    ?.let { part.copy(text = it) }
+                    ?.let { part.copy(text = it, ruby = if (it == part.text) part.ruby else emptyList()) }
             }
             if (parts.isEmpty()) return@mapNotNull null
             line.copy(parts = LyricDisplayRows.splitPartsAtIngest(parts))
