@@ -5,8 +5,8 @@ import android.content.Intent
 import android.graphics.Color as AndroidColor
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
-import android.os.Bundle
 import android.os.Build
+import android.os.Bundle
 import android.os.IBinder
 import android.view.Gravity
 import android.view.MotionEvent
@@ -15,9 +15,9 @@ import android.view.WindowManager
 import android.widget.ImageButton
 import android.widget.LinearLayout
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.layout.Arrangement
@@ -43,11 +43,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
@@ -71,25 +71,26 @@ import com.mica.music.data.ExternalLyricsColorMode
 import com.mica.music.data.ExternalLyricsMode
 import com.mica.music.data.ExternalLyricsStyle
 import com.mica.music.data.ExternalLyricsVisibilityMode
+import com.mica.music.data.LyricTextRole
 import com.mica.music.data.LyricsPageAlignment
 import com.mica.music.data.LyricsSync
+import com.mica.music.data.lyricCueProgress
 import com.mica.music.data.preferences.LyricsPreferences
 import com.mica.music.externallyrics.ExternalLyricsOverlayControl
 import com.mica.music.media.DesktopLyricsOverlayStateStore
 import com.mica.music.media.ExternalLyricsLine
 import com.mica.music.media.ExternalLyricsSurfaceState
 import com.mica.music.media.ExternalLyricsText
-import com.mica.music.data.LyricTextRole
 import com.mica.music.media.forExternalDisplay
 import com.mica.music.ui.components.marqueeHorizontalEdgeFade
 import com.mica.music.ui.theme.MicaTheme
 import com.mica.music.util.DiagnosticLog
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 
 class DesktopLyricsOverlayService : Service() {
     companion object {
@@ -851,13 +852,9 @@ internal fun externalLyricsFillFraction(
     }
     if (shiftedPosition < text.cues.first().timeMs) return 0f
     val cueIndex = text.cues.indexOfLast { it.timeMs <= shiftedPosition }.coerceAtLeast(0)
-    val cue = text.cues[cueIndex]
-    val cueEnd = text.cues.getOrNull(cueIndex + 1)?.timeMs
-        ?: line.endMs?.takeIf { it > cue.timeMs }
-        ?: cue.timeMs + 500
-    val progress = if (cueEnd <= cue.timeMs) 1f else {
-        ((shiftedPosition - cue.timeMs).toFloat() / (cueEnd - cue.timeMs)).coerceIn(0f, 1f)
-    }
+    val progress = lyricCueProgress(
+        text.cues, cueIndex, shiftedPosition, line.endMs, line.nextLineTimeMs, 500,
+    )
 
     // Match the player lyric renderer: progress is measured against the cue's actual character
     // range in the displayed text, not only against the sum of cue text lengths. Otherwise any

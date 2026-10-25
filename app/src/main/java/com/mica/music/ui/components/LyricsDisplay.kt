@@ -18,7 +18,6 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
@@ -32,15 +31,17 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.lerp as lerpTextUnit
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.lerp as lerpTextUnit
+import com.mica.music.data.LyricCue
 import com.mica.music.data.LyricDisplayRows
 import com.mica.music.data.LyricLine
 import com.mica.music.data.LyricTextPart
@@ -48,6 +49,7 @@ import com.mica.music.data.LyricTextRole
 import com.mica.music.data.LyricToken
 import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.LyricsSync
+import com.mica.music.data.lyricCueProgress
 import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import com.mica.music.ui.theme.HifiSpacing
@@ -300,14 +302,7 @@ fun LyricLineBlock(
         rows.forEach { row ->
             val roleTokens = tokens?.let { LyricDisplayRows.tokensForRole(it, row.role) }.orEmpty()
             val rowCueLine = when {
-                lyricLine != null && roleTokens.isNotEmpty() -> LyricLine(
-                    timeMs = lyricLine.timeMs,
-                    text = row.text,
-                    cues = roleTokens.map { token ->
-                        com.mica.music.data.LyricCue(token.startMs, token.text)
-                    },
-                    endTimeMs = lyricLine.endTimeMs,
-                )
+                lyricLine != null && roleTokens.isNotEmpty() -> roleTokenCueLine(lyricLine, row.text, roleTokens)
                 row.role == LyricTextRole.ORIGINAL -> originalCueLine
                 else -> null
             }
@@ -380,12 +375,19 @@ fun LyricLineBlock(
     }
 }
 
-private data class LyricCueRange(val cueIndex: Int, val start: Int, val endExclusive: Int)
+internal fun roleTokenCueLine(
+    line: LyricLine,
+    text: String,
+    tokens: List<LyricToken>,
+): LyricLine =
+    line.copy(text = text, cues = tokens.map { LyricCue(it.startMs, it.text, it.endMs) })
+
+internal data class LyricCueRange(val cueIndex: Int, val start: Int, val endExclusive: Int)
 
 private fun LyricCueRange.overlaps(row: LyricDisplayRows.DisplayRow): Boolean =
     endExclusive > row.start && start < row.endExclusive
 
-private fun lyricCueRanges(line: LyricLine): List<LyricCueRange> {
+internal fun lyricCueRanges(line: LyricLine): List<LyricCueRange> {
     var searchFrom = 0
     return buildList {
         line.cues.forEachIndexed { index, cue ->
@@ -418,7 +420,7 @@ private fun lineTimedFillFraction(
     return rowFillFraction(row, lineProgress, line.text.length)
 }
 
-private data class WordSyncedFill(
+internal data class WordSyncedFill(
     val fillFraction: Float,
     val activeRange: IntRange? = null,
     val activeProgress: Float = 0f,
@@ -428,7 +430,7 @@ private data class WordSyncedFill(
     }
 }
 
-private fun wordSyncedFill(
+internal fun wordSyncedFill(
     line: LyricLine,
     row: LyricDisplayRows.DisplayRow,
     cueRanges: List<LyricCueRange>,
@@ -449,14 +451,9 @@ private fun wordSyncedFill(
         return WordSyncedFill(rowFillFraction(row, completedTextFraction, line.text.length))
     }
 
-    val cueStart = line.cues[activeCueIndex].timeMs
-    val cueEnd = line.cues.getOrNull(activeCueIndex + 1)?.timeMs
-        ?: lyricFillEndTime(cueStart, nextLineTimeMs)
-    val cueProgress = if (cueEnd <= cueStart) {
-        1f
-    } else {
-        ((t - cueStart).toFloat() / (cueEnd - cueStart)).coerceIn(0f, 1f)
-    }
+    val cueProgress = lyricCueProgress(
+        line.cues, activeCueIndex, t, line.endTimeMs, nextLineTimeMs, LyricFillFallbackDurationMs,
+    )
     val filledChars = if (discreteActiveCue) {
         activeRange.endExclusive.toFloat()
     } else {

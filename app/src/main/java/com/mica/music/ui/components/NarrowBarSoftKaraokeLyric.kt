@@ -32,6 +32,7 @@ import com.mica.music.data.LyricLine
 import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.LyricsSync
 import com.mica.music.data.LyricsWordAnimationPreset
+import com.mica.music.data.lyricCueProgress
 import kotlin.math.roundToInt
 
 private const val SoftFillFallbackDurationMs = 2_500
@@ -205,14 +206,9 @@ internal fun narrowBarSoftFillFraction(
         val completedTextFraction = (activeCueIndex + 1).toFloat() / cueCount
         return narrowBarRowFillFraction(row, completedTextFraction, line.text.length)
     }
-    val cueStart = line.cues[activeCueIndex].timeMs
-    val cueEnd = line.cues.getOrNull(activeCueIndex + 1)?.timeMs
-        ?: (nextLineTimeMs?.takeIf { it > cueStart } ?: (cueStart + SoftFillFallbackDurationMs))
-    val cueProgress = if (cueEnd <= cueStart) {
-        1f
-    } else {
-        ((t - cueStart).toFloat() / (cueEnd - cueStart)).coerceIn(0f, 1f)
-    }
+    val cueProgress = lyricCueProgress(
+        line.cues, activeCueIndex, t, line.endTimeMs, nextLineTimeMs, SoftFillFallbackDurationMs,
+    )
     val filledChars = activeRange.start + (activeRange.endExclusive - activeRange.start) * cueProgress
     return narrowBarRowFillFraction(
         row,

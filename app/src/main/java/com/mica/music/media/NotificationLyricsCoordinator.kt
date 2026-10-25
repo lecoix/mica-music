@@ -809,7 +809,8 @@ internal fun buildExternalLyricsLine(
             return ExternalLyricsLine(
                 lineIndex = index,
                 startMs = node.startMs,
-                endMs = node.endMs ?: document.lines.getOrNull(index + 1)?.startMs,
+                endMs = node.endMs,
+                nextLineTimeMs = document.lines.getOrNull(index + 1)?.startMs,
                 rows = buildList {
                     if (display.readingEnabled && readingPart.isNotBlank() && !renderAsTranslation) {
                         add(
@@ -865,8 +866,9 @@ internal fun buildExternalLyricsLine(
         return ExternalLyricsLine(
             lineIndex = index,
             startMs = node.startMs,
-            endMs = node.endMs ?: document.lines.getOrNull(index + 1)?.startMs,
+            endMs = node.endMs,
             rows = rows,
+            nextLineTimeMs = document.lines.getOrNull(index + 1)?.startMs,
         )
     }
 
@@ -877,5 +879,5 @@ private fun externalLyricsWordCues(
     if (!enabled || !LyricsSync.isWordTimedTokens(tokens)) return emptyList()
     return tokens
         .filter { it.text.isNotBlank() }
-        .map { token -> com.mica.music.data.LyricCue(token.startMs, token.text) }
+        .map { token -> com.mica.music.data.LyricCue(token.startMs, token.text, token.endMs) }
 }

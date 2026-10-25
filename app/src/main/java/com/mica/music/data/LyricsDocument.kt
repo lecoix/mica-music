@@ -115,6 +115,8 @@ data class LyricLine(
 data class LyricCue(
     val timeMs: Int,
     val text: String,
+    /** Source-provided word end; null when the source has only start timestamps. */
+    val endTimeMs: Int? = null,
 )
 
 /** Compatibility view for legacy producers that still emit flat lyric lines. */
@@ -135,7 +137,7 @@ fun List<LyricLine>.toLyricsDocumentCompat(
                 LyricToken(
                     text = cue.text,
                     startMs = cue.timeMs,
-                    endMs = line.cues.getOrNull(cueIndex + 1)?.timeMs ?: line.endTimeMs,
+                    endMs = cue.endTimeMs ?: line.cues.getOrNull(cueIndex + 1)?.timeMs ?: line.endTimeMs,
                 )
             },
         )
@@ -149,7 +151,7 @@ fun LyricsDocument.toLegacyLyricLines(): List<LyricLine> = lines.map { line ->
         text = line.parts
             .filter { it.role != LyricTextRole.READING }
             .joinToString(separator = "\n") { it.text },
-        cues = line.tokens.map { token -> LyricCue(timeMs = token.startMs, text = token.text) },
+        cues = line.tokens.map { token -> LyricCue(timeMs = token.startMs, text = token.text, endTimeMs = token.endMs) },
         endTimeMs = line.endMs,
     )
 }

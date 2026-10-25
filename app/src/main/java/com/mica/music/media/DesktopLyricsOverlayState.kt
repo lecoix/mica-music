@@ -23,8 +23,10 @@ data class ExternalLyricsRow(
 data class ExternalLyricsLine(
     val lineIndex: Int,
     val startMs: Int,
+    /** Source-provided line end; keep inferred next-line timing separate. */
     val endMs: Int?,
     val rows: List<ExternalLyricsRow> = emptyList(),
+    val nextLineTimeMs: Int? = null,
 ) {
     constructor(
         lineIndex: Int,

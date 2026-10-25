@@ -1,6 +1,9 @@
 package com.mica.music.media
 
 import com.mica.music.lyrics.LyricsDisplayOptions
+import com.mica.music.data.LyricDisplayRows
+import com.mica.music.ui.components.wordSyncedFill
+import com.mica.music.ui.components.lyricCueRanges
 import com.mica.music.data.LyricCue
 import com.mica.music.data.LyricLineNode
 import com.mica.music.data.LyricTextPart
@@ -21,6 +24,34 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ExternalLyricsProjectionTest {
+
+    @Test
+    fun absentSourceLineEndDoesNotTurnNextLineFallbackIntoWordBoundary() {
+        val document = LyricsDocument(
+            lines = listOf(
+                LyricLineNode(
+                    "overlap", 1000, parts = listOf(LyricTextPart(LyricTextRole.ORIGINAL, "AB")),
+                    tokens = listOf(LyricToken("A", 1000), LyricToken("B", 3000)),
+                ),
+                LyricLineNode("next", 2000, parts = listOf(LyricTextPart(LyricTextRole.ORIGINAL, "C"))),
+            ),
+        )
+        val lyrics = document.toLegacyLyricLines()
+        for (splitEnabled in listOf(false, true)) {
+            val external = buildExternalLyricsLine(
+                document, lyrics, 0,
+                LyricsDisplayOptions(splitEnabled = splitEnabled, bilingualMode = LyricsBilingualDisplayMode.ORIGINAL),
+            )!!
+            assertNull(external.endMs)
+            assertEquals(2000, external.nextLineTimeMs)
+            val row = LyricDisplayRows.DisplayRow("AB", 0, 2, 0)
+            val classic = wordSyncedFill(
+                lyrics[0], row, lyricCueRanges(lyrics[0]), 1500, 2000, false,
+            )
+            assertEquals(0.125f, classic.fillFraction, 0.0001f)
+            assertEquals(classic.fillFraction, externalLyricsFillFraction(external.original!!, external, 1500), 0.0001f)
+        }
+    }
 
     @Test
     fun structuredExternalLyricsKeepReadingOriginalAndTranslationAsIndependentTimedRows() {
