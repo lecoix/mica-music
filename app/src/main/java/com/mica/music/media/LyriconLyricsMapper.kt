@@ -1,6 +1,5 @@
 package com.mica.music.media
 
-import com.mica.music.data.LyricDisplayRows
 import com.mica.music.data.LyricLineNode
 import com.mica.music.data.LyricTextRole
 import com.mica.music.data.LyricToken
@@ -70,15 +69,9 @@ internal object LyriconLyricsMapper {
             effectiveOffsetMs = effectiveOffsetMs,
             songDurationMs = songDurationMs,
         )
-        val semanticTranslation = line.textFor(LyricTextRole.TRANSLATION).takeIf { it.isNotBlank() }
-        val hasSemanticTranslation = semanticTranslation != null || translationWords.isNotEmpty()
-        val displayRows = if (!hasSemanticTranslation && words.isEmpty()) {
-            LyricDisplayRows.splitForDisplay(semanticText).takeIf { it.size == 2 }
-        } else {
-            null
-        }
-        val text = displayRows?.get(0) ?: semanticText
-        val translation = semanticTranslation ?: displayRows?.get(1)
+        // Display-only separators must never be exported as semantic translation.
+        val text = semanticText
+        val translation = line.textFor(LyricTextRole.TRANSLATION).takeIf { it.isNotBlank() }
 
         return RichLyricLine(
             begin = begin,

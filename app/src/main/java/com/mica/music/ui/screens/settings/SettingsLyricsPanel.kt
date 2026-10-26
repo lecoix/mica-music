@@ -169,24 +169,23 @@ internal fun LyricsSettingsPanel(
         onClick = { showGlobalLyricsOffset = true },
     )
 
-    val bilingualLyricsMode = if (uiSettings.lyricSplitEnabled) {
-        uiSettings.lyricsBilingualDisplayMode.ordinal + 1
-    } else {
-        0
-    }
+    SettingsToggleRow(
+        title = "自动拆分同行歌词",
+        modifier = settingsSearchAnchor("lyrics.split"),
+        subtitle = "仅针对无独立原文/译文结构的逐行歌词；不改变逐字时间轴",
+        checked = uiSettings.lyricSplitEnabled,
+        onCheckedChange = uiSettings::updateLyricSplitEnabled,
+    )
     SettingsChoiceRow(
-        title = "双语歌词",
+        title = "歌词显示内容",
         modifier = settingsSearchAnchor("lyrics.bilingual"),
-        subtitle = if (bilingualLyricsMode == 0) null else "将同行双语歌词拆成上下两行",
-        choices = BilingualLyricsModeChoices,
-        selectedValue = bilingualLyricsMode,
-        onSelect = { mode ->
-            uiSettings.updateLyricSplitEnabled(mode != 0)
-            if (mode != 0) {
-                uiSettings.updateLyricsBilingualDisplayMode(
-                    LyricsBilingualDisplayMode.entries[mode - 1],
-                )
-            }
+        subtitle = "选择全部、原文或译文；不受上方拆分开关影响",
+        choices = LyricsLanguageDisplayChoices,
+        selectedValue = uiSettings.lyricsBilingualDisplayMode.ordinal,
+        onSelect = { ordinal ->
+            uiSettings.updateLyricsBilingualDisplayMode(
+                LyricsBilingualDisplayMode.entries[ordinal],
+            )
         },
     )
 

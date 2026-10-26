@@ -63,11 +63,10 @@ internal val InfoRowLyricsModeChoices = listOf(
     2 to "逐字",
 )
 
-internal val BilingualLyricsModeChoices = listOf(
-    0 to "不分割",
-    1 to "全部",
-    2 to "仅原文",
-    3 to "仅译文",
+internal val LyricsLanguageDisplayChoices = listOf(
+    0 to "全部",
+    1 to "仅原文",
+    2 to "仅译文",
 )
 
 internal val PlayerLowerBgChoices = PlayerLowerBackgroundMode.entries

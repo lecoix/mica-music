@@ -258,6 +258,7 @@ fun LyricLineBlock(
     readingTextStyle: TextStyle = translationTextStyle,
     parts: List<LyricTextPart>? = null,
     tokens: List<LyricToken>? = null,
+    sourceFormat: com.mica.music.data.LyricsFormat = com.mica.music.data.LyricsFormat.UNKNOWN,
     karaokeSyllableLift: Boolean = false,
     karaokeDiscreteActiveCue: Boolean = karaokeSyllableLift,
     karaokeWordFadeWidthEm: Float = 0f,
@@ -265,13 +266,15 @@ fun LyricLineBlock(
     val lyricSplitEnabled = LocalLyricSplitEnabled.current
     val lyricReadingEnabled = LocalLyricReadingEnabled.current
     val lyricLineFillEnabled = LocalLyricLineFillEnabled.current
-    val rows = remember(text, parts, tokens, lyricSplitEnabled, lyricReadingEnabled, bilingualDisplayMode) {
+    val rows = remember(text, parts, tokens, sourceFormat, lyricSplitEnabled, lyricReadingEnabled, bilingualDisplayMode) {
         LyricDisplayRows.rowsFromPartsWithRuby(
             parts = parts.orEmpty(),
             tokens = tokens.orEmpty(),
             mode = bilingualDisplayMode,
             readingEnabled = lyricReadingEnabled,
             splitEnabled = lyricSplitEnabled,
+            authoritativeOriginalOnly = LyricDisplayRows.hasAuthoritativeOriginalRole(sourceFormat) ||
+                com.mica.music.data.LyricsSync.isWordTimedTokens(tokens.orEmpty()),
         ) ?: LyricDisplayRows.rowsForBilingualDisplayMode(
             text = text.orEmpty(),
             enabled = lyricSplitEnabled,
@@ -313,7 +316,7 @@ fun LyricLineBlock(
                 LyricTextRole.READING -> readingTextStyle
                 LyricTextRole.TRANSLATION -> translationTextStyle
                 LyricTextRole.ORIGINAL, LyricTextRole.EXTRA ->
-                    if (row.splitIndex > 0 && parts.isNullOrEmpty()) translationTextStyle else textStyle
+                    if (row.inferredSecondary) translationTextStyle else textStyle
             }
             if (row.ruby.isNotEmpty()) {
                 val sync = if (isCurrent && rowCueLine != null && rowHasCueRanges) {

@@ -79,6 +79,7 @@ import com.mica.music.ui.motion.MicaMotion
 import com.mica.music.ui.motion.rememberMicaMotionEnabled
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.LocalLyricSplitEnabled
+import com.mica.music.ui.theme.LocalLyricReadingEnabled
 import com.mica.music.ui.theme.PlayerContentColors
 import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.collect
@@ -111,6 +112,7 @@ internal fun ExpandedLyricsPanel(
     val textStyle = rememberLyricUniformStyle().withFontSizeSp(lyricsFontSizeSp)
     val translationTextStyle = rememberLyricUniformStyle().withFontSizeSp(lyricsTranslationFontSizeSp)
     val lyricSplitEnabled = LocalLyricSplitEnabled.current
+    val lyricReadingEnabled = LocalLyricReadingEnabled.current
     val textAlign = lyricsAlignment.toTextAlign()
     val horizontalAlignment = lyricsAlignment.toHorizontalAlignment()
     val horizontalPadding = if (lyricsAlignment == LyricsPageAlignment.CENTER) {
@@ -535,6 +537,10 @@ internal fun ExpandedLyricsPanel(
         currentIndex,
         timed,
         lyricsContentKey,
+        renderState.document,
+        lyricSplitEnabled,
+        lyricReadingEnabled,
+        bilingualDisplayMode,
         currentLineAnchorYPx,
         layoutViewportHeightPx,
         lineHeightPx,
@@ -556,10 +562,13 @@ internal fun ExpandedLyricsPanel(
         staggerOffsets.clear()
         val currentRows = lyrics.getOrNull(currentIndex)?.text
             ?.let {
-                LyricDisplayRows.rowsForBilingualDisplayMode(
+                LyricDisplayRows.rowsForDocumentLine(
+                    document = renderState.document,
+                    index = currentIndex,
                     text = it,
                     enabled = lyricSplitEnabled,
                     mode = bilingualDisplayMode,
+                    readingEnabled = lyricReadingEnabled,
                 )
             }.orEmpty()
         val bilingualGapPx = with(density) { HifiSpacing.lyricBilingualGap.roundToPx() }
@@ -567,7 +576,7 @@ internal fun ExpandedLyricsPanel(
             lineHeightPx
         } else {
             currentRows.sumOf { row ->
-                if (row.splitIndex > 0) translationLineHeightPx else lineHeightPx
+                if (row.usesSecondaryStyle) translationLineHeightPx else lineHeightPx
             } + bilingualGapPx * (currentRows.size - 1).coerceAtLeast(0)
         }
         val offset = expandedLyricsScrollOffset(
@@ -797,6 +806,7 @@ internal fun ExpandedLyricsPanel(
                             translationTextStyle = translationTextStyle.copy(shadow = pressShadow),
                             parts = renderState.document.lines.getOrNull(index)?.parts,
                             tokens = renderState.document.lines.getOrNull(index)?.tokens,
+                            sourceFormat = renderState.document.format,
                             karaokeSyllableLift = lyricsWordAnimationPreset.syllableLiftEnabled,
                             karaokeDiscreteActiveCue = lyricsWordAnimationPreset.usesDiscreteCueFill,
                             karaokeWordFadeWidthEm = lyricsWordAnimationPreset.wordFadeWidthEm,

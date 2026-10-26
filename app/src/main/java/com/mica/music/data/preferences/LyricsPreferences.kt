@@ -62,6 +62,9 @@ object LyricsPreferences {
     private const val KEY_LYRIC_SPLIT_ENABLED = "lyric_split_enabled"
     private const val KEY_LYRIC_READING_ENABLED = "lyric_reading_enabled"
     private const val KEY_LYRICS_BILINGUAL_DISPLAY_MODE = "lyrics_bilingual_display_mode"
+    // Legacy UI encoded OFF as splitEnabled=false and left a dormant language choice.
+    // Decoupled UI cannot safely reactivate that hidden choice on upgrade.
+    private const val KEY_SPLIT_LANGUAGE_DECOUPLED_V1 = "lyrics_split_language_decoupled_v1"
     private const val KEY_LYRIC_LINE_FILL_ENABLED = "lyric_line_fill_enabled"
     private const val KEY_PLAYER_PAGE_TEXT_COLOR = "player_page_text_color"
     private const val KEY_LYRICS_PAGE_TEXT_COLOR = "lyrics_page_text_color"
@@ -153,10 +156,34 @@ object LyricsPreferences {
             .apply()
     }
 
-    fun lyricSplitEnabled(context: Context): Boolean =
-        MicaSettingsStore.prefs(context).getBoolean(KEY_LYRIC_SPLIT_ENABLED, true)
+    /**
+     * Idempotent one-time migration from the previous combined dropdown.
+     * Only the old OFF state had an inactive, potentially stale language choice.
+     * Preserve legacy active choices and every unrelated setting.
+     */
+    private fun migrateCombinedBilingualPreference(context: Context) {
+        val prefs = MicaSettingsStore.prefs(context)
+        if (prefs.getBoolean(KEY_SPLIT_LANGUAGE_DECOUPLED_V1, false)) return
+        synchronized(this) {
+            if (prefs.getBoolean(KEY_SPLIT_LANGUAGE_DECOUPLED_V1, false)) return
+            val editor = prefs.edit().putBoolean(KEY_SPLIT_LANGUAGE_DECOUPLED_V1, true)
+            if (!prefs.getBoolean(KEY_LYRIC_SPLIT_ENABLED, true)) {
+                editor.putString(
+                    KEY_LYRICS_BILINGUAL_DISPLAY_MODE,
+                    LyricsBilingualDisplayMode.ALL.storageValue,
+                )
+            }
+            editor.apply()
+        }
+    }
+
+    fun lyricSplitEnabled(context: Context): Boolean {
+        migrateCombinedBilingualPreference(context)
+        return MicaSettingsStore.prefs(context).getBoolean(KEY_LYRIC_SPLIT_ENABLED, true)
+    }
 
     fun setLyricSplitEnabled(context: Context, enabled: Boolean) {
+        migrateCombinedBilingualPreference(context)
         MicaSettingsStore.prefs(context).edit()
             .putBoolean(KEY_LYRIC_SPLIT_ENABLED, enabled)
             .apply()
@@ -171,12 +198,15 @@ object LyricsPreferences {
             .apply()
     }
 
-    fun lyricsBilingualDisplayMode(context: Context): LyricsBilingualDisplayMode =
-        LyricsBilingualDisplayMode.fromStorage(
+    fun lyricsBilingualDisplayMode(context: Context): LyricsBilingualDisplayMode {
+        migrateCombinedBilingualPreference(context)
+        return LyricsBilingualDisplayMode.fromStorage(
             MicaSettingsStore.prefs(context).getString(KEY_LYRICS_BILINGUAL_DISPLAY_MODE, null),
         )
+    }
 
     fun setLyricsBilingualDisplayMode(context: Context, mode: LyricsBilingualDisplayMode) {
+        migrateCombinedBilingualPreference(context)
         MicaSettingsStore.prefs(context).edit()
             .putString(KEY_LYRICS_BILINGUAL_DISPLAY_MODE, mode.storageValue)
             .apply()

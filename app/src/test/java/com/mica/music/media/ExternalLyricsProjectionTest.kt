@@ -201,8 +201,9 @@ class ExternalLyricsProjectionTest {
             ),
         )
 
-        assertEquals("original", line?.original?.text)
-        assertEquals("translation", line?.translation?.text)
+        assertEquals(listOf("original", "translation"), line?.rows?.map { it.text.text })
+        assertEquals(listOf(LyricTextRole.ORIGINAL, LyricTextRole.ORIGINAL), line?.rows?.map { it.role })
+        assertNull(line?.translation)
     }
 
     @Test
@@ -228,10 +229,12 @@ class ExternalLyricsProjectionTest {
             ),
         )
 
-        assertEquals("original", original?.original?.text)
+        assertEquals(listOf("original", "translation"), original?.rows?.map { it.text.text })
+        assertEquals(listOf("original", "translation"), translation?.rows?.map { it.text.text })
+        assertEquals(listOf(LyricTextRole.ORIGINAL, LyricTextRole.ORIGINAL),
+            translation?.rows?.map { it.role })
         assertNull(original?.translation)
-        assertNull(translation?.original)
-        assertEquals("translation", translation?.translation?.text)
+        assertNull(translation?.translation)
     }
 
     @Test
@@ -248,8 +251,8 @@ class ExternalLyricsProjectionTest {
             ),
         )?.let { it.original?.text ?: it.translation?.text }
 
-        assertEquals("original", text(LyricsBilingualDisplayMode.ORIGINAL))
-        assertEquals("translation", text(LyricsBilingualDisplayMode.TRANSLATION))
+        assertEquals("original translation", text(LyricsBilingualDisplayMode.ORIGINAL))
+        assertEquals("original translation", text(LyricsBilingualDisplayMode.TRANSLATION))
         assertEquals("original translation", text(LyricsBilingualDisplayMode.ALL))
 
         val translationLine = buildExternalLyricsLine(
@@ -261,8 +264,89 @@ class ExternalLyricsProjectionTest {
                 bilingualMode = LyricsBilingualDisplayMode.TRANSLATION,
             ),
         )
-        assertNull(translationLine?.original)
-        assertEquals("translation", translationLine?.translation?.text)
+        assertEquals("original translation", translationLine?.original?.text)
+        assertNull(translationLine?.translation)
+    }
+
+    @Test
+    fun legacyThinSpaceNeverLeaksTranslationRoleToExternalSurfaces() {
+        val lyrics = listOf(LyricLine(1_000, "愛は\u2009爱"))
+        val document = lyrics.toLyricsDocumentCompat()
+        val line = buildExternalLyricsLine(
+            document, lyrics, 0,
+            LyricsDisplayOptions(splitEnabled = true, bilingualMode = LyricsBilingualDisplayMode.ALL),
+        )
+        assertEquals(listOf("愛は", "爱"), line?.rows?.map { it.text.text })
+        assertEquals(listOf(LyricTextRole.ORIGINAL, LyricTextRole.ORIGINAL), line?.rows?.map { it.role })
+        assertNull(line?.translation)
+    }
+
+    @Test
+    fun ttmlOriginalOnlySlashIsNotProjectedAsTranslationOrSecondaryDisplayLine() {
+        val text = "你好 / hello"
+        val document = LyricsDocument(
+            format = com.mica.music.data.LyricsFormat.TTML,
+            lines = listOf(LyricLineNode(
+                id = "raw", startMs = 1_000, endMs = 2_000,
+                parts = listOf(LyricTextPart(LyricTextRole.ORIGINAL, text)),
+            )),
+        )
+        val line = buildExternalLyricsLine(
+            document, document.toLegacyLyricLines(), 0,
+            LyricsDisplayOptions(splitEnabled = true, bilingualMode = LyricsBilingualDisplayMode.ALL),
+        )
+        assertEquals(listOf(text), line?.rows?.map { it.text.text })
+        assertEquals(listOf(LyricTextRole.ORIGINAL), line?.rows?.map { it.role })
+        assertNull(line?.translation)
+    }
+
+    @Test
+    fun ttmlReadingAndOriginalWithoutTranslationProjectEachRoleExactlyOnce() {
+        val document = LyricsDocument(
+            format = com.mica.music.data.LyricsFormat.TTML,
+            lines = listOf(LyricLineNode(
+                id = "reading-only", startMs = 0, endMs = 1_000,
+                parts = listOf(
+                    LyricTextPart(LyricTextRole.READING, "ni hao"),
+                    LyricTextPart(LyricTextRole.ORIGINAL, "你好 / hello"),
+                ),
+            )),
+        )
+        val line = buildExternalLyricsLine(
+            document, document.toLegacyLyricLines(), 0,
+            LyricsDisplayOptions(
+                splitEnabled = true,
+                bilingualMode = LyricsBilingualDisplayMode.ALL,
+                readingEnabled = true,
+            ),
+        )
+        assertEquals(
+            listOf(LyricTextRole.READING, LyricTextRole.ORIGINAL),
+            line?.rows?.map { it.role },
+        )
+        assertEquals(listOf("ni hao", "你好 / hello"), line?.rows?.map { it.text.text })
+        assertNull(line?.translation)
+    }
+
+    @Test
+    fun explicitExternalTranslationModeIgnoresItsPhysicalSplitToggle() {
+        val doc = LyricsDocument(
+            format = com.mica.music.data.LyricsFormat.TTML,
+            lines = listOf(LyricLineNode(
+                id="dual",startMs=1000,endMs=2000,
+                parts=listOf(
+                    LyricTextPart(LyricTextRole.ORIGINAL,"Hello / world"),
+                    LyricTextPart(LyricTextRole.TRANSLATION,"你好世界")
+                ),
+            )),
+        )
+        val line=buildExternalLyricsLine(doc,doc.toLegacyLyricLines(),0,
+            LyricsDisplayOptions(
+                splitEnabled=false,bilingualMode=LyricsBilingualDisplayMode.TRANSLATION,
+            ))
+        assertEquals(listOf("你好世界"),line?.rows?.map{it.text.text})
+        assertEquals(listOf(LyricTextRole.TRANSLATION),line?.rows?.map{it.role})
+        assertEquals("你好世界",line?.translation?.text)
     }
 
     @Test

@@ -12,11 +12,13 @@ import com.mica.music.lyrics.LyricsDisplayProjection
 object NotificationLyrics {
     private const val OVERLAY_TOKEN = "mica.notificationLyrics.overlayToken"
 
-    fun displayOptions(context: Context): LyricsDisplayOptions =
-        LyricsDisplayOptions(
-            splitEnabled = LyricsPreferences.lyricSplitEnabled(context),
+    fun displayOptions(context: Context): LyricsDisplayOptions {
+        val lineSplitEnabled = LyricsPreferences.lyricSplitEnabled(context)
+        return LyricsDisplayOptions(
+            splitEnabled = lineSplitEnabled,
             bilingualMode = LyricsPreferences.lyricsBilingualDisplayMode(context),
         )
+    }
 
     fun signature(songId: String, lyricIndex: Int, displayLine: String): String =
         "$songId:$lyricIndex:$displayLine"

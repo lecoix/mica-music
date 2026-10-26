@@ -71,7 +71,7 @@ class LyriconLyricsMapperTest {
     }
 
     @Test
-    fun promotesDisplayOnlyBilingualSplitToLyriconTranslation() {
+    fun legacyDisplaySeparatorDoesNotBecomeLyriconTranslation() {
         val song = SongFixtures.song(id = "plain-bilingual", durationSec = 3)
         val document = LyricsDocument(
             lines = listOf(
@@ -89,10 +89,24 @@ class LyriconLyricsMapperTest {
         val mapped = LyriconLyricsMapper.mapSong(song, document, effectiveOffsetMs = 0)
 
         val line = mapped.lyrics.orEmpty().single()
-        assertEquals("plain original", line.text)
-        assertEquals("普通翻译", line.translation)
+        assertEquals("plain original\u2009普通翻译", line.text)
+        assertNull(line.translation)
         assertNull(line.words)
         assertNull(line.translationWords)
+    }
+
+    @Test
+    fun slashInCreditAndInferredDisplayRowsNeverExportAsSemanticTranslation() {
+        val song = SongFixtures.song(id = "slashes", durationSec = 5)
+        val document = LyricsDocument(lines = listOf(
+            LyricLineNode(id = "credit", startMs = 0, endMs = 1_000,
+                parts = listOf(LyricTextPart(LyricTextRole.ORIGINAL, "作曲:小A/小B/小C"))),
+            LyricLineNode(id = "lyrics", startMs = 1_000, endMs = 2_000,
+                parts = listOf(LyricTextPart(LyricTextRole.ORIGINAL, "Hello / 你好"))),
+        ))
+        val rows = LyriconLyricsMapper.mapSong(song, document, 0).lyrics.orEmpty()
+        assertEquals(listOf("作曲:小A/小B/小C", "Hello / 你好"), rows.map { it.text })
+        assertEquals(listOf(null, null), rows.map { it.translation })
     }
 
     @Test

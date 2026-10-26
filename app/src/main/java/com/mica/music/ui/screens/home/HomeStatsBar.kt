@@ -107,7 +107,7 @@ internal fun infoRowLyricText(
     val lyricIndex = LyricsDisplayProjection.lyricIndexForPosition(lyricsSession, positionMs)
     if (lyricIndex < 0) return null
     return LyricsDisplayProjection.lyricLineText(
-        lyrics = lyricsSession.lyrics,
+        session = lyricsSession,
         index = lyricIndex,
         display = LyricsDisplayOptions(
             splitEnabled = lyricSplitEnabled,

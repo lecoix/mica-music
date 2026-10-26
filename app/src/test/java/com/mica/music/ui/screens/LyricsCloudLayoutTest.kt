@@ -197,7 +197,7 @@ class LyricsCloudLayoutTest {
         val rows = listOf(
             listOf(
                 LyricDisplayRows.DisplayRow("你好", 0, 2, 0),
-                LyricDisplayRows.DisplayRow("hello", 0, 5, 1),
+                LyricDisplayRows.DisplayRow("hello", 0, 5, 1, inferredSecondary = true),
             ),
         )
         val density = androidx.compose.ui.unit.Density(density = 2f)

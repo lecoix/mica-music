@@ -13,9 +13,33 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import androidx.test.core.app.ApplicationProvider
+import android.content.Context
+import com.mica.music.data.preferences.LyricsPreferences
 
 @RunWith(RobolectricTestRunner::class)
 class NotificationLyricsTest {
+
+    @Test
+    fun independentLanguageSettingSurvivesTurningVisualSplitOff() {
+        val context=ApplicationProvider.getApplicationContext<Context>()
+        val beforeSplit=LyricsPreferences.lyricSplitEnabled(context)
+        val beforeMode=LyricsPreferences.lyricsBilingualDisplayMode(context)
+        try {
+            LyricsPreferences.setLyricsBilingualDisplayMode(
+                context,LyricsBilingualDisplayMode.TRANSLATION)
+            LyricsPreferences.setLyricSplitEnabled(context,false)
+            val off=NotificationLyrics.displayOptions(context)
+            assertEquals(false,off.splitEnabled)
+            assertEquals(LyricsBilingualDisplayMode.TRANSLATION,off.bilingualMode)
+            LyricsPreferences.setLyricSplitEnabled(context,true)
+            assertEquals(LyricsBilingualDisplayMode.TRANSLATION,
+                NotificationLyrics.displayOptions(context).bilingualMode)
+        } finally {
+            LyricsPreferences.setLyricSplitEnabled(context,beforeSplit)
+            LyricsPreferences.setLyricsBilingualDisplayMode(context,beforeMode)
+        }
+    }
 
     @Test
     fun subtitleJoinsTitleAndArtist() {

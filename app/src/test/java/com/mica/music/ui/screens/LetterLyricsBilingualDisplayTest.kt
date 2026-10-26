@@ -29,6 +29,31 @@ class LetterLyricsBilingualDisplayTest {
     }
 
     @Test
+    fun ttmlOriginalOnlySlashNeverTurnsIntoTranslationColumn() {
+        val plainLine = line(LyricTextRole.ORIGINAL to "你好 / hello")
+        val structured = letterDisplayPieces(
+            line = plainLine,
+            bilingualDisplayMode = LyricsBilingualDisplayMode.ALL,
+            readingEnabled = true,
+            splitEnabled = true,
+            sourceFormat = com.mica.music.data.LyricsFormat.TTML,
+        )
+        assertEquals(listOf(LetterDisplayKind.MAIN to "你好 / hello"),
+            structured.map { it.kind to it.text })
+        val legacy = letterDisplayPieces(
+            line = plainLine,
+            bilingualDisplayMode = LyricsBilingualDisplayMode.ALL,
+            readingEnabled = true,
+            splitEnabled = true,
+            sourceFormat = com.mica.music.data.LyricsFormat.LRC,
+        )
+        assertEquals(listOf(
+            LetterDisplayKind.MAIN to "你好",
+            LetterDisplayKind.TRANSLATION to "hello",
+        ), legacy.map { it.kind to it.text })
+    }
+
+    @Test
     fun thinSpaceLineStaysOneColumnWhenSplitDisabled() {
         val pieces = letterDisplayPieces(
             line = line(LyricTextRole.ORIGINAL to "原文\u2009译文"),
@@ -44,7 +69,7 @@ class LetterLyricsBilingualDisplayTest {
     }
 
     @Test
-    fun structuredTranslationUsesASeparateColumnOnlyWhenSplitEnabled() {
+    fun structuredTranslationKeepsSeparateColumnsRegardlessOfLineSplitToggle() {
         val line = line(
             LyricTextRole.ORIGINAL to "原文",
             LyricTextRole.TRANSLATION to "译文",
@@ -63,7 +88,10 @@ class LetterLyricsBilingualDisplayTest {
             ).map { it.kind to it.text },
         )
         assertEquals(
-            listOf(LetterDisplayKind.MAIN to "原文\u2009译文"),
+            listOf(
+                LetterDisplayKind.MAIN to "原文",
+                LetterDisplayKind.TRANSLATION to "译文",
+            ),
             letterDisplayPieces(
                 line = line,
                 bilingualDisplayMode = LyricsBilingualDisplayMode.ALL,

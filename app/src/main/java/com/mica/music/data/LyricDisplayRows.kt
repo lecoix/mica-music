@@ -1,8 +1,8 @@
 package com.mica.music.data
 
 /**
- * 将一条 LRC 文本拆成 1～2 行用于 UI 展示。
- * 以外挂 LRC 常见的细空格（U+2009 / U+200A / U+2005）为主；同步索引仍按原始 [LyricLine]。
+ * Text-only LRC layout compatibility. Display splits never establish semantic translation.
+ * The semantic lyric line and its word timing remain unchanged.
  */
 object LyricDisplayRows {
 
@@ -12,8 +12,14 @@ object LyricDisplayRows {
         val endExclusive: Int,
         val splitIndex: Int,
         val role: LyricTextRole = LyricTextRole.ORIGINAL,
+        /** Legacy split is a visual secondary line, not semantic TRANSLATION. */
+        val inferredSecondary: Boolean = false,
         val ruby: List<LyricRuby> = emptyList(),
-    )
+    ) {
+        val usesSecondaryStyle: Boolean
+            get() = role == LyricTextRole.TRANSLATION ||
+                role == LyricTextRole.READING || inferredSecondary
+    }
 
     fun rowsFromPartsWithRuby(
         parts: List<LyricTextPart>,
@@ -21,8 +27,9 @@ object LyricDisplayRows {
         mode: LyricsBilingualDisplayMode = LyricsBilingualDisplayMode.ALL,
         readingEnabled: Boolean = true,
         splitEnabled: Boolean = true,
+        authoritativeOriginalOnly: Boolean = false,
     ): List<DisplayRow>? {
-        val rows = rowsFromParts(parts, mode, readingEnabled, splitEnabled) ?: return null
+        val rows = rowsFromParts(parts, mode, readingEnabled, splitEnabled, authoritativeOriginalOnly) ?: return null
         if (!readingEnabled) return rows
         val original = parts.singleOrNull { it.role == LyricTextRole.ORIGINAL } ?: return rows
         // Bound per-unit text layout allocation, including malformed or unusually long source lines.
@@ -51,10 +58,14 @@ object LyricDisplayRows {
         "\t",
     )
 
-    /** 制作信息行不拆分 */
-    private val creditLineHint = Regex(
-        """(?i)(composer|arranger|lyricist|vocal|mixing|recording|mastering|engineer|""" +
-            """studio|produced|assistant|scoring|solo|instrumental|guita|violin)""",
+    /** Recognised metadata/credit prefixes, including mixed CJK/English credits. */
+    private val creditPrefix = Regex(
+        """(?i)^\s*(?:作词|作詞|作曲|编曲|編曲|词|詞|曲|编|編|监|監|演唱|歌手|合唱|原唱|翻唱|和声|混音|母带|""" +
+            """录音|录音棚|录音师|录音监督|编写|制作|制作人|助理|谱务|指挥|乐团|""" +
+            """音乐监制|录音承办人|人声编辑|艺术家|艺人|歌曲|歌名|标题|""" +
+            """lyrics?\s+by|composed\s+by|composer|arranger|lyricist|vocal|""" +
+            """singer|recording|mixing|mastering|engineer|studio|assistant|scoring|""" +
+            """instrument|guitar|violin|conductor|orchestra|producer|title|artist)""",
     )
 
     fun splitForDisplay(text: String, enabled: Boolean = true): List<String> {
@@ -63,8 +74,9 @@ object LyricDisplayRows {
         if (trimmed.isEmpty()) return listOf(trimmed)
         if (isCreditMetadataLine(trimmed)) return listOf(trimmed)
 
-        splitBySpecialSpaces(trimmed)?.let { return it }
+        // Explicit line breaks are physical ORIGINAL rows even when there are > 2.
         splitByNewline(trimmed)?.let { return it }
+        splitBySpecialSpaces(trimmed)?.let { return it }
         splitByExplicitSeparator(trimmed)?.let { return it }
 
         return listOf(trimmed)
@@ -79,7 +91,13 @@ object LyricDisplayRows {
                 ?: text.indexOf(row).coerceAtLeast(0)
             val end = (start + row.length).coerceAtMost(text.length)
             searchFrom = end
-            DisplayRow(row, start, end, index)
+            DisplayRow(
+                text = row,
+                start = start,
+                endExclusive = end,
+                splitIndex = index,
+                inferredSecondary = index > 0 && !text.contains('\n'),
+            )
         }
     }
 
@@ -88,10 +106,9 @@ object LyricDisplayRows {
         enabled: Boolean = true,
         mode: LyricsBilingualDisplayMode = LyricsBilingualDisplayMode.ALL,
     ): List<DisplayRow> {
-        val rows = splitForDisplayRows(text, enabled).mapIndexed { index, row ->
-            row.copy(role = if (index == 0) LyricTextRole.ORIGINAL else LyricTextRole.TRANSLATION)
-        }
-        if (!enabled || rows.size < 2) return rows
+        val rows = splitForDisplayRows(text, enabled)
+        if (!enabled || rows.size < 2 || rows.none { it.inferredSecondary }) return rows
+        // Keep legacy bilingual *display* modes; never invent TRANSLATION metadata.
         return when (mode) {
             LyricsBilingualDisplayMode.ALL -> rows
             LyricsBilingualDisplayMode.ORIGINAL -> rows.take(1)
@@ -103,11 +120,37 @@ object LyricDisplayRows {
      * Structured parts path for TTML / LRC-SPL: READING above ORIGINAL, TRANSLATION below.
      * Returns null when [parts] cannot drive display (caller should fall back to text split).
      */
+    /**
+     * Source roles are authoritative for TTML / SYLT, including an ORIGINAL-only line.
+     * LRC/PLAIN may be created by toLyricsDocumentCompat and must retain visual splitting.
+     */
+    fun hasAuthoritativeOriginalRole(format: LyricsFormat): Boolean =
+        format == LyricsFormat.TTML || format == LyricsFormat.SYLT
+
+    fun rowsForDocumentLine(
+        document: LyricsDocument,
+        index: Int,
+        text: String,
+        enabled: Boolean = true,
+        mode: LyricsBilingualDisplayMode = LyricsBilingualDisplayMode.ALL,
+        readingEnabled: Boolean = true,
+    ): List<DisplayRow> =
+        rowsFromPartsWithRuby(
+            parts = document.lines.getOrNull(index)?.parts.orEmpty(),
+            tokens = document.lines.getOrNull(index)?.tokens.orEmpty(),
+            mode = mode,
+            readingEnabled = readingEnabled,
+            splitEnabled = enabled,
+            authoritativeOriginalOnly = hasAuthoritativeOriginalRole(document.format) ||
+                LyricsSync.isWordTimedTokens(document.lines.getOrNull(index)?.tokens.orEmpty()),
+        ) ?: rowsForBilingualDisplayMode(text, enabled, mode)
+
     fun rowsFromParts(
         parts: List<LyricTextPart>,
         mode: LyricsBilingualDisplayMode = LyricsBilingualDisplayMode.ALL,
         readingEnabled: Boolean = true,
         splitEnabled: Boolean = true,
+        authoritativeOriginalOnly: Boolean = false,
     ): List<DisplayRow>? {
         if (parts.isEmpty()) return null
         val reading = parts
@@ -122,7 +165,8 @@ object LyricDisplayRows {
             .filter { it.role == LyricTextRole.TRANSLATION }
             .joinToString(" ") { it.text.trim() }
             .trim()
-        val structured = reading.isNotEmpty() || translation.isNotEmpty()
+        val structured = reading.isNotEmpty() || translation.isNotEmpty() ||
+            (authoritativeOriginalOnly && original.isNotEmpty())
         if (!structured) return null
 
         fun row(role: LyricTextRole, text: String, splitIndex: Int): DisplayRow? {
@@ -136,13 +180,8 @@ object LyricDisplayRows {
             )
         }
 
-        if (!splitEnabled && translation.isNotEmpty()) {
-            val merged = listOf(original, translation)
-                .filter { it.isNotEmpty() }
-                .joinToString("\u2009")
-            return listOfNotNull(row(LyricTextRole.ORIGINAL, merged, 0))
-        }
-
+        // Do not merge source-provided semantic tracks. SPLIT only governs
+        // heuristic visual rows of ordinary untimed LRC text.
         val built = when (mode) {
             LyricsBilingualDisplayMode.ALL -> buildList {
                 if (readingEnabled) row(LyricTextRole.READING, reading, 0)?.let(::add)
@@ -154,7 +193,8 @@ object LyricDisplayRows {
                 row(LyricTextRole.ORIGINAL, original, size)?.let(::add)
             }
             LyricsBilingualDisplayMode.TRANSLATION -> listOfNotNull(
-                row(LyricTextRole.TRANSLATION, translation.ifEmpty { original }, 0),
+                if (translation.isNotEmpty()) row(LyricTextRole.TRANSLATION, translation, 0)
+                else row(LyricTextRole.ORIGINAL, original, 0),
             )
         }
         return built.takeIf { it.isNotEmpty() }
@@ -191,17 +231,23 @@ object LyricDisplayRows {
         return listOf(left, right)
     }
 
-    private fun isCreditMetadataLine(text: String): Boolean =
-        creditLineHint.containsMatchIn(text) && (':' in text || '：' in text)
+    private val creditFieldHint = Regex(
+        """(?i)(guitar|instrument|recording|studio|engineer|mastering|mixing|vocal|orchestra)""",
+    )
+    private fun isCreditMetadataLine(text: String): Boolean {
+        val colonAt = text.indexOfAny(charArrayOf(':', '：'))
+        if (colonAt !in 1..80) return false
+        val field = text.substring(0, colonAt)
+        return creditPrefix.containsMatchIn(field) || creditFieldHint.containsMatchIn(field)
+    }
 
     private fun splitByNewline(text: String): List<String>? {
         if (!text.contains('\n')) return null
         val parts = text.lineSequence()
             .map { it.trim() }
             .filter { it.isNotEmpty() }
-            .take(2)
             .toList()
-        return parts.takeIf { it.size == 2 }
+        return parts.takeIf { it.size >= 2 }
     }
 
     private fun splitByExplicitSeparator(text: String): List<String>? {
@@ -212,12 +258,7 @@ object LyricDisplayRows {
                 .filter { it.isNotEmpty() }
             if (parts.size == 2) return parts
         }
-        if ('/' in text) {
-            val parts = text.split('/', limit = 2)
-                .map { it.trim() }
-                .filter { it.isNotEmpty() }
-            if (parts.size == 2) return parts
-        }
+        // Bare '/' is ordinary content: names (AC/DC), credits, dates and song text.
         return null
     }
 }

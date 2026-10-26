@@ -192,6 +192,7 @@ internal fun LetterLyricsPrototype(
             val translationInkStyle = translationLetterStyle.copy(color = LETTER_INK)
             buildLetterPages(
                 lines = renderState.document.lines,
+                sourceFormat = renderState.document.format,
                 bilingualDisplayMode = bilingualDisplayMode,
                 splitEnabled = splitEnabled,
                 metrics = metrics,
@@ -976,6 +977,7 @@ internal fun letterDisplayPieces(
     readingEnabled: Boolean,
     splitEnabled: Boolean,
     rubyEnabled: Boolean = true,
+    sourceFormat: com.mica.music.data.LyricsFormat = com.mica.music.data.LyricsFormat.UNKNOWN,
 ): List<LetterDisplayPiece> {
     val flatText = line.parts
         .filter { it.role != LyricTextRole.READING }
@@ -986,9 +988,15 @@ internal fun letterDisplayPieces(
         mode = bilingualDisplayMode,
         readingEnabled = readingEnabled,
         splitEnabled = splitEnabled,
+        authoritativeOriginalOnly = LyricDisplayRows.hasAuthoritativeOriginalRole(sourceFormat) ||
+            com.mica.music.data.LyricsSync.isWordTimedTokens(line.tokens),
     ).let { aligned ->
         if (!rubyEnabled || aligned?.any { it.ruby.isNotEmpty() && it.text.isRotatedLatinPhrase() } == true) {
-            LyricDisplayRows.rowsFromParts(line.parts, bilingualDisplayMode, readingEnabled, splitEnabled)
+            LyricDisplayRows.rowsFromParts(
+                line.parts, bilingualDisplayMode, readingEnabled, splitEnabled,
+                authoritativeOriginalOnly = LyricDisplayRows.hasAuthoritativeOriginalRole(sourceFormat) ||
+                    com.mica.music.data.LyricsSync.isWordTimedTokens(line.tokens),
+            )
         } else aligned
     } ?: LyricDisplayRows.rowsForBilingualDisplayMode(
         text = flatText,
@@ -1008,8 +1016,9 @@ internal fun letterDisplayPieces(
             )
             LyricTextRole.ORIGINAL, LyricTextRole.EXTRA -> LetterDisplayPiece(
                 text = row.text,
-                kind = LetterDisplayKind.MAIN,
-                usePrimaryWordSchedule = true,
+                // Visual halves use secondary typography without inventing a TRANSLATION role.
+                kind = if (row.inferredSecondary) LetterDisplayKind.TRANSLATION else LetterDisplayKind.MAIN,
+                usePrimaryWordSchedule = !row.inferredSecondary,
                 ruby = row.ruby,
             )
             LyricTextRole.TRANSLATION -> if (hasMainOriginal) {
@@ -1031,6 +1040,7 @@ internal fun letterDisplayPieces(
 
 private fun buildLetterPages(
     lines: List<LyricLineNode>,
+    sourceFormat: com.mica.music.data.LyricsFormat = com.mica.music.data.LyricsFormat.UNKNOWN,
     bilingualDisplayMode: LyricsBilingualDisplayMode,
     splitEnabled: Boolean,
     metrics: LetterPageMetrics,
@@ -1073,6 +1083,7 @@ private fun buildLetterPages(
             bilingualDisplayMode = bilingualDisplayMode,
             readingEnabled = readingEnabled,
             splitEnabled = splitEnabled,
+            sourceFormat = sourceFormat,
         )
         if (pieces.any { piece -> piece.ruby.any {
                 piece.text.substring(it.start, it.endExclusive).letterGraphemes().size > mainCharactersPerColumn

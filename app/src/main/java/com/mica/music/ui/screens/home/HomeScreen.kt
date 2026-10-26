@@ -797,7 +797,7 @@ fun HomeScreen(
     ) {
         infoRowLyricsSession?.takeIf { activeLyricIndex >= 0 }?.let { session ->
             LyricsDisplayProjection.lyricLineText(
-                lyrics = session.lyrics,
+                session = session,
                 index = activeLyricIndex,
                 display = LyricsDisplayOptions(
                     splitEnabled = uiSettings.lyricSplitEnabled,
@@ -813,7 +813,7 @@ fun HomeScreen(
     ) {
         infoRowLyricsSession?.takeIf { activeLyricIndex >= 0 }?.let { session ->
             LyricsDisplayProjection.lyricLineText(
-                lyrics = session.lyrics,
+                session = session,
                 index = activeLyricIndex,
                 display = LyricsDisplayOptions(
                     splitEnabled = uiSettings.lyricSplitEnabled,

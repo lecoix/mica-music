@@ -75,24 +75,23 @@ private fun lyricOriginalAndTranslation(
     splitEnabled: Boolean,
 ): Pair<String, String?>? {
     val line = renderState.lyrics.getOrNull(index) ?: return null
-    val rows = renderState.document.lines.getOrNull(index)?.let { node ->
-        LyricDisplayRows.rowsFromParts(
-            parts = node.parts,
-            mode = LyricsBilingualDisplayMode.ALL,
-            readingEnabled = false,
-            splitEnabled = splitEnabled,
-        )
-    } ?: LyricDisplayRows.rowsForBilingualDisplayMode(
+    val rows = LyricDisplayRows.rowsForDocumentLine(
+        document = renderState.document,
+        index = index,
         text = line.text,
         enabled = splitEnabled,
         mode = LyricsBilingualDisplayMode.ALL,
+        readingEnabled = false,
     )
-    val original = rows.firstOrNull { it.role != LyricTextRole.TRANSLATION }
-        ?.text?.trim()
-        ?.takeIf { it.isNotBlank() }
+    val original = rows
+        .filter { it.role == LyricTextRole.ORIGINAL && !it.inferredSecondary }
+        .joinToString("\n") { it.text.trim() }
+        .takeIf { it.isNotBlank() }
         ?: return null
-    val translation = rows.firstOrNull { it.role == LyricTextRole.TRANSLATION }
-        ?.text?.trim()
-        ?.takeIf { it.isNotBlank() }
-    return original to translation
+    // Second display half can occupy the caption's secondary visual slot without
+    // inventing a semantic TRANSLATION part or exporting it to Lyricon.
+    val secondary = rows.firstOrNull {
+        it.role == LyricTextRole.TRANSLATION || it.inferredSecondary
+    }?.text?.trim()?.takeIf { it.isNotBlank() }
+    return original to secondary
 }

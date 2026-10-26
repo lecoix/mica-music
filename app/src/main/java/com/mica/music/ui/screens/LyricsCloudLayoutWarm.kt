@@ -101,9 +101,7 @@ internal fun measureLyricsCloudLinePrecise(
         val geometry = measureRubyText(row.text, row.ruby, lineNormalStyle, textMeasurer)
         return@map LyricsCloudMeasuredRow(geometry.size.width + 4, geometry.size.height)
     }
-    val useSecondary = row.role == LyricTextRole.READING ||
-        row.role == LyricTextRole.TRANSLATION ||
-        row.splitIndex > 0
+    val useSecondary = row.usesSecondaryStyle
     val style = if (useSecondary) translationStyle else lineStyle
     val normalStyle = if (useSecondary) translationNormalStyle else lineNormalStyle
     val whole = textMeasurer.measure(
@@ -160,16 +158,13 @@ internal fun LyricsCloudLayoutPrewarm(
     }
     val displayRows = remember(lyrics, document, splitEnabled, bilingualDisplayMode, readingEnabled) {
         lyrics.mapIndexed { index, line ->
-            LyricDisplayRows.rowsFromPartsWithRuby(
-                parts = document.lines.getOrNull(index)?.parts.orEmpty(),
-                tokens = document.lines.getOrNull(index)?.tokens.orEmpty(),
-                mode = bilingualDisplayMode,
-                readingEnabled = readingEnabled,
-                splitEnabled = splitEnabled,
-            ) ?: LyricDisplayRows.rowsForBilingualDisplayMode(
+            LyricDisplayRows.rowsForDocumentLine(
+                document = document,
+                index = index,
                 text = line.text,
                 enabled = splitEnabled,
                 mode = bilingualDisplayMode,
+                readingEnabled = readingEnabled,
             )
         }
     }
