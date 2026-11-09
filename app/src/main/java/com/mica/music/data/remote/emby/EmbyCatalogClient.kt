@@ -87,7 +87,7 @@ internal class EmbyCatalogClient(
                 "Recursive" to "true",
                 "StartIndex" to offset.toString(),
                 "Limit" to count.toString(),
-                "Fields" to "Path,MediaSources,AlbumArtists,Artists,ParentId",
+                "Fields" to "Path,MediaSources,AlbumArtists,Artists,ParentId,AlbumPrimaryImageTag",
             ))
             if (!owner.isCurrent(operation.token)) throw IOException("Emby source changed during sync")
             val body = transport.get(url, EmbyProtocol.apiKey(credential))
@@ -105,6 +105,14 @@ internal class EmbyCatalogClient(
                 val path = item.optString("Path")
                 val source = item.optJSONArray("MediaSources")?.optJSONObject(0)
                 val suffix = path.substringAfterLast('.', "").takeIf { it.length in 1..8 }.orEmpty()
+                val albumId = item.optString("AlbumId")
+                val hasTrackArtwork = item.optJSONObject("ImageTags")?.optString("Primary").orEmpty().isNotBlank()
+                val hasAlbumArtwork = item.optString("AlbumPrimaryImageTag").isNotBlank()
+                val artworkId = when {
+                    hasTrackArtwork -> id
+                    hasAlbumArtwork && albumId.isNotBlank() -> albumId
+                    else -> ""
+                }
                 items += RemoteTrackSummary(
                     ref = RemoteTrackRef(operation.source.instance.id, id),
                     title = item.optString("Name").ifBlank { id },
@@ -120,8 +128,8 @@ internal class EmbyCatalogClient(
                     year = item.optInt("ProductionYear", 0).coerceAtLeast(0),
                     trackNumber = item.optInt("IndexNumber", 0).coerceAtLeast(0),
                     discNumber = item.optInt("ParentIndexNumber", 0).coerceAtLeast(0),
-                    albumOpaqueId = item.optString("AlbumId"),
-                    artworkOpaqueId = item.optString("Id").takeIf { item.optJSONObject("ImageTags")?.optString("Primary").orEmpty().isNotBlank() }.orEmpty(),
+                    albumOpaqueId = albumId,
+                    artworkOpaqueId = artworkId,
                 )
             }
             return EmbyPage(items, array.length(), json.optInt("TotalRecordCount", offset + array.length()))
