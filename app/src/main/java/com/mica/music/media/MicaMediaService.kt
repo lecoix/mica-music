@@ -31,6 +31,7 @@ import com.mica.music.data.local.LibraryRepository
 import com.mica.music.data.remote.CompositeRemoteHttpPlaybackRequestResolver
 import com.mica.music.data.remote.RemoteHttpPlaybackRequestResolver
 import com.mica.music.data.remote.RemoteMediaIdCodec
+import com.mica.music.data.remote.emby.EmbyStreamRequestResolver
 import com.mica.music.data.remote.navidrome.NavidromeStreamRequestResolver
 import com.mica.music.data.remote.webdav.WebDavStreamRequestResolver
 import com.mica.music.data.remote.smb.SmbPlaybackRequestResolver
@@ -146,6 +147,10 @@ class MicaMediaService : MediaSessionService() {
             NavidromeStreamRequestResolver(
                 sourceOwnerById = micaApp.remoteCatalogRepository::sourceOwner,
                 credentialStore = micaApp.remoteCredentialStore,
+            ),
+            EmbyStreamRequestResolver(
+                sourceOwnerById = micaApp.remoteCatalogRepository::sourceOwner,
+                credentials = micaApp.remoteCredentialStore,
             ),
             WebDavStreamRequestResolver(
                 sourceOwnerById = micaApp.remoteCatalogRepository::sourceOwner,

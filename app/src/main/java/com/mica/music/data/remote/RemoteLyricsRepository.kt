@@ -89,6 +89,7 @@ class RemoteLyricsRepository internal constructor(
                 }
                 val loaded = when (status.instance.type) {
                     RemoteSourceType.NAVIDROME -> navidromeLoader.load(song)
+                    RemoteSourceType.EMBY -> LyricsDocument()
                     RemoteSourceType.WEBDAV -> webDavLoader?.load(song) ?: LyricsDocument()
                     RemoteSourceType.SMB -> com.mica.music.data.remote.smb.SmbOptionalIo.runWhenPlaybackReady(
                         sourceId = ref.sourceInstanceId,

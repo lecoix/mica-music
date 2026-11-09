@@ -1,0 +1,14 @@
+# Emby MVP local acceptance checkpoint (2026-11-06)
+
+Behavior Contract: no credentials in persistent queue/catalog/media IDs/logs; source disable/delete invalidates future resolution; hard cap 10,000; no default transcoding; do not insert the full 10k catalog into playback queue for acceptance.
+Architecture Contract: credentials in Android Keystore referenced by opaque credentialRef; one source operation/credential snapshot; single-flight publication gated by source token.
+Implementation Verification: mocked pagination 500 x 20, credential-only HTTP headers, stale publication rejected; native Media3 seek and Primary artwork await a test server.
+
+Termux ARM64 verification:
+- Exact base HEAD fed556864bb824712cbbe770f72c012b685a0392; experiment/emby-remote-source only.
+- Emby protocol tests 3/3 PASS; source-sync tests 2/2 PASS using an in-memory EmbyCatalogStore fake instead of Robolectric SQLite. The actual source parser, credential snapshot and operation tokens are exercised; Room transaction integration is not exercised.
+- Debug Kotlin compilation SUCCESS using temporarily overridden NDK version 27.0.12077973 (original NDK 28.2.13676358 incomplete); original catalog restored after build.
+- assembleDebug attempted; Termux arm64 cannot execute SDK CMake 3.22.1 linux-x86_64 binary for third_party/sylvakru-usb-transport native targets. No Debug APK acceptance claimed.
+- Real Emby server, live playback/seek, artwork, large-library memory, full persistence and device QA NOT run.
+- Evidence: ~/emby-unit-5of5-20261106.log, ~/emby-assemble-debug-20261106.log, and Gradle JUnit XML under app/build/test-results/testDebugUnitTest.
+- No push, PR, tag, release or changes outside isolated Emby worktree.

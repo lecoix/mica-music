@@ -4,6 +4,7 @@ enum class RemoteSourceType {
     NAVIDROME,
     WEBDAV,
     SMB,
+    EMBY,
 }
 
 data class RemoteSourceInstance(

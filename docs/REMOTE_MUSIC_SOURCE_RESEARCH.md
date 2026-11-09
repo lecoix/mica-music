@@ -652,3 +652,14 @@ Android-WebDav-Music-Player 和 tsm-player 当前没有明确源码许可证，�
 - 真实 Android QA 已覆盖 SMB、WebDAV、Navidrome 三种来源；Navidrome 已覆盖认证、catalog、播放、seek、歌词、稳定 ID、队列/位置恢复和自动同步。
 
 发布判断：**remote-music MVP 无已知 release blocker，可以进入合并/发布候选阶段。** 后续剩余工作属于非阻塞 polish，例如若需要可补 Navidrome `getCoverArt` 的协议抓包证据、扩展更大真实 Navidrome 曲库 soak、以及 UI/文案细节收尾。
+
+## Emby experimental MVP (2026-11-06; `experiment/emby-remote-source`)
+
+- Base `fed556864bb824712cbbe770f72c012b685a0392`; no production merge or release.
+- Source config stores only an opaque Keystore credential reference. The API Key is held as encrypted `BearerToken` material and injected as `X-Emby-Token` solely in ephemeral HTTP requests; never put it in endpoint/query/catalog/queue/diagnostic strings.
+- Library access: `/emby/Items?IncludeItemTypes=Audio&Recursive=true&StartIndex=N&Limit=500`. Only Audio items are mapped; sync is strictly capped at 10,000 tracks, deduplicated and single-source snapshot-committed under the source operation token.
+- Playback: `/emby/Audio/{itemId}/stream?static=true` with nonredirecting HTTP DataSource and ordinary seek/range requests. No automatic transcoding or playback reporting.
+- Artwork: `/emby/Items/{itemId}/Images/Primary` fetched JIT through the existing revisioned remote artwork provider. Artwork loads are bounded to 16 MiB.
+- Emby API Key must have library access (server APIs can expose libraries differently under user-specific access permissions); verify connection, metadata, cover, static stream/seek, 401 and large-library behavior against a real server before claiming device acceptance.
+- Out of scope: lyrics, report playback, default transcoding, Jellyfin, playlist write-back, offline download.
+- Reference designs: XyMusic Apache-2.0 Emby client, MediaBrowser Emby.SDK/ApiClients. Implementation is independently written; no GPL-derived implementation copied.
