@@ -16,6 +16,12 @@
     @net.engio.mbassy.listener.Handler <methods>;
 }
 
+# MBassador's SubscriptionFactory calls getConstructor(SubscriptionContext).
+# Preserve the default invocation class and its constructor in R8 full mode.
+-keep,allowobfuscation class net.engio.mbassy.dispatch.ReflectiveHandlerInvocation {
+    public <init>(net.engio.mbassy.subscription.SubscriptionContext);
+}
+
 # Optional desktop-only paths: SMBJ skips SPNEGO on Android (uses NTLM), and
 # its event handlers do not use MBassador's expression-language conditions.
 -dontwarn javax.el.BeanELResolver
