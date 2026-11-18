@@ -61,6 +61,7 @@ import com.mica.music.ui.theme.HifiSize
 import com.mica.music.ui.theme.HifiSpacing
 import com.mica.music.ui.theme.MicaTheme
 import com.mica.music.ui.theme.coverColor
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 enum class SongMenuAction {
@@ -469,6 +470,8 @@ fun AddToPlaylistSheet(
     val isDark = MicaTheme.colors.isDark
     val sheetBackground = if (isDark) HifiPalette.MicaFogDarkEnd else HifiPalette.MicaFogStart
     var showCreate by remember { mutableStateOf(false) }
+    var creatingPlaylist by remember { mutableStateOf(false) }
+    var createError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val playlists = playlistStore.playlists
     val songIds = songs.map { it.id }
@@ -492,6 +495,41 @@ fun AddToPlaylistSheet(
             onCreated(message)
             onDismiss()
         }
+    }
+
+    if (showCreate) {
+        MicaTextInputDialog(
+            visible = true,
+            title = "新建歌单",
+            hint = "歌单名称",
+            confirmLabel = "创建并添加",
+            saving = creatingPlaylist,
+            errorMessage = createError,
+            onConfirm = { name ->
+                if (!creatingPlaylist) {
+                    creatingPlaylist = true
+                    createError = null
+                    scope.launch {
+                        try {
+                            val playlist = playlistStore.createPlaylist(name, songIds)
+                            onCreated("已将 ${playlist.songIds.size} 首添加到「${playlist.name}」")
+                            onDismiss()
+                        } catch (error: CancellationException) {
+                            throw error
+                        } catch (_: Exception) {
+                            createError = "创建歌单失败，请重试"
+                        } finally {
+                            creatingPlaylist = false
+                        }
+                    }
+                }
+            },
+            onDismiss = {
+                createError = null
+                showCreate = false
+            },
+        )
+        return
     }
 
     val content: @Composable () -> Unit = {
@@ -549,45 +587,10 @@ fun AddToPlaylistSheet(
             }
             SongMenuItem(
                 icon = Icons.Outlined.Add,
-                label = if (showCreate) "取消新建" else "新建歌单",
-                onClick = { showCreate = !showCreate },
+                label = "新建歌单",
+                onClick = { showCreate = true },
             )
-            if (showCreate) {
-                Text(
-                    text = if (songs.size == 1) {
-                        "输入名称后创建歌单并加入此曲；也可在侧栏「新建歌单」管理。"
-                    } else {
-                        "输入名称后创建歌单并加入所选歌曲；也可在侧栏「新建歌单」管理。"
-                    },
-                    style = MicaTheme.typography.caption,
-                    color = MicaTheme.colors.textTertiary,
-                    modifier = Modifier.padding(horizontal = HifiSpacing.lg, vertical = HifiSpacing.xs),
-                )
-                SongMenuItem(
-                    icon = Icons.Outlined.PlaylistAdd,
-                    label = "创建「我的歌单」并添加",
-                    onClick = {
-                        scope.launch {
-                            val playlist = playlistStore.playlists.find { it.name == "我的歌单" }
-                                ?: playlistStore.createPlaylist("我的歌单")
-                            if (addAsCustomOrder) {
-                                val displayedIds = playlistStore.songsForPlaylist(playlist.id, resolveSong).map { it.id }
-                                playlistStore.appendSongsAsCustomOrder(playlist.id, displayedIds, songIds)
-                            } else {
-                                playlistStore.addSongsToPlaylist(playlist.id, songIds)
-                            }
-                            val message = if (songs.size == 1) {
-                                "已添加到「${playlist.name}」"
-                            } else {
-                                "已将 ${songs.size} 首添加到「${playlist.name}」"
-                            }
-                            onCreated(message)
-                            onDismiss()
-                        }
-                    },
-                )
-            }
-            if (playlists.isEmpty() && !showCreate) {
+            if (playlists.isEmpty()) {
                 Text(
                     text = "暂无歌单，请新建",
                     style = MicaTheme.typography.bodyMd,

@@ -212,10 +212,13 @@ class PlaylistStoreTest {
             }
         }
         atPublicationBoundary.await()
-        val newest = store.createPlaylist("After reload")
+        val newest = store.createPlaylist("  After reload  ", listOf("b", "", "a", "b"))
         releaseStaleReload.complete(Unit)
         staleReload.await()
 
+        assertEquals("After reload", newest.name)
+        assertEquals(listOf("b", "a"), newest.songIds)
+        assertEquals(SongSortField.CUSTOM, newest.sortField)
         assertEquals(newest, store.playlistById(newest.id))
         val coldStore = PlaylistStore(context)
         coldStore.awaitReady()

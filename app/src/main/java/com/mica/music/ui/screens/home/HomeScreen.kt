@@ -1180,6 +1180,7 @@ fun HomeScreen(
                             playlistImportLauncher.launch(arrayOf("application/json", "text/plain"))
                         },
                         listState = playlistOverviewListState,
+                        listBottomPadding = listBottomPadding,
                         modifier = Modifier.fillMaxSize(),
                     )
                     is HomePaneKey.Playlist -> HomePlaylistContent(

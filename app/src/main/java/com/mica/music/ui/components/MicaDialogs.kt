@@ -61,11 +61,13 @@ fun MicaTextInputDialog(
     confirmLabel: String = "确定",
     onConfirm: (String) -> Unit,
     onDismiss: () -> Unit,
+    saving: Boolean = false,
+    errorMessage: String? = null,
 ) {
     if (!visible) return
     var value by remember(visible, initialValue) { mutableStateOf(initialValue) }
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (!saving) onDismiss() },
         title = {
             Text(text = title, style = MicaTheme.typography.titleMd)
         },
@@ -76,20 +78,29 @@ fun MicaTextInputDialog(
                     onValueChange = { value = it },
                     placeholder = { Text(hint) },
                     singleLine = true,
+                    enabled = !saving,
+                    isError = errorMessage != null,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                if (errorMessage != null) {
+                    Text(
+                        text = errorMessage,
+                        color = HifiPalette.LikeRed,
+                        style = MicaTheme.typography.caption,
+                    )
+                }
             }
         },
         confirmButton = {
             TextButton(
                 onClick = { onConfirm(value.trim()) },
-                enabled = value.trim().isNotEmpty(),
+                enabled = !saving && value.isNotBlank(),
             ) {
                 Text(text = confirmLabel, color = MicaTheme.colors.accent)
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(onClick = onDismiss, enabled = !saving) {
                 Text(text = "取消", color = MicaTheme.colors.textSecondary)
             }
         },

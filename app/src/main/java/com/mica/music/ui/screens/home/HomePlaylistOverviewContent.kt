@@ -31,6 +31,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.mica.music.data.Song
 import com.mica.music.data.UserPlaylist
@@ -58,6 +59,7 @@ internal fun HomePlaylistOverviewContent(
     onCreatePlaylist: () -> Unit,
     onImportPlaylist: () -> Unit,
     listState: LazyListState,
+    listBottomPadding: Dp,
     modifier: Modifier = Modifier,
 ) {
     if (playlists.isEmpty()) {
@@ -88,8 +90,10 @@ internal fun HomePlaylistOverviewContent(
         state = listState,
         modifier = modifier.fillMaxSize(),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(
-            horizontal = HifiSpacing.lg,
-            vertical = HifiSpacing.md,
+            start = HifiSpacing.lg,
+            top = HifiSpacing.md,
+            end = HifiSpacing.lg,
+            bottom = HifiSpacing.md + listBottomPadding,
         ),
         verticalArrangement = Arrangement.spacedBy(HifiSpacing.xs),
     ) {

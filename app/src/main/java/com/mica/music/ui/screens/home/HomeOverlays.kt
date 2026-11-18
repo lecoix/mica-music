@@ -79,9 +79,9 @@ internal fun HomeOverlays(
         MicaTextInputDialog(
             visible = playlist != null,
             title = "重命名歌单",
-            hint = "姝屽崟鍚嶇О",
+            hint = "歌单名称",
             initialValue = playlist?.name.orEmpty(),
-            confirmLabel = "淇濆瓨",
+            confirmLabel = "保存",
             onConfirm = onRenamePlaylist,
             onDismiss = onDismissRenamePlaylist,
         )

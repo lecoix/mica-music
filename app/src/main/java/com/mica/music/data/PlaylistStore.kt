@@ -83,13 +83,13 @@ class PlaylistStore(
         initialized.await()
     }
 
-    suspend fun createPlaylist(name: String): UserPlaylist = mutate {
+    suspend fun createPlaylist(name: String, songIds: List<String> = emptyList()): UserPlaylist = mutate {
         val trimmed = name.trim()
         require(trimmed.isNotEmpty()) { "歌单名不能为空" }
         val playlist = UserPlaylist(
             id = newPlaylistId(it),
             name = trimmed,
-            songIds = emptyList(),
+            songIds = songIds.asSequence().filter(String::isNotBlank).distinct().toList(),
         )
         val storageRevision = checkStorage("create") { insertPlaylist(playlist, it.size) }
         PlaylistMutationResult(
