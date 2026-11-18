@@ -19,6 +19,7 @@ import com.mica.music.data.LyricDisplayRows
 import com.mica.music.data.LyricLine
 import com.mica.music.data.LyricToken
 import com.mica.music.data.LyricTextRole
+import com.mica.music.data.lyricRubyAlignment
 import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.ExternalLyricsMode
 import com.mica.music.data.SharedLyricsMemoryCache
@@ -30,6 +31,7 @@ import com.mica.music.data.remote.toPlaybackSong
 import com.mica.music.data.preferences.LibraryScanSettings
 import com.mica.music.data.preferences.LyricsPreferences
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -71,6 +73,7 @@ internal class NotificationLyricsCoordinator(
             }
         }
     },
+    lyricsDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     private val appContext = context.applicationContext
     private val playerHandler = if (handler.looper == player.applicationLooper) {
@@ -78,7 +81,7 @@ internal class NotificationLyricsCoordinator(
     } else {
         Handler(player.applicationLooper)
     }
-    private val lyricsScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val lyricsScope = CoroutineScope(SupervisorJob() + lyricsDispatcher)
     private val songCache = NotificationLyricsSongCache(
         scope = lyricsScope,
         handler = playerHandler,
@@ -515,7 +518,7 @@ internal class NotificationLyricsCoordinator(
                 bilingualMode = LyricsPreferences.statusBarLyricsBilingualDisplayMode(appContext),
                 wordByWordEnabled = LyricsPreferences.statusBarLyricsWordByWordEnabled(appContext),
                 hideTranslationWhenWordByWordEnabled = true,
-                readingEnabled = false,
+                readingEnabled = LyricsPreferences.lyricReadingEnabled(appContext),
             )
             else -> display
         }
@@ -742,6 +745,22 @@ internal fun buildExternalLyricsLine(
             .filter { it.role == LyricTextRole.TRANSLATION }
             .joinToString(" ") { it.text.trim() }
             .trim()
+        val sourceRuby = lyricRubyAlignment(node.parts, node.tokens)
+            .takeIf {
+                node.parts.singleOrNull { part -> part.role == LyricTextRole.ORIGINAL || part.role == LyricTextRole.EXTRA }
+                    ?.text == originalPart && originalPart.length <= 4096 &&
+                    !originalPart.contains('\n') && !originalPart.contains('\r')
+            }
+            .orEmpty()
+        fun ExternalLyricsLine.withSourceRuby(): ExternalLyricsLine {
+            if (sourceRuby.isEmpty() || originalPart.isEmpty() || display.bilingualMode == LyricsBilingualDisplayMode.ORIGINAL) return this
+            return copy(rows = rows.map { row ->
+                if (row.role == LyricTextRole.ORIGINAL && row.text.text.length <= 4096 &&
+                    !row.text.text.contains('\n') && !row.text.text.contains('\r') &&
+                    row.text.text.startsWith(originalPart)
+                ) row.copy(text = row.text.copy(ruby = sourceRuby)) else row
+            })
+        }
         val hasSemanticTranslation = translationPart.isNotBlank()
         val baseOriginalCore = originalPart.ifBlank { rawText }.trim()
         val baseTranslation = translationPart
@@ -792,7 +811,7 @@ internal fun buildExternalLyricsLine(
                 endMs = node.endMs,
                 nextLineTimeMs = document.lines.getOrNull(index + 1)?.startMs,
                 rows = buildList {
-                    if (display.readingEnabled && readingPart.isNotBlank() &&
+                    if (display.readingEnabled && display.bilingualMode != LyricsBilingualDisplayMode.ORIGINAL && readingPart.isNotBlank() &&
                         bilingualMode != LyricsBilingualDisplayMode.TRANSLATION
                     ) {
                         add(ExternalLyricsRow(LyricTextRole.READING, ExternalLyricsText(readingPart, readingCues)))
@@ -809,13 +828,13 @@ internal fun buildExternalLyricsLine(
                         ))
                     }
                 },
-            )
+            ).withSourceRuby()
         }
         // For true semantic TRANSLATION, external surfaces use the same
         // role selection as Compose regardless of the line SPLIT toggle.
         val rows = buildList {
             if (bilingualMode != LyricsBilingualDisplayMode.TRANSLATION) {
-                if (display.readingEnabled && readingPart.isNotBlank()) {
+                if (display.readingEnabled && display.bilingualMode != LyricsBilingualDisplayMode.ORIGINAL && readingPart.isNotBlank()) {
                     add(ExternalLyricsRow(LyricTextRole.READING, ExternalLyricsText(readingPart, readingCues)))
                 }
                 baseOriginalCore.takeIf { it.isNotBlank() }?.let {
@@ -852,7 +871,7 @@ internal fun buildExternalLyricsLine(
             endMs = node.endMs,
             rows = rows,
             nextLineTimeMs = document.lines.getOrNull(index + 1)?.startMs,
-        )
+        ).withSourceRuby()
     }
 
 private fun externalLyricsWordCues(

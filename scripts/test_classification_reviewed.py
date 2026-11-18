@@ -11,6 +11,8 @@ IMPLEMENTATION_VERIFICATION = "IMPLEMENTATION_VERIFICATION"
 OBSOLETE = "OBSOLETE"
 
 REVIEWED_SUITE_CATEGORIES = {
+    "ExternalLyricsRubyProjectionTest": BEHAVIOR_CONTRACT,
+    "ExternalLyricsRubyPublicationTest": BEHAVIOR_CONTRACT,
     "LyricsRubyTest": BEHAVIOR_CONTRACT,
     "PlaybackErrorMapperTest": BEHAVIOR_CONTRACT,
     "LibraryAccessCoordinatorTest": BEHAVIOR_CONTRACT,
@@ -134,6 +136,10 @@ REVIEWED_SUITE_DEFAULTS = {
 }
 
 REVIEWED_TEST_CATEGORIES = {
+    ("ExternalRubyLyricsRenderingTest", "filledAndUnfilledOpacityAndSeekApplyToBothBaseAndReading"): BEHAVIOR_CONTRACT,
+    ("ExternalRubyLyricsRenderingTest", "oneMarqueeMovesBaseAndReadingByTheSameDistance"): BEHAVIOR_CONTRACT,
+    ("ExternalRubyLyricsRenderingTest", "captureDesktopStatusBarAndFallbackWithExistingEffects"): IMPLEMENTATION_VERIFICATION,
+    ("ExternalRubyOverlayWindowDeviceTest", "sourceRubyIsVisibleInsideBothRealOverlayWindowsAndClearsOnPause"): IMPLEMENTATION_VERIFICATION,
     ("RubyLyricTextTest", "sourceGroupsStayIntactAcrossWrappingAndVerticalColumns"): BEHAVIOR_CONTRACT,
     ("RubyLyricTextTest", "rubyLayoutKeepsBaseBaselineAndCentersWideReadingsAtLargeFontScale"): IMPLEMENTATION_VERIFICATION,
     ("RubyLyricTextTest", "captureAlignedWrappedAndFallbackRows"): IMPLEMENTATION_VERIFICATION,

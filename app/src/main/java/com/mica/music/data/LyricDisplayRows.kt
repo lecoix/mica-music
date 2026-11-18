@@ -30,7 +30,7 @@ object LyricDisplayRows {
         authoritativeOriginalOnly: Boolean = false,
     ): List<DisplayRow>? {
         val rows = rowsFromParts(parts, mode, readingEnabled, splitEnabled, authoritativeOriginalOnly) ?: return null
-        if (!readingEnabled) return rows
+        if (!readingEnabled || mode == LyricsBilingualDisplayMode.ORIGINAL) return rows
         val original = parts.singleOrNull { it.role == LyricTextRole.ORIGINAL } ?: return rows
         // Bound per-unit text layout allocation, including malformed or unusually long source lines.
         if (original.text.length > 4096 || original.text.contains('\n') || original.text.contains('\r')) return rows
@@ -188,10 +188,7 @@ object LyricDisplayRows {
                 row(LyricTextRole.ORIGINAL, original, size)?.let(::add)
                 row(LyricTextRole.TRANSLATION, translation, size)?.let(::add)
             }
-            LyricsBilingualDisplayMode.ORIGINAL -> buildList {
-                if (readingEnabled) row(LyricTextRole.READING, reading, 0)?.let(::add)
-                row(LyricTextRole.ORIGINAL, original, size)?.let(::add)
-            }
+            LyricsBilingualDisplayMode.ORIGINAL -> listOfNotNull(row(LyricTextRole.ORIGINAL, original, 0))
             LyricsBilingualDisplayMode.TRANSLATION -> listOfNotNull(
                 if (translation.isNotEmpty()) row(LyricTextRole.TRANSLATION, translation, 0)
                 else row(LyricTextRole.ORIGINAL, original, 0),

@@ -46,6 +46,8 @@
 
 #### 未填充颜色的刷新与容量边界（2026-10-18）
 
+2026-10-26 工作树补充：桌面和状态栏的逐字注音共用 `LyricsPreferences.lyricReadingEnabled` / `lyric_reading_enabled`，不新增 key。已确认的源范围随当前句投影传递；最终展示时才合并读音行，关闭读音同步去除 inline 注音。未知对应保留整行；渐变、两套透明度、阴影/发光和跑马灯继续由原样式设置控制。详见 [逐字注音对应](LYRICS_RUBY_ALIGNMENT.md)。
+
 - 偏好写入 owner 仍为 `LyricsPreferences` / `MicaSettingsStore`，设置回调在 UI 线程串行更新样式 key；颜色/透明度组合在一次 edit/apply 中写入。沿用 SharedPreferences 的有序 `apply()`，不新增 coroutine、IO 等待、解析或文件缓存。
 - 唯一异步边界是既有 `NotificationLyricsCoordinator` 偏好监听器的 `playerHandler.post`。排队事件只携带 DISPLAY 失效信号，不捕获旧颜色；执行时先检查 `released`，再由 `reconcile()` 重新读取最新偏好并经 `DesktopLyricsOverlayStateStore.setStyle` 发布。样式在 player looper 上串行发布；歌词加载的 generation/取消协议保持现状，不新增样式请求 generation。
 - `delayedUnfilledColorRefreshPublishesLatestPreferenceInsteadOfOldColor` 在偏好通知与样式发布边界暂存旧刷新，先提交/发布新颜色，再释放旧刷新，验证持久化及发布状态仍为新颜色；这是边界测试，不代表完整 Service/WindowManager 真机链路已验收。UI flow 覆盖搜索入口、自定义开关、模式切换、已保存颜色展示和关闭自定义。

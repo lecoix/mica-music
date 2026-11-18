@@ -499,6 +499,9 @@ private fun DesktopLyricsOverlayContent(
     } else {
         style.statusBarBilingualDisplayMode
     }
+    val displayedLine = remember(surfaceState.line, bilingualDisplayMode, uiSettings.lyricReadingEnabled) {
+        surfaceState.line?.forExternalDisplay(bilingualDisplayMode, uiSettings.lyricReadingEnabled)
+    }
 
     MicaTheme(
         darkTheme = uiSettings.isDarkTheme(),
@@ -537,10 +540,7 @@ private fun DesktopLyricsOverlayContent(
             ) {
                 // AnimatedVisibility may keep this content alive during its exit transition,
                 // after a song change has already cleared the current lyric line.
-                surfaceState.line?.forExternalDisplay(
-                    mode = bilingualDisplayMode,
-                    readingEnabled = uiSettings.lyricReadingEnabled,
-                )?.let { line ->
+                displayedLine?.let { line ->
                     Column(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalAlignment = textAlignment.toHorizontalAlignment(),
@@ -626,7 +626,7 @@ internal fun externalLyricsFramePositionMs(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ExternalLyricsLineText(
+internal fun ExternalLyricsLineText(
     text: ExternalLyricsText,
     line: ExternalLyricsLine,
     positionMs: Int,
@@ -635,6 +635,10 @@ private fun ExternalLyricsLineText(
     marquee: Boolean,
     textAlign: TextAlign,
 ) {
+    if (text.ruby.isNotEmpty()) {
+        ExternalRubyLyricsText(text, line, positionMs, fontSizeSp, style, marquee, textAlign)
+        return
+    }
     val opacityFraction = style.opacityFraction
     val shadowStrengthFraction = style.shadowStrengthFraction
     val glowStrengthFraction = style.glowStrengthFraction
@@ -796,7 +800,7 @@ internal fun externalLyricsFilledAlpha(
     opacityFraction: Float,
 ): Float = opacityFraction.coerceIn(0f, 1f)
 
-private fun externalLyricsBrush(
+internal fun externalLyricsBrush(
     style: com.mica.music.data.ExternalLyricsStyle,
     size: androidx.compose.ui.geometry.Size,
     opacityFraction: Float,

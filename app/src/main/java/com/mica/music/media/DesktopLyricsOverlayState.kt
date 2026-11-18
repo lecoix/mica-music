@@ -2,6 +2,8 @@ package com.mica.music.media
 
 import com.mica.music.data.ExternalLyricsStyle
 import com.mica.music.data.LyricCue
+import com.mica.music.data.LyricRuby
+import com.mica.music.data.validLyricRuby
 import com.mica.music.data.DEFAULT_LYRICS_PAGE_FONT_SIZE_SP
 import com.mica.music.data.LyricsBilingualDisplayMode
 import com.mica.music.data.LyricTextRole
@@ -13,6 +15,7 @@ import kotlinx.coroutines.flow.asStateFlow
 data class ExternalLyricsText(
     val text: String,
     val cues: List<LyricCue> = emptyList(),
+    val ruby: List<LyricRuby> = emptyList(),
 )
 
 data class ExternalLyricsRow(
@@ -61,12 +64,14 @@ internal fun ExternalLyricsLine.forExternalDisplay(
     mode: LyricsBilingualDisplayMode,
     readingEnabled: Boolean = true,
 ): ExternalLyricsLine {
-    val visibleLine = if (readingEnabled) {
+    val visibleLine = if (readingEnabled && mode != LyricsBilingualDisplayMode.ORIGINAL) {
         this
     } else {
-        copy(rows = rows.filter { it.role != LyricTextRole.READING })
+        copy(rows = rows.filter { it.role != LyricTextRole.READING }.map {
+            if (it.text.ruby.isEmpty()) it else it.copy(text = it.text.copy(ruby = emptyList()))
+        })
     }
-    return when (mode) {
+    val selected = when (mode) {
         LyricsBilingualDisplayMode.ALL -> visibleLine
         LyricsBilingualDisplayMode.ORIGINAL -> if (visibleLine.original != null) {
             visibleLine.copy(rows = visibleLine.rows.filter { it.role != LyricTextRole.TRANSLATION })
@@ -78,6 +83,16 @@ internal fun ExternalLyricsLine.forExternalDisplay(
         } else {
             visibleLine
         }
+    }
+    val original = selected.original ?: return selected
+    if (original.ruby.isEmpty()) return selected
+    val reading = selected.reading?.text
+    val readingMatches = reading == null || reading.filterNot(Char::isWhitespace) ==
+        original.ruby.joinToString("") { it.reading }.filterNot(Char::isWhitespace)
+    return if (readingMatches && validLyricRuby(original.text, original.ruby)) {
+        selected.copy(rows = selected.rows.filter { it.role != LyricTextRole.READING })
+    } else {
+        selected.copy(rows = selected.rows.map { it.copy(text = it.text.copy(ruby = emptyList())) })
     }
 }
 
@@ -237,7 +252,4 @@ class DesktopLyricsOverlayStateStore {
 }
 
 private fun ExternalLyricsSurfaceState.needsPositionUpdates(): Boolean =
-    visible && (
-        line?.original?.cues?.isNotEmpty() == true ||
-            line?.translation?.cues?.isNotEmpty() == true
-        )
+    visible && line?.rows?.any { it.text.cues.isNotEmpty() } == true
