@@ -24,16 +24,31 @@ object SongMediaItemCodec {
     fun metadataRevision(song: Song): String =
         metadataRevision(song, lyricsRevision(song))
 
-    private fun metadataRevision(song: Song, lyricsRevision: String): String = sha256(
-        song.copy(
-            playCount = 0,
-            totalListenSeconds = 0L,
-            lastPlayedAtMs = 0L,
-            metadataScanVersion = 0,
-            lyricsDocument = LyricsDocument(),
-            lyricsLoaded = false,
-        ).toString() + lyricsRevision,
+    private val emptyLyrics = LyricsDocument()
+
+    private fun Song.queueMetadata(): Song = copy(
+        playCount = 0,
+        totalListenSeconds = 0L,
+        lastPlayedAtMs = 0L,
+        metadataScanVersion = 0,
+        lyricsDocument = emptyLyrics,
+        lyricsLoaded = false,
     )
+
+    private fun metadataRevision(song: Song, lyricsRevision: String): String =
+        sha256(song.queueMetadata().toString() + lyricsRevision)
+
+    internal fun hasSameQueueMetadata(first: Song, second: Song): Boolean {
+        if (first === second) return true
+        if (first.isRemote && second.isRemote) return RemoteMediaItemCodec.hasSameMetadata(first, second)
+        if (first.queueMetadata() != second.queueMetadata()) return false
+        if (first.lyricsLoaded && second.lyricsLoaded) return first.lyricsDocument == second.lyricsDocument
+        return lyricsRevision(first) == lyricsRevision(second)
+    }
+
+    internal fun matchesQueueMetadata(item: MediaItem, song: Song): Boolean =
+        if (song.isRemote) RemoteMediaItemCodec.matchesMetadata(item, song)
+        else metadataRevision(item) == metadataRevision(song)
 
     fun metadataRevision(item: MediaItem): String? = item.mediaMetadata.extras?.getString(METADATA_REVISION)
 

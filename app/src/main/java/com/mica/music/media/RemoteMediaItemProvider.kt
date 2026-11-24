@@ -81,6 +81,32 @@ internal object RemoteMediaItemCodec {
             .build()
     }
 
+    fun matchesMetadata(item: MediaItem, song: Song): Boolean =
+        decode(item)?.let { hasSameMetadata(it, song) } == true
+
+    fun hasSameMetadata(first: Song, second: Song): Boolean =
+        first.id == second.id &&
+            first.mediaUri == second.mediaUri &&
+            first.playbackUri == second.playbackUri &&
+            first.title == second.title &&
+            first.artist == second.artist &&
+            first.album == second.album &&
+            first.albumArtist == second.albumArtist &&
+            first.durationSec.coerceAtLeast(0) == second.durationSec.coerceAtLeast(0) &&
+            first.albumArtUri == second.albumArtUri &&
+            first.fileName == second.fileName &&
+            first.sizeBytes.coerceAtLeast(0L) == second.sizeBytes.coerceAtLeast(0L) &&
+            first.year.coerceAtLeast(0) == second.year.coerceAtLeast(0) &&
+            first.trackNumber.coerceAtLeast(0) == second.trackNumber.coerceAtLeast(0) &&
+            first.discNumber.coerceAtLeast(0) == second.discNumber.coerceAtLeast(0) &&
+            first.metadata.containerName.equals(second.metadata.containerName, ignoreCase = true) &&
+            first.metadata.playbackMimeType == second.metadata.playbackMimeType &&
+            first.metadata.sampleRateHz.coerceAtLeast(0) == second.metadata.sampleRateHz.coerceAtLeast(0) &&
+            (first.metadata.bitsPerSample ?: 0).coerceAtLeast(0) ==
+                (second.metadata.bitsPerSample ?: 0).coerceAtLeast(0) &&
+            first.metadata.bitrateKbps.coerceAtLeast(0) == second.metadata.bitrateKbps.coerceAtLeast(0) &&
+            first.metadata.channelCount.coerceAtLeast(0) == second.metadata.channelCount.coerceAtLeast(0)
+
     fun decode(item: MediaItem): Song? {
         val trackRef = RemoteMediaIdCodec.decode(item.mediaId) ?: return null
         val extras = item.mediaMetadata.extras

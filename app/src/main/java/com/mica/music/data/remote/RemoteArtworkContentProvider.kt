@@ -6,6 +6,8 @@ import android.database.Cursor
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import com.mica.music.MicaApp
+import com.mica.music.data.remote.emby.EmbyArtworkLoader
+import com.mica.music.data.remote.emby.EmbyArtworkRequestResolver
 import com.mica.music.data.remote.navidrome.NavidromeArtworkHttpStreamer
 import com.mica.music.data.remote.navidrome.NavidromeArtworkRequestResolver
 import com.mica.music.data.remote.smb.SmbArtworkByteLoader
@@ -29,6 +31,9 @@ import kotlinx.coroutines.runBlocking
 class RemoteArtworkContentProvider : ContentProvider() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val navidromeStreamer = NavidromeArtworkHttpStreamer()
+    private val embyArtworkLoader by lazy {
+        EmbyArtworkLoader(requireNotNull(context).applicationContext)
+    }
     private val webDavLoader = WebDavArtworkByteLoader()
     private val smbLoader = SmbArtworkByteLoader()
     private val webDavEmbeddedLoader by lazy {
@@ -138,6 +143,15 @@ class RemoteArtworkContentProvider : ContentProvider() {
                         buffer.toByteArray()
                     }
                 },
+            )
+        }
+        val emby = EmbyArtworkRequestResolver(ownerById, app.remoteCredentialStore).resolve(ref)
+        if (emby != null) {
+            return RemoteArtworkLoadPlan(
+                sourceInstanceId = emby.sourceInstanceId,
+                sourceConfigRevision = emby.sourceConfigRevision,
+                credentialRevision = emby.credentialRevision,
+                load = { embyArtworkLoader.load(emby) },
             )
         }
         val webDav = WebDavArtworkRequestResolver(ownerById, app.remoteCredentialStore).resolve(ref)

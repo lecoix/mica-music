@@ -95,7 +95,7 @@ internal fun RemoteMusicSettingsPanel(onBrowseSmb: (String) -> Unit = {}) {
     SettingsToggleRow(
         title = "自动同步",
         subtitle = if (automaticSyncEnabled) {
-            "Navidrome / WebDAV 约每 6 小时检查一次；SMB 按目录浏览"
+            "Navidrome / Emby / WebDAV 约每 6 小时检查一次；SMB 按目录浏览"
         } else {
             "不影响远端播放和手动同步"
         },
@@ -110,6 +110,12 @@ internal fun RemoteMusicSettingsPanel(onBrowseSmb: (String) -> Unit = {}) {
         title = "添加 Navidrome / OpenSubsonic",
         subtitle = "默认请求原始音频，不主动转码",
         onClick = { addSourceType = RemoteSourceType.NAVIDROME },
+        enabled = busySourceId == null,
+    )
+    SettingsActionRow(
+        title = "添加 Emby",
+        subtitle = "API Key 登录、最多同步 10000 首，原音直链播放",
+        onClick = { addSourceType = RemoteSourceType.EMBY },
         enabled = busySourceId == null,
     )
     SettingsActionRow(
@@ -179,7 +185,7 @@ internal fun RemoteMusicSettingsPanel(onBrowseSmb: (String) -> Unit = {}) {
             )
             SettingsActionRow(
                 title = "更新登录信息",
-                subtitle = "密码不会回显",
+                subtitle = if (source.type == RemoteSourceType.EMBY) "API Key 不会回显" else "密码不会回显",
                 onClick = { credentialSource = source },
                 enabled = !busy,
             )
@@ -203,11 +209,13 @@ internal fun RemoteMusicSettingsPanel(onBrowseSmb: (String) -> Unit = {}) {
                 RemoteSourceType.NAVIDROME -> "添加 Navidrome"
                 RemoteSourceType.WEBDAV -> "添加 WebDAV"
                 RemoteSourceType.SMB -> "添加 SMB"
+                RemoteSourceType.EMBY -> "添加 Emby"
             },
             initialName = when (sourceType) {
                 RemoteSourceType.NAVIDROME -> "Navidrome"
                 RemoteSourceType.WEBDAV -> "WebDAV"
                 RemoteSourceType.SMB -> "SMB"
+                RemoteSourceType.EMBY -> "Emby"
             },
             initialEndpoint = "",
             includeCredentials = true,
@@ -222,6 +230,7 @@ internal fun RemoteMusicSettingsPanel(onBrowseSmb: (String) -> Unit = {}) {
                             RemoteSourceType.NAVIDROME -> manager.createNavidrome(name, endpoint, username, password)
                             RemoteSourceType.WEBDAV -> manager.createWebDav(name, endpoint, username, password)
                             RemoteSourceType.SMB -> manager.createSmb(name, endpoint, username, password)
+                            RemoteSourceType.EMBY -> manager.createEmby(name, endpoint, password)
                         }
                     }.onSuccess {
                         addSourceType = null
@@ -289,6 +298,7 @@ internal fun RemoteMusicSettingsPanel(onBrowseSmb: (String) -> Unit = {}) {
         RemoteCredentialDialog(
             sourceName = source.displayName,
             smb = source.type == RemoteSourceType.SMB,
+            emby = source.type == RemoteSourceType.EMBY,
             onDismiss = { credentialSource = null },
             onConfirm = { username, password ->
                 runSourceAction(source.id, "${source.displayName} 登录信息已更新") {
@@ -296,6 +306,7 @@ internal fun RemoteMusicSettingsPanel(onBrowseSmb: (String) -> Unit = {}) {
                         RemoteSourceType.NAVIDROME -> manager.rotateNavidromeCredentials(source.id, username, password)
                         RemoteSourceType.WEBDAV -> manager.rotateWebDavCredentials(source.id, username, password)
                         RemoteSourceType.SMB -> manager.rotateSmbCredentials(source.id, username, password)
+                        RemoteSourceType.EMBY -> manager.rotateEmbyApiKey(source.id, password)
                     }
                     credentialSource = null
                 }
@@ -322,7 +333,9 @@ private fun RemoteSourceDialog(
     var anonymous by remember { mutableStateOf(sourceType == RemoteSourceType.SMB) }
     val maxHeight = (LocalConfiguration.current.screenHeightDp.dp * 0.7f).coerceIn(300.dp, 600.dp)
     val canSubmit = name.isNotBlank() && endpoint.isNotBlank() &&
-        (!includeCredentials || (sourceType == RemoteSourceType.SMB && anonymous) || (username.isNotBlank() && (sourceType == RemoteSourceType.SMB || password.isNotBlank())))
+        (!includeCredentials || (sourceType == RemoteSourceType.SMB && anonymous) ||
+            (sourceType == RemoteSourceType.EMBY && password.isNotBlank()) ||
+            (username.isNotBlank() && (sourceType == RemoteSourceType.SMB || password.isNotBlank())))
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -361,7 +374,7 @@ private fun RemoteSourceDialog(
                     SettingsToggleRow(title = "匿名访问", checked = anonymous, onCheckedChange = { anonymous = it })
                 }
                 if (includeCredentials && !anonymous) {
-                    OutlinedTextField(
+                    if (sourceType != RemoteSourceType.EMBY) OutlinedTextField(
                         value = username,
                         onValueChange = { username = it },
                         label = { Text("用户名") },
@@ -371,7 +384,7 @@ private fun RemoteSourceDialog(
                     OutlinedTextField(
                         value = password,
                         onValueChange = { password = it },
-                        label = { Text("密码") },
+                        label = { Text(if (sourceType == RemoteSourceType.EMBY) "API Key" else "密码") },
                         singleLine = true,
                         visualTransformation = PasswordVisualTransformation(),
                         modifier = Modifier.fillMaxWidth(),
@@ -409,6 +422,7 @@ private fun RemoteSourceDialog(
 private fun RemoteCredentialDialog(
     sourceName: String,
     smb: Boolean = false,
+    emby: Boolean = false,
     onDismiss: () -> Unit,
     onConfirm: (username: String, password: String) -> Unit,
 ) {
@@ -427,7 +441,7 @@ private fun RemoteCredentialDialog(
                     style = MicaTheme.typography.caption,
                     color = MicaTheme.colors.textTertiary,
                 )
-                OutlinedTextField(
+                if (!emby) OutlinedTextField(
                     enabled = !anonymous,
                     value = username,
                     onValueChange = { username = it },
@@ -439,7 +453,7 @@ private fun RemoteCredentialDialog(
                     enabled = !anonymous,
                     value = password,
                     onValueChange = { password = it },
-                    label = { Text("新密码") },
+                    label = { Text(if (emby) "新 API Key" else "新密码") },
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
                     modifier = Modifier.fillMaxWidth(),
@@ -448,7 +462,8 @@ private fun RemoteCredentialDialog(
         },
         confirmButton = {
             TextButton(
-                enabled = (smb && anonymous) || (username.isNotBlank() && (smb || password.isNotBlank())),
+                enabled = (smb && anonymous) || (emby && password.isNotBlank()) ||
+                    (username.isNotBlank() && (smb || password.isNotBlank())),
                 onClick = { onConfirm(if (anonymous) "" else username, if (anonymous) "" else password) },
             ) { Text("保存") }
         },
@@ -460,6 +475,7 @@ private fun connectionTestSubtitle(type: RemoteSourceType): String = when (type)
     RemoteSourceType.NAVIDROME -> "发送一次 Subsonic ping，不修改曲库"
     RemoteSourceType.WEBDAV -> "发送一次 PROPFIND Depth 0，不修改曲库"
     RemoteSourceType.SMB -> "检查共享与目录访问权限，不枚举文件"
+    RemoteSourceType.EMBY -> "使用 API Key 读取一条 Audio，验证曲库权限"
 }
 
 private fun buildSourceSubtitle(status: RemoteSourceStatus): String {
@@ -468,6 +484,7 @@ private fun buildSourceSubtitle(status: RemoteSourceStatus): String {
         RemoteSourceType.NAVIDROME -> "Navidrome / OpenSubsonic"
         RemoteSourceType.WEBDAV -> "WebDAV"
         RemoteSourceType.SMB -> "SMB"
+        RemoteSourceType.EMBY -> "Emby"
     }
     val syncLabel = if (status.lastSyncAtMs > 0L) {
         DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(status.lastSyncAtMs))

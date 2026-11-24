@@ -27,11 +27,7 @@ internal class PlaybackQueueMirrorCoordinator(
     private var refreshRequestId = 0L
     private var lastOrderSignature: QueueOrderSignature? = null
 
-    fun orderSignature(player: Player): QueueOrderSignature =
-        PlaybackQueueMirror.orderSignature(PlaybackQueueMirror.snapshotItems(player))
-
-    fun hasSignature(signature: QueueOrderSignature): Boolean =
-        signature == lastOrderSignature
+    fun hasSignature(signature: QueueOrderSignature): Boolean = signature == lastOrderSignature
 
     fun rebuildNow(
         player: Player,
@@ -81,7 +77,7 @@ internal class PlaybackQueueMirrorCoordinator(
             }
 
             val mirrored = build.songs
-            if (mirrored == null || build.signature == lastOrderSignature) {
+            if (mirrored == null || hasSignature(build.signature)) {
                 syncIndex()
                 return@launch
             }

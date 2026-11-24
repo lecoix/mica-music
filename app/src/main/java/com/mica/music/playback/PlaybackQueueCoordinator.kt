@@ -52,10 +52,6 @@ internal class PlaybackQueueCoordinator(
         commit(model.copy(order = order))
     }
 
-    fun orderSignature(player: Player): QueueOrderSignature = mirror.orderSignature(player)
-
-    fun hasSignature(signature: QueueOrderSignature): Boolean = mirror.hasSignature(signature)
-
     fun rebuildMirrorNow(
         player: Player,
         resolver: ((String) -> Song?)?,

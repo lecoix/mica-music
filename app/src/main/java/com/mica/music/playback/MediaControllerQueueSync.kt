@@ -48,8 +48,7 @@ internal object MediaControllerQueueSync {
         if (oldQueue.size != newQueue.size) return emptyList()
         return oldQueue.indices.filter { index ->
             oldQueue[index].id == newQueue[index].id &&
-                SongMediaItemCodec.metadataRevision(oldQueue[index]) !=
-                SongMediaItemCodec.metadataRevision(newQueue[index])
+                !SongMediaItemCodec.hasSameQueueMetadata(oldQueue[index], newQueue[index])
         }
     }
 
@@ -152,8 +151,7 @@ internal object MediaControllerQueueSync {
         val metadataChangedIndices = if (identityAligned) {
             queue.indices.filter { index ->
                 runCatching {
-                    SongMediaItemCodec.metadataRevision(player.getMediaItemAt(index)) !=
-                        SongMediaItemCodec.metadataRevision(queue[index])
+                    !SongMediaItemCodec.matchesQueueMetadata(player.getMediaItemAt(index), queue[index])
                 }.getOrDefault(true)
             }
         } else {
@@ -179,8 +177,7 @@ internal object MediaControllerQueueSync {
             queue.all { song ->
                 val serviceIndex = serviceIds.indexOf(song.id)
                 serviceIndex >= 0 && runCatching {
-                    SongMediaItemCodec.metadataRevision(player.getMediaItemAt(serviceIndex)) ==
-                        SongMediaItemCodec.metadataRevision(song)
+                    SongMediaItemCodec.matchesQueueMetadata(player.getMediaItemAt(serviceIndex), song)
                 }.getOrDefault(false)
             }
         if (canReorderIncrementally) {
@@ -258,13 +255,34 @@ internal object MediaControllerQueueSync {
             is PlaybackQueueSyncPlan.MoveMediaItems -> plan.moves.forEach { move ->
                 player.moveMediaItem(move.fromIndex, move.toIndex)
             }
-            is PlaybackQueueSyncPlan.ReplaceMediaItems -> plan.replacements.forEach { replacement ->
-                player.replaceMediaItem(replacement.index, replacement.value)
-            }
+            is PlaybackQueueSyncPlan.ReplaceMediaItems -> replaceMetadataRanges(player, plan.replacements)
             is PlaybackQueueSyncPlan.SetMediaItems ->
                 player.setMediaItems(plan.items, plan.result.startIndex, plan.startPositionMs)
         }
         return plan.result
+    }
+
+    private fun replaceMetadataRanges(player: Player, replacements: List<IndexedValue<MediaItem>>) {
+        // Physical indices can differ from the app's effective playback order.
+        val sorted = replacements.sortedBy { it.index }
+        var start = 0
+        while (start < sorted.size) {
+            var end = start + 1
+            while (end < sorted.size && sorted[end].index == sorted[end - 1].index + 1) {
+                end++
+            }
+            val first = sorted[start]
+            if (end == start + 1) {
+                player.replaceMediaItem(first.index, first.value)
+            } else {
+                player.replaceMediaItems(
+                    first.index,
+                    sorted[end - 1].index + 1,
+                    sorted.subList(start, end).map { it.value },
+                )
+            }
+            start = end
+        }
     }
 
     fun syncToPlayer(

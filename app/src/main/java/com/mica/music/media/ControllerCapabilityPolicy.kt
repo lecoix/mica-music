@@ -1,5 +1,7 @@
 package com.mica.music.media
 
+import androidx.media3.common.Player
+
 /** Stable identity facts observed at the MediaSession connection seam. */
 internal data class ControllerIdentity(
     val packageName: String,
@@ -46,6 +48,14 @@ internal object ControllerCapabilityPolicy {
             allowedIncomingCustomActions = emptySet(),
         )
     }
+
+    // Larger queues are kept in Media3. The internal notification controller's
+    // timeline command also enables full queue serialization by the platform session.
+    private const val MAX_PLATFORM_QUEUE_ITEMS = 5_000
+
+    fun mediaNotificationCommands(base: Player.Commands, queueSize: Int): Player.Commands =
+        if (queueSize <= MAX_PLATFORM_QUEUE_ITEMS) base
+        else base.buildUpon().remove(Player.COMMAND_GET_TIMELINE).build()
 
     fun allowsIncomingCustomAction(
         identity: ControllerIdentity,

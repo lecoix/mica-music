@@ -1,6 +1,9 @@
 package com.mica.music.data.remote
 
 import com.mica.music.data.SharedLyricsMemoryCache
+import com.mica.music.data.remote.emby.EmbySourceSync
+import com.mica.music.data.remote.emby.EmbyCatalogClient
+import com.mica.music.data.remote.emby.EmbySyncResult
 import com.mica.music.data.remote.navidrome.NavidromeException
 import com.mica.music.data.remote.navidrome.NavidromeHttpExecutor
 import com.mica.music.data.remote.navidrome.NavidromeProtocolCatalogApi
@@ -87,6 +90,48 @@ internal class RemoteSourceManager internal constructor(
         catalogRepository.upsertSource(instance)
         if (instance.enabled) automaticSyncRequest()
         return instance
+    }
+
+    suspend fun createEmby(
+        displayName: String,
+        endpoint: String,
+        apiKey: String,
+        enabled: Boolean = true,
+    ): RemoteSourceInstance {
+        val sourceId = sourceIdProvider(RemoteSourceType.EMBY).trim()
+        require(sourceId.isNotBlank()) { "Generated remote source id must not be blank" }
+        val credentialRef = credentialRefProvider(sourceId).trim()
+        require(credentialRef.isNotBlank()) { "Generated credentialRef must not be blank" }
+        val instance = RemoteSourceInstance(
+            id = sourceId,
+            type = RemoteSourceType.EMBY,
+            displayName = normalizeDisplayName(displayName),
+            endpoint = normalizeHttpEndpoint(endpoint),
+            credentialRef = credentialRef,
+            enabled = enabled,
+        )
+        credentialStore.put(credentialRef, RemoteCredentialMaterial.BearerToken("", apiKey.trim().also {
+            require(it.isNotBlank()) { "Emby API Key must not be blank" }
+        }))
+        catalogRepository.upsertSource(instance)
+        if (enabled) automaticSyncRequest()
+        return instance
+    }
+
+    suspend fun rotateEmbyApiKey(sourceInstanceId: String, apiKey: String): RemoteSourceInstance {
+        val current = requireSource(sourceInstanceId)
+        require(current.type == RemoteSourceType.EMBY) { "Source is not Emby" }
+        val ref = credentialRefProvider(current.id).trim()
+        require(ref.isNotBlank() && ref != current.credentialRef)
+        credentialStore.put(ref, RemoteCredentialMaterial.BearerToken("", apiKey.trim().also {
+            require(it.isNotBlank()) { "Emby API Key must not be blank" }
+        }))
+        val updated = current.copy(credentialRef = ref)
+        catalogRepository.upsertSource(updated)
+        credentialStore.delete(current.credentialRef)
+        invalidateSourceLyrics(current.id)
+        if (updated.enabled) automaticSyncRequest()
+        return updated
     }
 
     suspend fun createWebDav(
@@ -217,6 +262,7 @@ internal class RemoteSourceManager internal constructor(
     suspend fun syncSource(sourceInstanceId: String) {
         when (requireSource(sourceInstanceId).type) {
             RemoteSourceType.NAVIDROME -> syncNavidrome(sourceInstanceId)
+            RemoteSourceType.EMBY -> syncEmby(sourceInstanceId)
             RemoteSourceType.WEBDAV -> syncWebDav(sourceInstanceId)
             RemoteSourceType.SMB -> error("SMB uses directory browsing; full-source sync is disabled")
         }
@@ -254,6 +300,11 @@ internal class RemoteSourceManager internal constructor(
                     requestFactory = navidromeRequestFactory,
                 ).ping()
             }
+            RemoteSourceType.EMBY -> {
+                val owner = catalogRepository.sourceOwner(sourceInstanceId)
+                    ?: error("Remote source disappeared before connection test")
+                EmbyCatalogClient(owner, credentialStore).testConnection()
+            }
             RemoteSourceType.WEBDAV -> WebDavSourceSync(catalogRepository, credentialStore)
                 .testConnection(sourceInstanceId)
             RemoteSourceType.SMB -> SmbSourceSync(catalogRepository, credentialStore).testConnection(sourceInstanceId)
@@ -277,6 +328,15 @@ internal class RemoteSourceManager internal constructor(
         invalidateSourceLyrics(sourceInstanceId, previousMediaIds)
         result
     }
+
+    suspend fun syncEmby(sourceInstanceId: String, limit: Int = EmbySourceSync.MAX_TRACKS): EmbySyncResult =
+        withSourceCatalogSyncLock(sourceInstanceId) {
+            val source = requireSource(sourceInstanceId)
+            require(source.type == RemoteSourceType.EMBY && source.enabled) { "Emby source is unavailable" }
+            val result = EmbySourceSync(catalogRepository, credentialStore).sync(sourceInstanceId, limit)
+            invalidateSourceLyrics(sourceInstanceId)
+            result
+        }
 
     suspend fun syncWebDav(
         sourceInstanceId: String,
@@ -388,6 +448,7 @@ internal class RemoteSourceManager internal constructor(
     companion object {
         internal fun normalizeEndpoint(type: RemoteSourceType, raw: String): String = when (type) {
             RemoteSourceType.NAVIDROME,
+            RemoteSourceType.EMBY,
             RemoteSourceType.WEBDAV,
             -> normalizeHttpEndpoint(raw)
             RemoteSourceType.SMB -> SmbPathCodec.normalizeSourceEndpoint(raw)

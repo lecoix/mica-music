@@ -615,14 +615,11 @@ internal class PlaybackRuntime(
                         playbackError = null
                         postUserMessage("MV 无法播放，已继续播放音乐")
                     }
-                val mirrorAligned = isQueueMirrorAligned(c)
-                if (!mirrorAligned) {
-                    scheduleQueueMirrorFromPlayer(c)
-                    return
+                if (isQueueMirrorAligned(c)) {
+                    syncQueueIndexFromPlayer(c)
+                    if (reason == Player.TIMELINE_CHANGE_REASON_SOURCE_UPDATE) return
                 }
-                val signature = queueCoordinator.orderSignature(c)
-                if (!queueCoordinator.hasSignature(signature)) scheduleQueueMirrorFromPlayer(c)
-                else syncQueueIndexFromPlayer(c)
+                scheduleQueueMirrorFromPlayer(c)
             }
 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
@@ -1629,14 +1626,19 @@ internal class PlaybackRuntime(
             expectedController.play()
             return
         }
-        val navigationPlan = PlaybackQueueNavigation.plan(
+        val navigationPlan = if (expectedController.mediaItemCount == songQueue.size &&
+            runCatching { expectedController.getMediaItemAt(index).mediaId }.getOrNull() == songId
+        ) {
+            PlaybackQueueNavigationPlan.SeekAligned(index)
+        } else PlaybackQueueNavigation.plan(
             queueIds = songQueue.map { it.id },
             requestedIndex = index,
             songId = songId,
             currentMediaId = expectedController.currentMediaItem?.mediaId,
             serviceItemCount = expectedController.mediaItemCount,
             serviceMediaIdAt = { serviceIndex -> runCatching { expectedController.getMediaItemAt(serviceIndex).mediaId }.getOrNull() },
-        ) ?: run {
+        )
+        if (navigationPlan == null) {
             clearPendingMediaSelection()
             PendingPlaybackNavigation.clear()
             return
@@ -1724,8 +1726,7 @@ internal class PlaybackRuntime(
             ?: return null
         val serviceItem = runCatching { c.getMediaItemAt(serviceIndex) }.getOrNull() ?: return serviceIndex
         if (
-            SongMediaItemCodec.metadataRevision(serviceItem) !=
-            SongMediaItemCodec.metadataRevision(logicalSong) &&
+            !SongMediaItemCodec.matchesQueueMetadata(serviceItem, logicalSong) &&
             c.isCommandAvailable(Player.COMMAND_CHANGE_MEDIA_ITEMS)
         ) {
             c.replaceMediaItem(serviceIndex, logicalSong.toMediaItem(appCtx))

@@ -13,11 +13,13 @@ internal object MusicVideoPlaybackPolicyCodec {
             fallbackRevision(mediaItem).isNullOrBlank()
 
     fun withEnabled(mediaItem: MediaItem, enabled: Boolean): MediaItem {
-        val oldExtras = mediaItem.mediaMetadata.extras
-        if (oldExtras?.containsKey(ENABLED_EXTRA) == true && oldExtras.getBoolean(ENABLED_EXTRA) == enabled) {
-            return mediaItem
-        }
-        val extras = Bundle(oldExtras ?: Bundle()).apply { putBoolean(ENABLED_EXTRA, enabled) }
+        val oldExtras = mediaItem.mediaMetadata.extras ?: return mediaItem
+        // Replacing an audio-only item cannot change its media source. Explicitly
+        // attaching a false policy to those items can churn an entire remote queue.
+        if (oldExtras.getString(MusicVideoMediaSourceFactory.MUSIC_VIDEO_URI_EXTRA).isNullOrBlank() ||
+            oldExtras.getBoolean(ENABLED_EXTRA, false) == enabled
+        ) return mediaItem
+        val extras = Bundle(oldExtras).apply { putBoolean(ENABLED_EXTRA, enabled) }
         return mediaItem.buildUpon()
             .setMediaMetadata(mediaItem.mediaMetadata.buildUpon().setExtras(extras).build())
             .build()
