@@ -221,14 +221,33 @@ class MediaControllerQueueSyncTest {
             (plan as PlaybackQueueSyncPlan.ReplaceMediaItems).replacements.map { it.index },
         )
         MediaControllerQueueSync.executeSyncPlan(player, plan)
-        verify(exactly = 0) { player.replaceMediaItem(0, any()) }
+        verify(exactly = 0) { player.replaceMediaItem(any(), any()) }
         verify(exactly = 1) {
-            player.replaceMediaItem(1, match { SongMediaItemCodec.decode(it)?.title == "song-1 (updated)" })
-        }
-        verify(exactly = 1) {
-            player.replaceMediaItem(2, match { SongMediaItemCodec.decode(it)?.title == "song-2 (updated)" })
+            player.replaceMediaItems(1, 3, match { items ->
+                items.map { SongMediaItemCodec.decode(it)?.title } ==
+                    listOf("song-1 (updated)", "song-2 (updated)")
+            })
         }
         verify(exactly = 0) { player.setMediaItems(any<List<MediaItem>>(), any(), any()) }
+    }
+
+    @Test
+    fun bulkMetadataReplacementBatchesPhysicalRangesWithoutReplacingGaps() {
+        val player = mockPlayer(emptyList())
+        val items = List(5_000) { index -> item("remote-$index") }
+        val last = item("remote-5001")
+        val plan = PlaybackQueueSyncPlan.ReplaceMediaItems(
+            replacements = listOf(IndexedValue(5001, last)) +
+                items.mapIndexed { index, mediaItem -> IndexedValue(index, mediaItem) }.asReversed(),
+            result = QueueSyncResult(5002, 0, true, false, false, false),
+        )
+
+        MediaControllerQueueSync.executeSyncPlan(player, plan)
+
+        verify(exactly = 1) { player.replaceMediaItems(0, 5000, items) }
+        verify(exactly = 1) { player.replaceMediaItem(5001, last) }
+        verify(exactly = 1) { player.replaceMediaItems(any(), any(), any()) }
+        verify(exactly = 1) { player.replaceMediaItem(any(), any()) }
     }
 
     @Test

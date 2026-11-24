@@ -7,6 +7,7 @@ import android.os.Handler
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.session.MediaSession
+import androidx.media3.session.SessionCommands
 import androidx.media3.session.SessionError
 import androidx.media3.session.SessionResult
 import com.google.common.util.concurrent.Futures
@@ -35,6 +36,15 @@ internal class MicaMediaSessionCallback(
     private val updateMediaButtonPreferences: () -> Unit,
     private val playbackOrderSnapshot: () -> Bundle = { Bundle.EMPTY },
 ) : MediaSession.Callback {
+
+    private data class NotificationConnection(
+        val controller: MediaSession.ControllerInfo,
+        val sessionCommands: SessionCommands,
+        val defaultPlayerCommands: Player.Commands,
+        val publishedPlayerCommands: Player.Commands,
+    )
+
+    private var notificationConnection: NotificationConnection? = null
 
     private val ownPackageName: String
         get() = context.packageName
@@ -70,8 +80,19 @@ internal class MicaMediaSessionCallback(
             .add(ExternalLyricsSessionCommands.toggleDesktopLock)
             .add(PlaybackShuffleSessionCommand.command)
             .build()
+        val playerCommands = defaultResult.availablePlayerCommands
+        val availablePlayerCommands = if (session.isMediaNotificationController(controller)) {
+            ControllerCapabilityPolicy.mediaNotificationCommands(playerCommands, session.player.mediaItemCount)
+                .also { published ->
+                    notificationConnection = NotificationConnection(
+                        controller, availableSessionCommands, playerCommands, published,
+                    )
+                }
+        } else {
+            playerCommands
+        }
         return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
-            .setAvailablePlayerCommands(defaultResult.availablePlayerCommands)
+            .setAvailablePlayerCommands(availablePlayerCommands)
             .setAvailableSessionCommands(availableSessionCommands)
             .setMediaButtonPreferences(
                 ExternalLyricsSessionCommands.mediaButtonPreferences(
@@ -86,6 +107,15 @@ internal class MicaMediaSessionCallback(
                     mediaItems = session.player.timelineMediaItems(),
                 )
             }
+    }
+
+    internal fun updateMediaNotificationQueue(session: MediaSession, queueSize: Int) {
+        val connection = notificationConnection ?: return
+        if (session.mediaNotificationControllerInfo != connection.controller) return
+        val commands = ControllerCapabilityPolicy.mediaNotificationCommands(connection.defaultPlayerCommands, queueSize)
+        if (commands == connection.publishedPlayerCommands) return
+        notificationConnection = connection.copy(publishedPlayerCommands = commands)
+        session.setAvailableCommands(connection.controller, connection.sessionCommands, commands)
     }
 
     override fun onCustomCommand(

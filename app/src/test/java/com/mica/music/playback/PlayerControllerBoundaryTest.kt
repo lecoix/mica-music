@@ -81,6 +81,44 @@ class PlayerControllerBoundaryTest {
         controller.release()
     }
 
+    @Test
+    fun selectingSameRemoteQueueWithNewStatisticsReusesTheSessionItem() {
+        val connector = FakeConnector()
+        val player = mockk<MediaController>(relaxed = true)
+        val tracks = List(3) { index ->
+            com.mica.music.data.remote.RemoteTrackSummary(
+                com.mica.music.data.remote.RemoteTrackRef("remote-source", "$index.flac"),
+                "Track $index",
+                suffix = "flac",
+                mimeTypeHint = "audio/flac",
+                sampleRateHz = 44100,
+            )
+        }
+        val items = tracks.map(com.mica.music.media.RemoteMediaItemCodec::encode)
+        val queue = items.map { requireNotNull(com.mica.music.media.RemoteMediaItemCodec.decode(it)) }
+        every { player.getMediaItemAt(any()) } answers { items[firstArg()] }
+        every { player.currentMediaItem } returns items[0]
+        every { player.currentMediaItemIndex } returns 0
+        every { player.mediaItemCount } returns items.size
+        every { player.isCommandAvailable(Player.COMMAND_CHANGE_MEDIA_ITEMS) } returns true
+        val controller = controller(connector = connector)
+        controller.setQueue(queue)
+        controller.connectIfNeeded()
+        connector.requests.single().onConnected(player)
+        clearMocks(player, answers = false, recordedCalls = true)
+
+        val updated = queue.map { it.copy(playCount = 1) }
+        controller.playQueueSong(updated, queue.last().id)
+
+        verify(exactly = 0) { player.replaceMediaItem(any(), any()) }
+        verify(exactly = 0) { player.replaceMediaItems(any(), any(), any()) }
+        verify(exactly = 0) { player.setMediaItems(any<List<MediaItem>>(), any(), any()) }
+        verify(exactly = 1) { player.seekTo(items.lastIndex, 0L) }
+        verify(exactly = 1) { player.play() }
+        assertEquals(1, controller.playbackSurfaceState.currentSong?.playCount)
+        controller.release()
+    }
+
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun sameIdRemoteTimelineRefreshPublishesArtworkToPlaybackSurface() = runTest {
@@ -515,18 +553,12 @@ class PlayerControllerBoundaryTest {
         )
         controller.setQueue(refreshed)
 
-        verify(exactly = 0) { mediaController.replaceMediaItem(0, any()) }
+        verify(exactly = 0) { mediaController.replaceMediaItem(any(), any()) }
         verify(exactly = 1) {
-            mediaController.replaceMediaItem(
-                1,
-                match { it.mediaMetadata.title?.toString() == "Beta (updated)" },
-            )
-        }
-        verify(exactly = 1) {
-            mediaController.replaceMediaItem(
-                2,
-                match { it.mediaMetadata.title?.toString() == "Gamma (updated)" },
-            )
+            mediaController.replaceMediaItems(1, 3, match { items ->
+                items.map { it.mediaMetadata.title?.toString() } ==
+                    listOf("Beta (updated)", "Gamma (updated)")
+            })
         }
         verify(exactly = 0) { mediaController.setMediaItems(any<List<MediaItem>>(), any(), any()) }
         verify(exactly = 0) { mediaController.play() }

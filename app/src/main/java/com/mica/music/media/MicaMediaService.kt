@@ -71,11 +71,15 @@ class MicaMediaService : MediaSessionService() {
 
     private var mediaSession: MediaSession? = null
     private var sessionPresentationPlayer: MicaSessionPresentationPlayer? = null
+    private var mediaSessionCallback: MicaMediaSessionCallback? = null
     private val playbackStackLifecycle = PlaybackStackLifecycleOwner { player ->
         val publishedPlayer = sessionPresentationPlayer
             ?.takeIf { it.wraps(player) }
             ?: player
-        mediaSession?.setPlayer(publishedPlayer)
+        mediaSession?.let { session ->
+            mediaSessionCallback?.updateMediaNotificationQueue(session, player.mediaItemCount)
+            session.setPlayer(publishedPlayer)
+        }
     }
     private val exoPlayer: ExoPlayer? get() = playbackStackLifecycle.exoPlayer
     private val compositePlayer: MicaCompositePlayer? get() = playbackStackLifecycle.player
@@ -193,8 +197,9 @@ class MicaMediaService : MediaSessionService() {
             externalLyricsOverlayControl.start()
         }
 
+        val callback = createMediaSessionCallback().also { mediaSessionCallback = it }
         mediaSession = MediaSession.Builder(this, checkNotNull(sessionPresentationPlayer))
-            .setCallback(createMediaSessionCallback())
+            .setCallback(callback)
             .setSessionActivity(createSessionActivityPendingIntent())
             .setMediaButtonPreferences(
                 ExternalLyricsSessionCommands.mediaButtonPreferences(
@@ -547,7 +552,14 @@ class MicaMediaService : MediaSessionService() {
         musicVideoPreferenceOwner.attach(stack.compositePlayer)
         stack.exoPlayer.addListener(object : Player.Listener {
             override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) {
-                if (playbackStackLifecycle.isActive(stack)) applyAcceptedPlaybackOrder()
+                if (reason == Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED &&
+                    playbackStackLifecycle.isActive(stack)
+                ) {
+                    mediaSession?.let { session ->
+                        mediaSessionCallback?.updateMediaNotificationQueue(session, timeline.windowCount)
+                    }
+                    applyAcceptedPlaybackOrder()
+                }
             }
         })
 
@@ -769,6 +781,7 @@ class MicaMediaService : MediaSessionService() {
                 spectrumAnalyzerStateOwner = null
                 mediaSession?.release()
                 mediaSession = null
+                mediaSessionCallback = null
             },
         )
         activeUsbEpoch = null
@@ -777,7 +790,7 @@ class MicaMediaService : MediaSessionService() {
         super.onDestroy()
     }
 
-    private fun createMediaSessionCallback(): MediaSession.Callback =
+    private fun createMediaSessionCallback(): MicaMediaSessionCallback =
         MicaMediaSessionCallback(
             context = this,
             mainHandler = mainHandler,

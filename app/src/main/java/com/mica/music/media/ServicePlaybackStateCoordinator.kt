@@ -21,6 +21,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Timeline
 import com.mica.music.data.Song
+import com.mica.music.data.TransientPlaybackCatalog
 import com.mica.music.data.PlaybackTuning
 import com.mica.music.data.remote.RemoteMediaIdCodec
 import com.mica.music.util.DiagnosticLog
@@ -40,10 +41,12 @@ internal class ServicePlaybackStateCoordinator(
     private var qualityMode = initialQualityMode
     private var released = false
     private var queueRevision = pendingRestore?.queueRevision ?: 0L
-    private var lastPersistedPositionMs = Long.MIN_VALUE
-    private var lastPersistedQueueIds: List<String>? = null
-    private var lastPersistedExternalSongs: List<ServiceExternalSongSnapshot>? = null
-    private var lastPersistedRemoteSongs: List<ServiceRemoteSongSnapshot>? = null
+    private var lastPersistedPositionMs: Long? = null
+    private var queueContent: QueueContent? = null
+    private var restorableRemoteIds = emptySet<String>()
+    private var queueCanRestore = false
+    private var queueShuffleEnabled = false
+    private var restoring = false
     private val persistenceExecutor = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "mica-playback-state").apply { isDaemon = true }
     }
@@ -52,31 +55,14 @@ internal class ServicePlaybackStateCoordinator(
 
     private val listener = object : Player.Listener {
         override fun onTimelineChanged(timeline: Timeline, reason: Int) {
-            if (!tryRestore()) {
-                val songIds = currentSongIds()
-                val externalSongs = currentExternalSongs()
-                val remoteSongs = currentRemoteSongs()
-                if (songIds.isEmpty()) {
-                    if (!lastPersistedQueueIds.isNullOrEmpty()) {
-                        queueRevision++
-                        lastPersistedQueueIds = emptyList()
-                        lastPersistedExternalSongs = emptyList()
-                        lastPersistedRemoteSongs = emptyList()
-                        submit(sync = false) { store.clear() }
-                    }
-                } else if (
-                    songIds != lastPersistedQueueIds ||
-                    externalSongs != lastPersistedExternalSongs ||
-                    remoteSongs != lastPersistedRemoteSongs
-                ) {
-                    queueRevision++
-                    lastPersistedQueueIds = songIds
-                    lastPersistedExternalSongs = externalSongs
-                    lastPersistedRemoteSongs = remoteSongs
-                    persistQueue(externalSongs = externalSongs, remoteSongs = remoteSongs)
-                }
-                persistCursor(force = true)
+            if (restoring || tryRestore()) return
+            if (reason == Player.TIMELINE_CHANGE_REASON_SOURCE_UPDATE && queueContent != null) {
+                // Media sources refresh their timelines without replacing playlist items.
+                persistCursor()
+                return
             }
+            updateQueue()
+            persistCursor(force = true)
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
@@ -113,7 +99,10 @@ internal class ServicePlaybackStateCoordinator(
     fun start() {
         player.addListener(listener)
         handler.postDelayed(periodicPersist, PERSIST_INTERVAL_MS)
-        tryRestore()
+        if (!tryRestore()) {
+            updateQueue()
+            persistCursor(force = true)
+        }
     }
 
     fun setQualityMode(mode: AudioQualityMode) {
@@ -122,17 +111,16 @@ internal class ServicePlaybackStateCoordinator(
     }
 
     fun onOrderChanged() {
-        if (released) return
+        if (released || restoring) return
         pendingRestore = null
-        queueRevision++
-        persistQueue()
+        updateQueue(orderChanged = true)
         persistCursor(force = true)
     }
 
     fun release() {
         released = true
         handler.removeCallbacks(periodicPersist)
-        persistQueue(sync = true)
+        updateQueue(sync = true)
         persistCursor(force = true, sync = true)
         persistenceExecutor.shutdown()
         persistenceExecutor.awaitTermination(2, TimeUnit.SECONDS)
@@ -150,52 +138,66 @@ internal class ServicePlaybackStateCoordinator(
             DiagnosticLog.important("PlaybackRestore", "saved song missing; discarded service snapshot")
             return false
         }
-        player.repeatMode = restore.repeatMode
-        player.shuffleModeEnabled = false
-        restoreOrder(snapshot)
-        if (player is MicaCompositePlayer) {
-            player.pauseExoDirect()
-        } else {
-            player.playWhenReady = false
+        restoring = true
+        try {
+            player.repeatMode = restore.repeatMode
+            player.shuffleModeEnabled = false
+            restoreOrder(snapshot)
+            if (player is MicaCompositePlayer) {
+                player.pauseExoDirect()
+            } else {
+                player.playWhenReady = false
+            }
+            player.playbackParameters = restore.playbackTuning.toPlaybackParameters()
+            player.seekTo(restore.currentIndex, restore.positionMs)
+            player.prepare()
+        } finally {
+            restoring = false
         }
-        player.playbackParameters = restore.playbackTuning.toPlaybackParameters()
-        player.seekTo(restore.currentIndex, restore.positionMs)
-        player.prepare()
         DiagnosticLog.event(
             "PlaybackRestore",
             "service restored index=${restore.currentIndex} positionMs=${restore.positionMs} " +
                 "savedPlayWhenReady=${snapshot.playWhenReady} resumed=false",
         )
-        persistQueue(
-            externalSongs = currentExternalSongs(),
-            remoteSongs = currentRemoteSongs(),
-        )
+        updateQueue()
         persistCursor(force = true)
-        lastPersistedQueueIds = currentSongIds()
-        lastPersistedExternalSongs = currentExternalSongs()
-        lastPersistedRemoteSongs = currentRemoteSongs()
         onRestoreCompleted?.invoke()
         return true
     }
 
-    private fun persistQueue(
-        sync: Boolean = false,
-        externalSongs: List<ServiceExternalSongSnapshot> = currentExternalSongs(),
-        remoteSongs: List<ServiceRemoteSongSnapshot> = currentRemoteSongs(),
-    ) {
-        if (pendingRestore != null || player.mediaItemCount <= 0) return
-        val songIds = currentSongIds()
-        if (songIds.isEmpty()) return
-        if (!queueCanSurviveRestart(songIds, remoteSongs)) {
-            submit(sync) { store.clear(sync) }
+    private fun updateQueue(orderChanged: Boolean = false, sync: Boolean = false) {
+        if (pendingRestore != null || restoring) return
+        val content = readQueueContent()
+        val previous = queueContent
+        if (content == previous && !orderChanged && !sync) return
+
+        queueContent = content
+        val songIds = content.songIds
+        if (content != previous || orderChanged) queueRevision++
+        val remoteIds = content.remoteSongs.mapTo(HashSet(content.remoteSongs.size), ServiceRemoteSongSnapshot::id)
+        restorableRemoteIds = remoteIds
+        queueCanRestore = songIds.isNotEmpty() && songIds.all { id ->
+            when {
+                TransientPlaybackCatalog.isTransientId(id) -> externalSongResolver(id) != null
+                RemoteMediaIdCodec.isRemoteId(id) -> id in remoteIds
+                else -> true
+            }
+        }
+        if (!queueCanRestore) {
+            queueShuffleEnabled = false
+            if (songIds.isNotEmpty() || !previous?.songIds.isNullOrEmpty()) {
+                submit(sync) { store.clear(sync) }
+            }
             return
         }
+
         val order = orderProvider(songIds)
+        queueShuffleEnabled = order?.shuffleEnabled ?: false
         val snapshot = ServiceQueueSnapshot(
             songIds = songIds,
             revision = queueRevision,
-            externalSongs = externalSongs,
-            remoteSongs = remoteSongs,
+            externalSongs = content.externalSongs,
+            remoteSongs = content.remoteSongs,
             playbackOrderIds = order?.playbackIds.orEmpty(),
             sourceOrderIds = order?.sourceIds.orEmpty(),
             appShuffleEnabled = order?.shuffleEnabled,
@@ -205,11 +207,14 @@ internal class ServicePlaybackStateCoordinator(
     }
 
     private fun persistCursor(force: Boolean = false, sync: Boolean = false) {
-        if (pendingRestore != null || player.mediaItemCount <= 0) return
+        if (!queueCanRestore || pendingRestore != null || restoring) return
         val currentId = player.currentMediaItem?.mediaId?.takeIf(String::isNotBlank) ?: return
         if (!songCanSurviveRestart(currentId)) return
         val position = player.currentPosition.coerceAtLeast(0L)
-        if (!force && kotlin.math.abs(position - lastPersistedPositionMs) < MIN_POSITION_DELTA_MS) {
+        val previousPosition = lastPersistedPositionMs
+        if (!force && previousPosition != null &&
+            kotlin.math.abs(position - previousPosition) < MIN_POSITION_DELTA_MS
+        ) {
             return
         }
         lastPersistedPositionMs = position
@@ -217,7 +222,7 @@ internal class ServicePlaybackStateCoordinator(
             currentSongId = currentId,
             positionMs = position,
             repeatMode = player.repeatMode,
-            shuffleEnabled = orderProvider(currentSongIds())?.shuffleEnabled ?: false,
+            shuffleEnabled = queueShuffleEnabled,
             playWhenReady = player.playWhenReady,
             qualityMode = qualityMode,
             playbackTuning = PlaybackTuning.fromPlaybackParameters(player.playbackParameters),
@@ -240,43 +245,35 @@ internal class ServicePlaybackStateCoordinator(
         }
     }
 
-    private fun queueCanSurviveRestart(
-        songIds: List<String>,
-        remoteSongs: List<ServiceRemoteSongSnapshot>,
-    ): Boolean {
-        val remoteIds = remoteSongs.mapTo(HashSet(remoteSongs.size), ServiceRemoteSongSnapshot::id)
-        return songIds.all { id ->
-            when {
-                com.mica.music.data.TransientPlaybackCatalog.isTransientId(id) ->
-                    externalSongResolver(id) != null
-                RemoteMediaIdCodec.isRemoteId(id) -> id in remoteIds
-                else -> true
-            }
-        }
-    }
-
     private fun songCanSurviveRestart(id: String): Boolean = when {
-        com.mica.music.data.TransientPlaybackCatalog.isTransientId(id) -> externalSongResolver(id) != null
-        RemoteMediaIdCodec.isRemoteId(id) -> currentRemoteSongs().any { it.id == id }
+        TransientPlaybackCatalog.isTransientId(id) -> externalSongResolver(id) != null
+        RemoteMediaIdCodec.isRemoteId(id) -> id in restorableRemoteIds
         else -> true
     }
 
-    private fun currentExternalSongs(): List<ServiceExternalSongSnapshot> = buildList {
+    private fun readQueueContent(): QueueContent {
+        val songIds = ArrayList<String>(player.mediaItemCount)
+        val externalSongs = mutableListOf<ServiceExternalSongSnapshot>()
+        val remoteSongs = mutableListOf<ServiceRemoteSongSnapshot>()
         for (index in 0 until player.mediaItemCount) {
             val item = player.getMediaItemAt(index)
-            if (!com.mica.music.data.TransientPlaybackCatalog.isTransientId(item.mediaId)) continue
-            val song = externalSongResolver(item.mediaId)
-                ?.takeIf(Song::isTransient)
-            song?.let(ServiceExternalSongSnapshot::from)
-                ?.let(::add)
+            val id = item.mediaId.takeIf(String::isNotBlank) ?: continue
+            songIds.add(id)
+            if (TransientPlaybackCatalog.isTransientId(id)) {
+                externalSongResolver(id)?.takeIf(Song::isTransient)
+                    ?.let(ServiceExternalSongSnapshot::from)?.let(externalSongs::add)
+            } else if (RemoteMediaIdCodec.isRemoteId(id)) {
+                ServiceRemoteSongSnapshot.fromMediaItem(item)?.let(remoteSongs::add)
+            }
         }
+        return QueueContent(songIds, externalSongs, remoteSongs)
     }
 
-    private fun currentRemoteSongs(): List<ServiceRemoteSongSnapshot> = buildList {
-        for (index in 0 until player.mediaItemCount) {
-            ServiceRemoteSongSnapshot.fromMediaItem(player.getMediaItemAt(index))?.let(::add)
-        }
-    }
+    private data class QueueContent(
+        val songIds: List<String>,
+        val externalSongs: List<ServiceExternalSongSnapshot>,
+        val remoteSongs: List<ServiceRemoteSongSnapshot>,
+    )
 
     private companion object {
         const val PERSIST_INTERVAL_MS = 3_000L
