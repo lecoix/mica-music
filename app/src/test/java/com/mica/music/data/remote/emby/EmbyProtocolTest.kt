@@ -6,6 +6,8 @@ import com.mica.music.data.remote.RemoteSourceInstance
 import com.mica.music.data.remote.RemoteSourceOwner
 import com.mica.music.data.remote.RemoteSourceType
 import com.mica.music.data.remote.RemoteMediaIdCodec
+import com.mica.music.data.remote.RemoteEmbeddedArtworkIdCodec
+import com.mica.music.data.remote.RemoteArtworkRef
 import com.mica.music.data.remote.RemoteTrackRef
 import com.mica.music.data.remote.SecureRemoteCredentialStore
 import kotlinx.coroutines.test.runTest
@@ -64,6 +66,58 @@ class EmbyProtocolTest {
         catch (e: java.io.IOException) { assertTrue(e.message!!.contains("changed")) }
     }
 
+    @Test fun catalogReadsAudioFormatFromTheSelectedMediaSource() = runTest {
+        val requests = mutableListOf<String>()
+        val transport = EmbyJsonTransport { url, _ ->
+            requests += url
+            """{"Items":[{"Id":"format","Type":"Audio","MediaSources":[
+                {"DefaultAudioStreamIndex":7,"MediaStreams":[
+                    {"Index":0,"Type":"Video","BitDepth":8},
+                    {"Index":2,"Type":"Audio","IsDefault":true,"SampleRate":44100,"BitDepth":16,"Channels":2},
+                    {"Index":7,"Type":"Audio","SampleRate":96000,"BitDepth":24,"Channels":6}
+                ]},
+                {"MediaStreams":[{"Index":7,"Type":"Audio","SampleRate":192000,"BitDepth":32,"Channels":8}]}
+            ]}],"TotalRecordCount":1}"""
+        }
+        val track = EmbyCatalogClient(owner(), credentials, transport)
+            .beginSession().page(0, 1).tracks.single()
+
+        assertEquals(96000, track.sampleRateHz)
+        assertEquals(24, track.bitsPerSample)
+        assertEquals(6, track.channelCount)
+        assertTrue(requests.single().contains("MediaSources"))
+    }
+
+    @Test fun catalogPreservesUnknownAudioFormatFields() = runTest {
+        val transport = EmbyJsonTransport { _, _ ->
+            """{"Items":[
+                {"Id":"mp3","Type":"Audio","MediaSources":[{"MediaStreams":[
+                    {"Type":"Audio","SampleRate":44100,"Channels":1}
+                ]}]},
+                {"Id":"default-audio","Type":"Audio","MediaSources":[{"DefaultAudioStreamIndex":0,"MediaStreams":[
+                    {"Index":0,"Type":"Video","BitDepth":8},
+                    {"Index":1,"Type":"Audio","SampleRate":44100,"BitDepth":16,"Channels":2},
+                    {"Index":2,"Type":"Audio","IsDefault":true,"SampleRate":48000,"BitDepth":0,"Channels":-1}
+                ]}]},
+                {"Id":"no-audio","Type":"Audio","MediaSources":[{"MediaStreams":[{"Type":"Video","BitDepth":8}]}]},
+                {"Id":"no-source","Type":"Audio"}
+            ],"TotalRecordCount":4}"""
+        }
+        val (mp3, defaultAudio, noAudio, noSource) = EmbyCatalogClient(owner(), credentials, transport)
+            .beginSession().page(0, 4).tracks
+
+        assertEquals(44100, mp3.sampleRateHz)
+        assertEquals(null, mp3.bitsPerSample)
+        assertEquals(1, mp3.channelCount)
+        assertEquals(48000, defaultAudio.sampleRateHz)
+        for (track in listOf(defaultAudio, noAudio, noSource)) {
+            assertEquals(null, track.bitsPerSample)
+            assertEquals(0, track.channelCount)
+        }
+        assertEquals(0, noAudio.sampleRateHz)
+        assertEquals(0, noSource.sampleRateHz)
+    }
+
     @Test fun albumPrimaryArtworkIsUsedWhenAudioHasNoPrimary() = runTest {
         val requests = mutableListOf<String>()
         val transport = EmbyJsonTransport { url, key ->
@@ -96,4 +150,41 @@ class EmbyProtocolTest {
         assertTrue(EmbyProtocol.artwork(owner().snapshot(), page.tracks.single().artworkOpaqueId)
             .endsWith("/emby/Items/tone-1/Images/Primary?maxWidth=800"))
     }
+
+    @Test fun mediaStreamEmbeddedImageWithoutServerImageTagsGetsLazyTrackArtReference() = runTest {
+        val source = owner()
+        val body = """{"Items":[
+            {"Id":"real-flac","Type":"Audio","MediaSources":[{"Size":28542419,
+                "MediaStreams":[{"Type":"Audio","SampleRate":44100},
+                    {"Index":1,"Type":"EmbeddedImage","Codec":"mjpeg"}]}]},
+            {"Id":"no-cover","Type":"Audio","MediaSources":[{"Size":9999,
+                "MediaStreams":[{"Type":"Audio"}]}]},
+            {"Id":"album-only","Type":"Audio","AlbumId":"album-3","AlbumPrimaryImageTag":"v1",
+                "MediaSources":[{"Size":9999,"MediaStreams":[{"Type":"EmbeddedImage"}]}]}
+        ],"TotalRecordCount":3}"""
+        val transport = EmbyJsonTransport { _, _ -> body }
+        val page = EmbyCatalogClient(source, credentials, transport).beginSession().page(0, 3)
+        val embedded = RemoteEmbeddedArtworkIdCodec.decode(page.tracks[0].artworkOpaqueId)
+        assertEquals("real-flac", embedded?.resourceId)
+        assertEquals(28542419L, embedded?.sizeBytes)
+        assertEquals("", page.tracks[1].artworkOpaqueId)
+        assertEquals("album-3", page.tracks[2].artworkOpaqueId)
+        val request = EmbyArtworkRequestResolver({ source }, credentials)
+            .resolve(RemoteArtworkRef("emby-1", page.tracks[0].artworkOpaqueId))!!
+        assertEquals(28542419L, request.embeddedSizeBytes)
+        assertTrue(request.url.endsWith("/emby/Audio/real-flac/stream?static=true"))
+        assertFalse(request.url.contains(token))
+        assertFalse(request.toString().contains(token))
+    }
+
+    @Test fun subtitleUrlValidatesIdentifiersAndDoesNotContainCredentials() {
+        val url = EmbyProtocol.lyricsSubtitle(owner().snapshot(), "t1", "mediasource_11", 2)
+        assertTrue(url.endsWith("/emby/Videos/t1/mediasource_11/Subtitles/2/Stream.lrc"))
+        assertFalse(url.contains(token))
+        try {
+            EmbyProtocol.lyricsSubtitle(owner().snapshot(), "t1", "../../evil", 2)
+            error("Unsafe Emby media source id accepted")
+        } catch (_: IllegalArgumentException) { }
+    }
+
 }

@@ -189,11 +189,12 @@ internal class AndroidTagLibRemoteTrackMetadataProbe(
 /** Reads the front embedded picture only when an artwork URI is actually opened. */
 internal class AndroidTagLibEmbeddedArtworkLoader(
     context: Context,
+    private val readAheadBytes: Int = DEFAULT_REMOTE_METADATA_READ_AHEAD_BYTES,
 ) {
     private val appContext = context.applicationContext
 
     fun load(source: SeekableByteSource): ByteArray {
-        val bufferedSource = ReadAheadSeekableByteSource(source)
+        val bufferedSource = ReadAheadSeekableByteSource(source, readAheadBytes = readAheadBytes)
         val proxy = RemoteProxyFileDescriptor.open(appContext, bufferedSource)
         val result = proxy.descriptor.use { descriptor ->
             TagLibReader.read(descriptor, readPictures = true)?.frontCoverBytes

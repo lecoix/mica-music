@@ -31,7 +31,9 @@ import kotlinx.coroutines.runBlocking
 class RemoteArtworkContentProvider : ContentProvider() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val navidromeStreamer = NavidromeArtworkHttpStreamer()
-    private val embyArtworkLoader = EmbyArtworkLoader()
+    private val embyArtworkLoader by lazy {
+        EmbyArtworkLoader(requireNotNull(context).applicationContext)
+    }
     private val webDavLoader = WebDavArtworkByteLoader()
     private val smbLoader = SmbArtworkByteLoader()
     private val webDavEmbeddedLoader by lazy {

@@ -5,6 +5,7 @@ import com.mica.music.data.LyricsDocument
 import com.mica.music.data.SharedLyricsMemoryCache
 import com.mica.music.data.Song
 import com.mica.music.data.SongSource
+import com.mica.music.data.remote.emby.EmbyLyricsLoader
 import com.mica.music.data.remote.navidrome.NavidromeHttpExecutor
 import com.mica.music.data.remote.navidrome.NavidromeLyricsLoader
 import com.mica.music.data.remote.navidrome.NavidromeRequestFactory
@@ -27,6 +28,7 @@ class RemoteLyricsRepository internal constructor(
         ?.resolve("remote_lyrics")
         ?.let(::RemoteLyricsDiskCache),
 ) {
+    private val embyLoader = EmbyLyricsLoader(catalogRepository::sourceOwner, credentialStore)
     private val navidromeLoader = NavidromeLyricsLoader(
         catalogRepository = catalogRepository,
         credentialStore = credentialStore,
@@ -74,6 +76,7 @@ class RemoteLyricsRepository internal constructor(
             append(song.lyricsCacheRevision)
             append(':')
             append(payloadRevision)
+            if (status.instance.type == RemoteSourceType.EMBY) append(":emby-native-lyrics-v1")
         }
         val document = try {
             SharedLyricsMemoryCache.load(
@@ -89,7 +92,7 @@ class RemoteLyricsRepository internal constructor(
                 }
                 val loaded = when (status.instance.type) {
                     RemoteSourceType.NAVIDROME -> navidromeLoader.load(song)
-                    RemoteSourceType.EMBY -> LyricsDocument()
+                    RemoteSourceType.EMBY -> embyLoader.load(song)
                     RemoteSourceType.WEBDAV -> webDavLoader?.load(song) ?: LyricsDocument()
                     RemoteSourceType.SMB -> com.mica.music.data.remote.smb.SmbOptionalIo.runWhenPlaybackReady(
                         sourceId = ref.sourceInstanceId,

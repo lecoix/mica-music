@@ -37,6 +37,16 @@ internal object EmbyProtocol {
     fun artwork(source: RemoteSourceSnapshot, itemId: String): String =
         url(source, "/emby/Items/${encodePath(itemId)}/Images/Primary", mapOf("maxWidth" to "800"))
 
+    /** Emby exports music lyrics through its subtitle endpoint, including sidecar LRC. */
+    fun lyricsSubtitle(source: RemoteSourceSnapshot, itemId: String, mediaSourceId: String, index: Int): String {
+        require(index in 0..255) { "Invalid Emby lyrics stream index" }
+        return url(
+            source,
+            "/emby/Videos/" + encodePath(itemId) + "/" + encodePath(mediaSourceId) +
+                "/Subtitles/" + index + "/Stream.lrc",
+        )
+    }
+
     private fun encode(value: String): String = URLEncoder.encode(value, StandardCharsets.UTF_8.name())
     private fun encodePath(value: String): String {
         require(value.isNotBlank() && value.length <= 256 && value.none { it == '/' || it == '\\' || it == '?' || it == '#' })

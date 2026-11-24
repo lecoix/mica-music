@@ -5,6 +5,7 @@ import com.mica.music.data.remote.RemoteOperationSnapshot
 import com.mica.music.data.remote.RemoteSourceOwner
 import com.mica.music.data.remote.SecureRemoteCredentialStore
 import com.mica.music.data.remote.RemoteTrackRef
+import com.mica.music.data.remote.RemoteEmbeddedArtworkIdCodec
 import com.mica.music.data.remote.RemoteTrackSummary
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
@@ -104,13 +105,24 @@ internal class EmbyCatalogClient(
                 val ticks = item.optLong("RunTimeTicks", 0L)
                 val path = item.optString("Path")
                 val source = item.optJSONArray("MediaSources")?.optJSONObject(0)
+                val audioStream = source?.audioStream()
                 val suffix = path.substringAfterLast('.', "").takeIf { it.length in 1..8 }.orEmpty()
                 val albumId = item.optString("AlbumId")
                 val hasTrackArtwork = item.optJSONObject("ImageTags")?.optString("Primary").orEmpty().isNotBlank()
                 val hasAlbumArtwork = item.optString("AlbumPrimaryImageTag").isNotBlank()
+                // Emby can expose a real embedded picture only as a media stream,
+                // without publishing ImageTags.Primary or AlbumPrimaryImageTag.
+                val hasEmbeddedPicture = source?.optJSONArray("MediaStreams")?.let { streams ->
+                    (0 until streams.length()).any { index ->
+                        streams.optJSONObject(index)?.optString("Type") == "EmbeddedImage"
+                    }
+                } == true
+                val sizeBytes = source?.optLong("Size", 0L)?.coerceAtLeast(0L) ?: 0L
                 val artworkId = when {
                     hasTrackArtwork -> id
                     hasAlbumArtwork && albumId.isNotBlank() -> albumId
+                    hasEmbeddedPicture && sizeBytes > 0L ->
+                        RemoteEmbeddedArtworkIdCodec.encode(id, source?.optString("ETag").orEmpty(), sizeBytes)
                     else -> ""
                 }
                 items += RemoteTrackSummary(
@@ -123,8 +135,11 @@ internal class EmbyCatalogClient(
                     mimeTypeHint = source?.optString("MimeType").orEmpty(),
                     fileName = path.substringAfterLast('/').substringAfterLast('\\').ifBlank { item.optString("Name") },
                     suffix = suffix,
-                    sizeBytes = source?.optLong("Size", 0L)?.coerceAtLeast(0L) ?: 0L,
+                    sizeBytes = sizeBytes,
                     bitrateKbps = ((source?.optLong("Bitrate", 0L) ?: 0L) / 1000L).coerceIn(0L, Int.MAX_VALUE.toLong()).toInt(),
+                    sampleRateHz = audioStream?.optInt("SampleRate")?.coerceAtLeast(0) ?: 0,
+                    bitsPerSample = audioStream?.optInt("BitDepth")?.takeIf { it > 0 },
+                    channelCount = audioStream?.optInt("Channels")?.coerceAtLeast(0) ?: 0,
                     year = item.optInt("ProductionYear", 0).coerceAtLeast(0),
                     trackNumber = item.optInt("IndexNumber", 0).coerceAtLeast(0),
                     discNumber = item.optInt("ParentIndexNumber", 0).coerceAtLeast(0),
@@ -135,4 +150,19 @@ internal class EmbyCatalogClient(
             return EmbyPage(items, array.length(), json.optInt("TotalRecordCount", offset + array.length()))
         }
     }
+}
+
+private fun JSONObject.audioStream(): JSONObject? {
+    val streams = optJSONArray("MediaStreams") ?: return null
+    val preferredIndex = optInt("DefaultAudioStreamIndex", -1)
+    var firstAudio: JSONObject? = null
+    var defaultAudio: JSONObject? = null
+    for (i in 0 until streams.length()) {
+        val stream = streams.optJSONObject(i) ?: continue
+        if (stream.optString("Type") != "Audio") continue
+        if (preferredIndex >= 0 && stream.optInt("Index", -1) == preferredIndex) return stream
+        if (defaultAudio == null && stream.optBoolean("IsDefault")) defaultAudio = stream
+        if (firstAudio == null) firstAudio = stream
+    }
+    return defaultAudio ?: firstAudio
 }
