@@ -23,7 +23,7 @@
 
 ## 2026-10-26：桌面与状态栏悬浮窗（工作树实现）
 
-- `buildExternalLyricsLine` 将已经确认的 `LyricRuby` 范围附到当前句 `ExternalLyricsText.ruby`，不解析整库、不重新匹配时间。折叠双语时仅为未被改写的原文前缀保留范围；文本被拆分/清理到范围依据不成立时保留原文及整行读音。
+- `buildExternalLyricsLine` 将已经确认的 `LyricRuby` 范围附到当前句 `ExternalLyricsText.ruby`，不解析整库、不重新匹配时间。依据已确立的 SPLIT/语言选择独立契约（`LYRICS_SLASH_ROLE_CONTRACT.md` Phase 3/4），真实结构化 ORIGINAL / TRANSLATION / READING 不随 SPLIT 开关合并；有效 Ruby 仅附于原文，译文换行不影响原文范围。原文被拆分/清理到范围依据不成立或含硬换行时保留原文及整行读音。
 - `forExternalDisplay` 在最终展示边界应用全局读音开关和原文/译文选择。只有有效范围与完整读音匹配时才隐藏独立 READING 行；关闭读音同时清除 inline 范围，不需要等待重新加载。无法匹配的读音继续整行展示。
 - 状态栏生产分支原先硬编码 `readingEnabled=false`；本次按用户要求改为遵循全局读音开关，与桌面一致。不新增设置 key。
 - `ExternalRubyLyricsText` 复用应用内 `measureRubyText` 的分组测量：读音为正文半号，字词与注音一起排版。当前句只有一个 Canvas、一个原生 `basicMarquee`；阴影、发光、未填充颜色/透明度和已填充渐变统一在同一几何上绘制，正文与读音一起填充、一起滚动。现有无范围的普通文字绘制路径保持原状。
@@ -70,7 +70,7 @@
 
 - 最终 `testDebugUnitTest` 定向执行 74 项：74 通过、0 跳过、0 失败，包含应用内 Ruby 与歌词缓存回归。
 - `lintDebug` 通过：0 errors / 376 warnings；`compileDebugAndroidTestKotlin` 通过。最终质量门为 `.scratch/external-ruby-final-release-callback.log`。
-- `ExternalLyricsRubyProjectionTest` 覆盖源范围、读音开关、未知/部分/非法对应整行回退、首尾空白清理后的下标失效、硬换行回退、折叠双语前缀、同文字换读音的快照相等性及只有读音有时间轴时的 position anchor。空白下标用例先复现错误合并，再通过禁止复用已改写原文的范围修复。
+- `ExternalLyricsRubyProjectionTest` 覆盖源范围、读音开关、未知/部分/非法对应整行回退、首尾空白清理后的下标失效、原文硬换行回退、结构化原译文与 Ruby 不受 SPLIT 开关影响（含译文换行）、同文字换读音的快照相等性及只有读音有时间轴时的 position anchor。空白下标用例先复现错误合并，再通过禁止复用已改写原文的范围修复。
 - `ExternalLyricsRubyPublicationTest` 使用真实 coordinator、Handler 与状态仓库验证旧加载不可覆盖新读音及 release 后不得复活输出；仅注入播放器事实与可控 IO dispatcher，没有手工替换 generation 判断。
 - `ExternalRubyLyricsRenderingTest` 使用原生 Robolectric 图形及项目已有的 Roborazzi 截图通道，断言读音与原文的填充/未填充透明度、seek 回退与跑马灯位移；截图 `app/build/reports/external-ruby-preview.png` 已人工检查小字号、字体放大、居左/居右、渐变、阴影/发光和整行回退。
 - 新增 Android 设备测试使用真实 `DesktopLyricsOverlayService` / `WindowManager`，限定 `com.mica.music.qa`，以合成 TTML 验证两种窗口及暂停隐藏，并在 finally 恢复相关 QA 偏好。测试已编译、QA APK 构建成功；**本轮没有实际执行**：连接的 Android 12 设备拒绝首次 QA 安装，返回 `INSTALL_FAILED_USER_RESTRICTED: Install canceled by user`。随后未继续安装、未授予悬浮窗权限；原测试 APK 未被替换，QA 包没有出现在已安装列表中。

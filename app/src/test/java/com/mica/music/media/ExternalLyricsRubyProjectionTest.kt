@@ -73,19 +73,43 @@ class ExternalLyricsRubyProjectionTest {
         val displayed = project(padded).forExternalDisplay(LyricsBilingualDisplayMode.ALL)
         assertEquals("かぜきょう", displayed.reading!!.text)
         assertTrue(displayed.original!!.ruby.isEmpty())
-        val multiline = document.copy(lines = document.lines.map { line -> line.copy(parts = line.parts.map {
-            if (it.role == LyricTextRole.TRANSLATION) it.copy(text = "今天\n风也在吹") else it
+        // A hard break in the original invalidates inline layout even when its
+        // source-provided ranges still match the complete reading.
+        val multilineOriginal = document.copy(lines = document.lines.map { line -> line.copy(parts = line.parts.map {
+            if (it.role == LyricTextRole.ORIGINAL) it.copy(
+                text = "風が\n今日も",
+                ruby = listOf(ruby[0], ruby[1].copy(start = 3, endExclusive = 5)),
+            ) else it
         }) })
-        val collapsed = project(multiline, split = false).forExternalDisplay(LyricsBilingualDisplayMode.ALL)
-        assertEquals("かぜきょう", collapsed.reading!!.text)
-        assertTrue(collapsed.original!!.ruby.isEmpty())
+        for (split in listOf(true, false)) {
+            val fallback = project(multilineOriginal, split = split).forExternalDisplay(LyricsBilingualDisplayMode.ALL)
+            assertEquals(listOf(LyricTextRole.READING, LyricTextRole.ORIGINAL, LyricTextRole.TRANSLATION), fallback.rows.map { it.role })
+            assertEquals("かぜきょう", fallback.reading!!.text)
+            assertEquals("風が\n今日も", fallback.original!!.text)
+            assertTrue(fallback.original!!.ruby.isEmpty())
+            assertEquals("今天风也在吹", fallback.translation!!.text)
+        }
     }
 
-    @Test fun collapsedBilingualTextRetainsOnlyOriginalPrefixRanges() {
-        val line = project(split = false).forExternalDisplay(LyricsBilingualDisplayMode.ALL)
-        assertEquals("風が今日も 今天风也在吹", line.original!!.text)
-        assertEquals(ruby, line.original!!.ruby)
-        assertNull(line.reading)
+    @Test fun structuredTranslationAndRubyAreIndependentOfVisualSplit() {
+        for (translation in listOf("今天风也在吹", "今天\n风也在吹")) {
+            val doc = document.copy(lines = document.lines.map { line -> line.copy(parts = line.parts.map {
+                if (it.role == LyricTextRole.TRANSLATION) it.copy(text = translation) else it
+            }) })
+            for (wordTimed in listOf(true, false)) {
+                val splitOn = project(doc, split = true, wordTimed = wordTimed)
+                val splitOff = project(doc, split = false, wordTimed = wordTimed)
+                assertEquals(splitOn, splitOff)
+                assertNotNull(splitOff.reading)
+                val line = splitOff.forExternalDisplay(LyricsBilingualDisplayMode.ALL)
+                assertEquals(listOf(LyricTextRole.ORIGINAL, LyricTextRole.TRANSLATION), line.rows.map { it.role })
+                assertEquals("風が今日も", line.original!!.text)
+                assertEquals(ruby, line.original!!.ruby)
+                assertEquals(translation, line.translation!!.text)
+                assertTrue(line.translation!!.ruby.isEmpty())
+                assertNull(line.reading)
+            }
+        }
     }
 
     @Test fun sameTextWithNewReadingReachesBothCurrentLineSnapshots() {
