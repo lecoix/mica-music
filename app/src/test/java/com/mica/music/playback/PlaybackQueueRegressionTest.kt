@@ -56,7 +56,13 @@ class PlaybackQueueRegressionTest {
         val plan = MediaControllerQueueSync.planMetadataRefresh(player, shown, shown.indices.toList())
         assertTrue("metadata refresh incorrectly skipped: $plan", plan is PlaybackQueueSyncPlan.ReplaceMediaItems)
         MediaControllerQueueSync.executeSyncPlan(player, plan)
-        verify(exactly = physical.size) { player.replaceMediaItem(any(), any()) }
+        val updatedTitlesById = shown.associate { it.id to it.title }
+        val expected = physical.map { it.id to updatedTitlesById.getValue(it.id) }
+        verify(exactly = 1) {
+            player.replaceMediaItems(0, physical.size, match { items ->
+                items.map { it.mediaId to it.mediaMetadata.title?.toString() } == expected
+            })
+        }
     }
 
     @Test

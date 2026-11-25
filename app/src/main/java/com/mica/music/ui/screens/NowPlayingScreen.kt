@@ -2336,6 +2336,7 @@ fun NowPlayingContent(
                         landscape = false,
                         listState = queueListState,
                         embedded = true,
+                        interactive = queueSheetOpen,
                     )
                 }
             }

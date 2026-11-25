@@ -83,6 +83,7 @@ fun PlaybackQueueSheet(
     landscape: Boolean = false,
     listState: LazyListState? = null,
     embedded: Boolean = false,
+    interactive: Boolean = true,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val isDark = MicaTheme.colors.isDark
@@ -253,6 +254,7 @@ fun PlaybackQueueSheet(
                         LazyVerticalGrid(
                             columns = GridCells.Fixed(2),
                             state = lazyGridState,
+                            userScrollEnabled = interactive,
                             modifier = Modifier
                                 .fillMaxSize()
                                 .padding(end = HifiSpacing.lg),
@@ -279,8 +281,9 @@ fun PlaybackQueueSheet(
                                             if (!embedded) onDismiss()
                                         },
                                         onRemove = { onRemove(sourceIndex) },
-                                        dragModifier = Modifier.draggableHandle(),
+                                        dragModifier = if (interactive) Modifier.draggableHandle() else Modifier,
                                         landscape = true,
+                                        interactive = interactive,
                                     )
                                 }
                             }
@@ -293,6 +296,7 @@ fun PlaybackQueueSheet(
                             firstVisibleItemScrollOffset = lazyGridState.firstVisibleItemScrollOffset,
                             viewportHeightPx = layoutInfo.viewportEndOffset - layoutInfo.viewportStartOffset,
                             onScrollBy = { delta -> lazyGridState.scrollBy(delta) },
+                            interactive = interactive,
                             modifier = Modifier
                                 .align(Alignment.CenterEnd)
                                 .padding(
@@ -308,6 +312,7 @@ fun PlaybackQueueSheet(
                     Box(modifier = queueViewportModifier) {
                         LazyColumn(
                             state = lazyListState,
+                            userScrollEnabled = interactive,
                             modifier = Modifier
                                 .fillMaxSize()
                                 .padding(end = HifiSpacing.lg)
@@ -341,8 +346,9 @@ fun PlaybackQueueSheet(
                                             if (!embedded) onDismiss()
                                         },
                                         onRemove = { onRemove(sourceIndex) },
-                                        dragModifier = Modifier.draggableHandle(),
+                                        dragModifier = if (interactive) Modifier.draggableHandle() else Modifier,
                                         landscape = false,
+                                        interactive = interactive,
                                     )
                                 }
                             }
@@ -355,6 +361,7 @@ fun PlaybackQueueSheet(
                             firstVisibleItemScrollOffset = lazyListState.firstVisibleItemScrollOffset,
                             viewportHeightPx = layoutInfo.viewportEndOffset - layoutInfo.viewportStartOffset,
                             onScrollBy = { delta -> lazyListState.scrollBy(delta) },
+                            interactive = interactive,
                             modifier = Modifier
                                 .align(Alignment.CenterEnd)
                                 .padding(
@@ -406,13 +413,14 @@ private fun QueueSongRow(
     onRemove: () -> Unit,
     dragModifier: Modifier,
     landscape: Boolean,
+    interactive: Boolean,
 ) {
     Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(if (landscape) 60.dp else HifiSize.listRowHeight)
-                .clickable(onClick = onClick)
+                .then(if (interactive) Modifier.clickable(onClick = onClick) else Modifier)
                 .padding(start = if (landscape) HifiSpacing.sm else HifiSpacing.lg),
         ) {
             Icon(
@@ -467,16 +475,19 @@ private fun QueueSongRow(
                 )
             }
 
-            IconButton(
-                onClick = onRemove,
-                modifier = Modifier.size(if (landscape) 36.dp else HifiSize.touchTarget),
-            ) {
+            val removeSize = Modifier.size(if (landscape) 36.dp else HifiSize.touchTarget)
+            val removeIcon: @Composable () -> Unit = {
                 Icon(
                     imageVector = Icons.Outlined.Close,
                     contentDescription = "从队列移除",
                     tint = colors.secondary,
                     modifier = Modifier.size(HifiSize.iconMd),
                 )
+            }
+            if (interactive) {
+                IconButton(onClick = onRemove, modifier = removeSize, content = removeIcon)
+            } else {
+                Box(modifier = removeSize, contentAlignment = Alignment.Center) { removeIcon() }
             }
         }
 }
@@ -489,6 +500,7 @@ private fun PlaybackQueueVerticalScrollbar(
     firstVisibleItemScrollOffset: Int,
     viewportHeightPx: Int,
     onScrollBy: suspend (Float) -> Unit,
+    interactive: Boolean,
     modifier: Modifier = Modifier,
 ) {
     if (itemCount <= 0 || visibleItemSizes.isEmpty()) return
@@ -504,7 +516,7 @@ private fun PlaybackQueueVerticalScrollbar(
     val scrollScope = rememberCoroutineScope()
     val thumbColor = MicaTheme.colors.accent.copy(alpha = 0.78f)
     Box(
-        modifier = modifier.pointerInput(Unit) {
+        modifier = if (interactive) modifier.pointerInput(Unit) {
             var grabOffsetPx = 0f
             var previousScrollOffsetPx = 0f
             var dragging = false
@@ -562,7 +574,7 @@ private fun PlaybackQueueVerticalScrollbar(
                     previousScrollOffsetPx = targetScrollOffset
                 }
             }
-        },
+        } else modifier,
     ) {
         Canvas(
             modifier = Modifier

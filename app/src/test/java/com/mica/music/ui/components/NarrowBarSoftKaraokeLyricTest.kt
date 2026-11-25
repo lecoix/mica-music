@@ -148,17 +148,23 @@ class NarrowBarSoftKaraokeLyricTest {
                 LyricCue(timeMs = 500, text = "lo"),
             ),
         )
-        val row = LyricDisplayRows.rowsForBilingualDisplayMode(
+        val rows = LyricDisplayRows.rowsForBilingualDisplayMode(
             text = line.text,
             mode = LyricsBilingualDisplayMode.ORIGINAL,
-        ).single()
+        )
+        assertEquals(listOf("hello", "你好"), rows.map { it.text })
+        val row = rows.first()
         val ranges = narrowBarCueRanges(line)
 
         val early = narrowBarSoftFillFraction(line, row, ranges, positionMs = 100, nextLineTimeMs = 2_000)
         val late = narrowBarSoftFillFraction(line, row, ranges, positionMs = 800, nextLineTimeMs = 2_000)
+        val secondRowFill = narrowBarSoftFillFraction(
+            line, rows[1], ranges, positionMs = 800, nextLineTimeMs = 2_000,
+        )
 
         assertTrue(early in 0f..1f)
         assertTrue(late > early)
         assertTrue(late <= 1f)
+        assertEquals(0f, secondRowFill, 0.0001f)
     }
 }

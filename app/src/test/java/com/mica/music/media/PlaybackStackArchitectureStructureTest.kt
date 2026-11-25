@@ -68,7 +68,11 @@ class PlaybackStackArchitectureStructureTest {
         val service = source("com/mica/music/media/MicaMediaService.kt")
         val lifecycle = source("com/mica/music/media/PlaybackStackLifecycleOwner.kt")
 
-        assertEquals(1, Regex("mediaSession\\?\\.setPlayer\\(").findAll(service).count())
+        val setPlayer = Regex("\\.setPlayer\\(")
+        assertEquals(1, setPlayer.findAll(service).count())
+        val publicationCallback = service.substringAfter("PlaybackStackLifecycleOwner {", "")
+            .substringBefore("private val exoPlayer")
+        assertTrue("only the lifecycle callback may replace the session player", setPlayer.containsMatchIn(publicationCallback))
         val attach = lifecycle.indexOf("attachOwners(stack)")
         val publish = lifecycle.indexOf("publishPlayer(stack.compositePlayer)")
         assertTrue("lifecycle must attach all stack owners before MediaSession publication", attach >= 0)
