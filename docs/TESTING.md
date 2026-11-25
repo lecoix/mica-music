@@ -1,6 +1,6 @@
 # Mica 测试指南
 
-> 现状复核：2026-10-09。Device Flow harness / `androidTest` compile gate 已接入。9 月单机 smoke 及 10 月队列/SMB/GLES 定向回归均有证据，但**未完成完整发布验收**；不能把单机 Android 12 结果写成多 OEM、签名 R8 包或 Gate D 全绿。
+> 现状复核：2026-11-25（`v0.4.5 / 90bdd12a`）。Device Flow harness / `androidTest` compile gate 已接入；分级发布门禁与发版前 15 分钟必测清单见 [`RELEASE_GATE.md`](RELEASE_GATE.md)。不能把单机 Debug 结果写成正式签名 R8 包或全硬件矩阵通过。
 
 ## 测试角色（2026-10-09）
 
@@ -98,23 +98,17 @@ Capacity boundary: scan-time text candidates are capped at 1,000,000 characters 
 
 ## 发布前设备验收
 
-设备验收仍是最终 Gate，但其中可稳定自动化的用户流程已由 `run-android-flow-tests.ps1` / Device Flow 承担；蓝牙、USB DAC、OEM/车机、音质与完整主题矩阵仍需 AgentDock + ADB/人工物理证据。
+分级发版门禁（**Gate 0 CI / Gate 1 每次发版 15 分钟必测 / Gate 2 按变更触发 / Gate 3 大版本与社区观察**）统一维护在 [`RELEASE_GATE.md`](RELEASE_GATE.md)，不再在本文重复堆叠多设备笛卡尔积。
 
-- Android 8/8.1 与 Android 14+ 各至少一台真机。
-- MP3、FLAC、ALAC、DSF 实际播放；DFF 播放应被拒绝并提示；长曲 seek 与连续切歌。
-- 蓝牙、耳机拔出、音频焦点、锁屏控制和后台播放。
-- 通知权限拒绝、划掉任务、进程恢复和重启。
-- SAF 文件夹授权及重启后的持久权限。
-- 文件管理器 `ACTION_VIEW` 打开 `content://` 音频；验证冷启动、warm `onNewIntent()`、曲库复用和临时单曲队列。
-- 曲库层级浏览与扁平浏览、删除、分享、睡眠定时和 EQ。
-- 手势导航、三键导航、横屏、浅色和深色模式；歌词页的 Letter/信笺主题与 Hi‑Res 标志样式。
-- 手势提示线周围必须由应用背景完整覆盖。
+- 可稳定自动化的用户流程由 `run-android-flow-tests.ps1` / Device Flow 承担；
+- 每次发版只需在 1 台主力真机上用 **正式签名 R8 Release APK** 跑完 `RELEASE_GATE.md` 的 Gate 1 必过清单（覆盖升级、核心格式/焦点、随机模式冷启恢复、后台/通知/小组件、R8 远端源连播、浅色可读性与缓存体积）；
+- 蓝牙/USB DAC/Native/大库扫描/悬浮窗/频谱等按 `RELEASE_GATE.md` 的 Gate 2 变更触发条件补充。
 
-设备验收失败时，即使 JVM 测试全部通过也不得发布。
+Gate 1 必过项失败时，即使 JVM 测试全部通过也不得发布。
 
-### 2026-09-11 单机发布前 smoke（非完整 Gate）
+### 2026-09-11 单机发布前 smoke（历史参考）
 
-Android 12 / Xiaomi 22081212C 上从空库扫描至 10,665 首（37 GB，`technicalFailed=0`），并实播 ALAC/FLAC/DSF，覆盖暂停态 seek、上下曲、搜索单曲队列、循环回卷、标准横屏、后台/熄屏与冷启动暂停恢复。该 APK 为 debuggable `0.4.0/code54` 且包含未提交工作树改动，不是正式签名/混淆 release。未覆盖 MP3、DFF、USB/蓝牙插拔、Android 8/14+、全部主题/歌词样式、通知/划掉 Activity 与正式升级，因此**发布 Gate 仍未关闭**。
+Android 12 / Xiaomi 22081212C 上从空库扫描至 10,665 首（37 GB，`technicalFailed=0`），并实播 ALAC/FLAC/DSF，覆盖暂停态 seek、上下曲、搜索单曲队列、循环回卷、标准横屏、后台/熄屏与冷启动暂停恢复。该记录为旧 `0.4.0/code54` debuggable 工作树包参考，不能替代当前 `v0.4.5` 正式签名 R8 Release 的 Gate 1 验收。
 
 ## Exo 单链路播放验收
 
@@ -213,7 +207,7 @@ Android 12 / Xiaomi 22081212C 上从空库扫描至 10,665 首（37 GB，`techni
 ### P1 状态写入、迁移与系统事件契约
 
 - `NotificationLyricsMedia3ContractTest.realQueueWritesKeepPlayerAndMirrorAlignedWithoutFalsePlayCounts`：真实 ExoPlayer/MediaSession/MediaController/PlayerController 连续执行三次 metadata replacement、preserve-current 重排、移动、删除当前/非当前项及删空；同时断言 Player 队列、UI 镜像、当前曲、进度和播放计数回调。
-- `RoomMigrationContractTest`：使用 `MigrationTestHelper` 和导出的 Room schema 验证历史迁移契约；当前数据库为 **v29**。`DatabaseMigrationTest` / `RemoteDatabaseMigrationTest` 对本地曲库、歌单、歌词偏移、响度/MV、remote source/catalog 等关键迁移做代表数据读回；v25 之后的 automatic-sync checkpoint/retry/outbox/index 演进还由对应 repository/orchestrator/Room 真机 Gate 约束。新增 schema 必须同时更新导出 schema、migration 注册与相应数据契约测试。
+- `RoomMigrationContractTest`：使用 `MigrationTestHelper` 和导出的 Room schema 验证历史迁移契约；当前数据库为 **v35**。`DatabaseMigrationTest` / `RemoteDatabaseMigrationTest` 对本地曲库、歌单、歌词偏移、响度/MV、remote source/catalog 等关键迁移做代表数据读回；v25 之后的 automatic-sync checkpoint/retry/outbox/index 及 v33–v35 SMB selected tracks/scopes 演进由对应 repository 与迁移测试约束。新增 schema 必须同时更新导出 schema、migration 注册与相应数据契约测试。
 - `SongIdentityMigrationTest`：验证旧 URI hash ID 到稳定文档 ID 的一次性迁移，以及播放列表、播放历史、播放会话和曲库浏览偏好的引用同步。
 - `MicaMediaServiceNoisyReceiverTest`：Robolectric 验证 Service 只保留 Media3 内置 noisy receiver，一次广播只暂停一次，销毁时完成注销。设备端普通 App/shell UID 不能伪造受保护的 `AUDIO_BECOMING_NOISY`；OEM 音频焦点、真实耳机拔出和连续系统事件仍属于设备矩阵。
 
@@ -258,146 +252,12 @@ EQ 页把只读频响曲线与 2×5 竖推子网格合并成单一的 `Equalizer
 
 单测不能证明听感接近参考播放器，也不能证明 USB 独占真机旁路；见下方真机项。
 
-### a257a0f 架构重构：P1 真机验收清单
+### 历史重构与旧迁移手测清单（已由自动化 + `RELEASE_GATE.md` 替代）
 
-P0 单测无法覆盖 Compose 生命周期、Room 冷启动时序、SAF/权限与 Service 持久化。下列清单在 **至少一台真机** 上手测；失败时导出诊断日志（`LibraryQueue`、`LibraryStartup`、`LibraryScan`、`Player`、`PlaybackRestore`）。
+原 `a257a0f` 队列/删除手测、`MusicLibrary` 拆分回归（`LibraryScanOrchestrator` 已退役为 `LibraryOperationExecutor`）、`AppPreferences` 分域回归、旧 `mica_playlists` JSON 迁移与 `Room v15→v21` 等一次性历史重构清单，现已由 `RoomMigrationContractTest`、`DataLayerDependencyStructureTest`、`LibraryQueueSyncPolicyTest`、`SongActionsTest`、`MusicLibraryTest`、`PreferencesFallbackRobolectricTest` 与 `micaCheck` 持续守卫。
 
-#### 1. 冷启动与队列恢复
-
-- [ ] **有 Service 持久化队列**：上次播放中/暂停有队列与进度 → 杀进程 → 冷启动 → 迷你栏/播放页/通知为同一首；**播放队列顺序不被整库列表排序覆盖**；恢复后处于暂停（不自动续播，除非产品另有约定）。
-- [ ] **无 Service 持久化、Room 有缓存**：清数据后只扫过库、从未形成 service 队列 → 冷启动 → 列表快速出现；若播放器队列为空，应装入曲库（或 bootstrap 行为与旧版一致）。
-
-## 本地音乐 MV
-
-- JVM：`MusicVideoMatcherTest`（精确/归一化/目录/歧义/10k+10k）、Room 20→21、Entity/Summary/MediaItem codec。
-- 交错：开关旧 generation 不得覆盖最新值；旧 Surface detach/首帧/Controller 事件不得影响当前 lease；播放栈重建只重绑当前 controller+mediaId。
-- 错误：坏 MP4 首次只重建当前项为纯音频并保留位置/意图/模式；相同 revision 不二次尝试，纯音频错误走原路径。
-- 真机待验：MP3、FLAC、ALAC/DSF Shared PCM；蓝牙；USB Exact PCM、DoP、Native DSD；暂停、seek、0.5×–2×、循环、短/长视频、后台恢复和 30 分钟漂移。构建/JVM 结果不得替代音画和音质结论。
-- [ ] **Room 空库**：首次安装或空库 → 授权扫描 → 扫描完成后列表与队列行为正常。
-- [ ] **从通知/桌面图标二次进入**：划掉 Activity 后从通知或桌面再开，`MediaController` 重连，UI 队列/当前曲不回退默认。
-- [ ] **诊断**：日志中 `LibraryStartup loadCached` 与 `LibraryQueue libraryIds` 各出现一次为主；不应短时间连续多次 `setQueue` 刷屏。
-
-#### 2. 曲库排序 vs 播放队列（P0.1 选项 A）
-
-- [ ] 当前队列为「播放全部」或等于上次整库顺序（如 `[A,B,C]`）→ 在设置/主页改 **全部歌曲排序**（如标题升序↔降序）→ **正在播放的切歌顺序不变**（仍为 A→B→C），仅列表顺序变；元数据（播放次数等）仍刷新。
-- [ ] 改排序后切歌、seek、迷你栏与通知仍正常。
-
-#### 3. 删除歌曲
-
-- [ ] **删当前播放曲**：播放 A，队列 `[A,B,C]` → 删除 A → 立即切到 B（或暂停，与现网一致）；曲库、歌单、队列、迷你栏均无 A；**不应**再闪一次整库重排队列。
-- [ ] **删非当前曲**：播放 A，删 B → 当前仍播 A，队列变为 `[A,C]`。
-- [ ] **删文件失败**：SAF/无写权限等导致文件删不掉 → Snackbar「已从曲库移除（无法删除文件）」；歌单与队列仍移除该曲。
-- [ ] **删后 sync**：导出日志，删曲后 `LibraryQueue libraryIds` 为 `RefreshMetadata` 路径为主，非连续两次 `setQueue`。
-
-#### 4. 权限与扫描（Home + Settings）
-
-- [ ] **Home 首次授权**：无权限 → 授权 → 自动扫描 → 列表与进度文案正常。
-- [ ] **Settings 重扫无权限**：撤销权限 → 设置页点重扫 → 有明确错误/引导，不崩溃。
-- [ ] **SAF 选文件夹**：选目录 → 扫描 → 杀进程再开 → 目录与曲库仍在。
-- [ ] **取消选文件夹**：清除 SAF 目录后行为符合预期（空库或回退设备扫描，与现网一致）。
-- [ ] **扫描中连点重扫**：最终以最后一次扫描为准。
-
-#### 5. 设置迁移（升级用户）
-
-- [ ] 在已有 `mica_settings` 的设备上 **覆盖安装**（不清数据）：主题、强调色、云母、迷你栏样式、播放页背景/封面行为、歌词/通知歌词、EQ 开关与预设、扫描选项（最短时长、深度探测、排除目录）均保留。
-- [ ] 浏览排序（歌曲/专辑/艺术家）杀进程后仍保持。
-
-#### 6. 扫描诊断（ProbeResult 线 A）
-
-- [ ] 深度扫描完成后，诊断日志 `LibraryScan performScan scannerResult` 含 `technicalFailed=N`（通常 N=0；有失败时应有 `AudioTechnicalProbe: probe-failed` 逐首记录，但歌曲仍入库）。
-
-### MusicLibrary 结构拆分回归（真机）
-
-`MusicLibrary` 拆分为门面 + `LibraryScanOrchestrator` / `LibraryCatalogPublisher` 后，generation 取消与 catalog 边界已有 JVM 单测；下列场景仍需真机或 SAF 手测（行为未改，但涉及 Room、MediaStore、SAF 与 Compose 状态）：
-
-- **冷启动缓存恢复**：已有曲库时杀进程再开，列表应快速出现且不必全量重扫；`songIds` 与列表一致。
-- **设备扫描**：授权后首次/手动重扫，进度文案、完成后的歌曲数与封面/歌词正常。
-- **SAF 文件夹扫描**：选文件夹 → 扫描 → 杀进程再开，目录权限与曲库仍在；上次来源为文件夹时重扫走文件夹路径。
-- **扫描中再次触发重扫**：设置页或主页连点重扫，最终列表以最后一次为准（不出现旧结果覆盖新结果）。
-- **排序切换**：标题/艺术家/播放次数等排序后列表顺序与 fast scroll 索引正确；杀进程再开排序偏好仍生效。
-- **播放统计**：播放一首后，按「播放次数」「最近播放」排序时该曲位置更新；列表内元数据（次数）刷新。明确点歌、手动切歌、自动下一曲和真实单曲循环各新增一次；同曲 seek、暂停恢复、通知栏逐行歌词更新、队列元数据刷新和连接恢复均不新增。开启通知栏歌词并使用单曲循环完整播放一轮，播放次数应只在真实循环边界增加一次，不能随歌词逐行增长。
-- **从曲库移除**：菜单移除歌曲后列表消失；若该曲在播放队列中，队列同步后也应移除（见下方队列清单）。
-- **撤销权限清空曲库**：无 SAF 文件夹时撤销音频读取权限，曲库应被清空。
-- **封面缓存修复**：故意让缓存封面缺失或损坏后冷启动，日志应有 `AlbumArtCache repair-check` / `repair-start`，且修复扫描仅刷新封面（不强制重拉歌词）；列表封面恢复。
-
-- 冷启动后等待曲库缓存加载完成，确认迷你播放栏、播放页和通知栏显示同一首歌。
-- 从全部歌曲列表点击播放，确认播放队列等于当前列表，当前歌曲高亮正确。
-- 从搜索结果点击播放，确认播放队列只包含当前搜索结果，返回主页后播放不中断。
-- 从艺术家、专辑、最近播放和文件夹页点击播放，确认队列范围分别为当前浏览结果。
-- 进入歌单详情点击播放，确认队列等于该歌单当前排序；自定义排序歌单拖动后，列表顺序和再次点击播放的队列一致。
-- 长按歌曲执行「插播下一首」，确认当前歌曲不被打断，下一次自然切歌进入插播歌曲。
-- 删除当前队列中的歌曲后，确认曲库、歌单、播放队列和迷你播放栏不会保留已删除歌曲。
-- 删除文件失败但曲库移除成功时，确认播放队列和所有歌单仍移除该歌曲，Snackbar 文案表达“已从曲库移除但无法删除文件”。
-- 展开播放页，测试播放/暂停、上一首、下一首、seek、歌词行内 seek、队列 Sheet 跳转、移动和删除。
-- 切换 repeat/shuffle，确认播放页图标、通知控制和自然下一首顺序一致。
-- 随机模式使用固定 seed 的最小队列验证完整一轮：当前曲之后每首恰好播放一次；随机顺序最后一首自然完成后进入 `STATE_ENDED`，保持最后一首与随机模式，不得自动 seek、prepare、play、回绕或重新洗牌。结束后用户主动点击“下一首”可以回到本轮随机顺序第一首，但必须记录为手动导航。
-- 播放状态三维验证：分别观察 `PlaybackExecutionState`、`PlaybackIntent` 与 `PlaybackOutputAvailability`。曲尾允许 `ENDED + PLAY` 但按钮必须显示“播放”，点击后仅从当前曲 0ms 重启；缓冲/音频焦点抑制不得伪装成暂停；Controller 断开后 `isPlaying` 必须立即为 false。
-- USB 独占切换矩阵：Shared quiesce、exclusive prepare/open、等待权限、等待设备、返回 Shared、需重插和失败必须折叠到对应输出态；切换期间保留当前 generation 的语义播放意图。创建新 Coordinator 后释放旧 Coordinator 的延迟发布，断言旧 publisher 无法覆盖新输出态。
-- 后台、锁屏、蓝牙控制、划掉 Activity 后重新打开，确认 `MediaController` 重连后 UI 状态不回退到默认队列或默认播放模式。
-- 开启通知歌词，播放带逐字/逐行歌词的歌曲，确认通知歌词随进度更新；关闭后确认通知恢复普通元数据。
-- 曲库扫描设置修改后重新扫描，确认最短时长、纳入非音乐音频、深度元数据探测和排除目录仍生效；相关偏好应经 `LibraryScanSettings` 进入 `ScanOptions`。
-- 若封面重启后丢失或显示纯色块，导出诊断日志检查 `AlbumArtCache` 的 `repair-check` / `repair-start`，以及是否从正确来源执行 `forceRefreshArtwork=true` 修复扫描。
-- 若 FLAC/WAV/ALAC 位深或容器显示异常，导出诊断日志检查 `AudioTechnicalProbe: probe-failed`；该日志表示增强技术字段探测失败，但不应导致整首歌扫描失败。
-- 导出诊断日志，重点检查 `QueueSync`、`Player`、`PlaybackRestore`、`NotificationLyrics`、`AlbumArtCache`、`AudioTechnicalProbe` 中没有明显异常或重复刷屏。
-
-### AppPreferences 分域回归（真机）
-
-偏好已拆为 `data/preferences/` 下各域门面，物理文件仍为 `mica_settings`（key 未改）。下列场景验证读写路径与杀进程恢复；**不必**重装或清数据。
-
-**浏览与曲库（`LibraryBrowseSettings` + `LibraryScanSettings`）**
-
-- 全部歌曲排序切换（标题/艺术家/播放次数等）→ 杀进程再开，顺序保持。
-- 专辑/艺术家根层排序与网格列数修改 → 杀进程再开，Home 浏览态恢复。
-- 设置页修改最短时长、排除目录、深度探测 → 重扫后行为符合新选项。
-
-**播放页 UI（`PlaybackUiPreferences` + `AppUiSettings`）**
-
-- 切换迷你栏样式、封面行为（标准/粒子/拍立得等）、播放页背景 → UI 即时刷新；杀进程再开仍生效。
-- 「折叠歌词行数」自动/三行/一行（标准、粒子封面、平行封面带、复古立体封面）→ 播放页紧凑歌词行数符合选择；自定义标准仍走布局编辑。
-- 自定义标准「专辑图阴影」「点击封面暂停/播放」在布局编辑页选中封面时开关，默认关；保存后竖屏生效，杀进程再开仍保持；横屏自定义标准仍走标准封面、无此阴影。
-- 开关频谱 / 发烧友迷你栏 / 拍立得封面 → 播放时频谱 tap 是否按预期启停（无旧封面闪频谱）。
-- 修改播放页信息行、歌曲列表信息行可见性 → 对应位置显示/隐藏正确。
-- 「播放时保持屏幕常亮」→ 播放中屏幕不熄、暂停后恢复系统策略。
-
-**外观（`AppearancePreferences`）**
-
-- 切换浅色/深色/跟随系统 → 全局主题即时变化。
-- 修改强调色、云母背景预设或自定义渐变 → 主页/设置/播放页背景一致；杀进程再开保持。
-- 逐项切换「隐藏状态栏」四种模式 → 播放页/非播放页分别按范围显示或隐藏，页面顶部 inset 不跳动，边缘下滑临时显示正常。
-
-**歌词（`LyricsPreferences`）**
-
-- 歌词页字号、对齐、沉浸式、文字颜色 → 进入歌词页验证；列表主题分别切换硬边逐字填充、音节抬升、柔边逐字填充、纯逐字切换，确认仅带真实逐字时间轴的当前行改变效果，默认仍为音节抬升。
-- 开关通知歌词 → 通知栏逐行/逐字更新；关闭后恢复普通元数据。
-- 双语拆分/展示模式 → 播放页与歌词页行数符合设置。
-- 从数据库 v8 覆盖安装到当前版本后不重扫，旧 `songs.lyricsJson` 已迁入 `song_lyrics` 并仍可显示和播放；随后重扫同一首歌，TTML 原文/译文、逐字与行结束时间保持正常。旧列不再作为运行时歌词事实来源。
-- 在至少一个歌词批次已完成后取消扫描：已确认 `Complete` 的正式 `song_lyrics` 保留，曲库摘要与 UI 不发布未完成扫描；制造单曲 `ReadFailed` 时，该曲全部旧槽保持不变并置 `lyricsRetryRequired`，下一次扫描强制重试。完整零失败扫描后才清除重试标记并推进 parser 版本。
-- 含明确 TTML `end`/`dur` 的长空档：仅满足「无 active line + 下一句在未来 + `delta >= 7000ms` + 上一句有 `endTimeMs`」时显示三点 Y 间奏；普通 LRC 的长时间戳间隔不显示。
-- 歌词云遇到含明确 `end`/`dur` 且完整时长至少 7000ms 的空档：整个空档取消当前句高亮，歌词轻微退远，歌词上方显示主题色呼吸柔光，镜头先停在前后句之间再靠近下一句；暂停或关闭系统动效后柔光静止。普通 LRC 的大时间戳间隔不得触发。
-- 同一播放位置下，全屏、紧凑与通知歌词显示同一当前行；歌词行点击 seek 后三处同步更新。
-
-**均衡器（`EqualizerPreferences` + `EqCustomProfileStore`）**
-
-- 设置页开关 EQ、切换系统预设 → 出声有/无效果；杀进程再开选择与开关保持。
-- 拖动自定义频段、保存/加载命名预设 → 再次进入 EQ 页数值与选中项一致。
-- 在频响曲线上斜向、快速甩动拖某一段 → 只有起手那一列变化；读数行频率与增益、该列高亮和底部频率标签同步；松手后数值不回弹。
-- 大字号（系统字体放至最大）进入 EQ 页 → 底部十个频率标签不重叠、不被裁切；dB 刻度仍与网格线对齐。
-- EQ 开启时切换曲目、后台/前台 → 无崩溃、无无声（pipeline 仍走 `MicaMediaService`）。
-
-**音效实验室（`SoundFxPreferences`）**
-
-- 默认关闭、参数保持中性：Shared PCM 听感与关 EQ 时一致；诊断 `soundFx=false`；若 EQ/平衡/ReplayGain 也都未激活，可尝试 offload。
-- 打开开关但湿比为 0、环绕强度为 0、宽度/音色中性：仍旁路；`isDspActive()==false`，offload 不被这次操作关掉。
-- 打开后拉宽度、低音/高音、把湿比离开 0，或把 360° 环绕强度离开 0 → 出声变化；诊断 `soundFx=true offload=false`；`mode` 仍为 HIFI（除非 EQ 也开）。
-- 关开关或「重置默认」：处理旁路。若本会话曾经激活过 DSP，PCM latch 保持（与声道平衡相同），不自动回到 offload。
-- USB Exact / DoP / Native：同样打开宽度/湿比/环绕强度，听感应与旁路一致（独占链无此 processor）。
-- 杀进程再开：开关与参数保持；覆盖安装不清数据时旧用户保持默认关闭。
-
-**旧数据兼容（升级用户）**
-
-- 在已有 `mica_settings` 的设备上直接安装新包（不清数据）：上述各项应读出旧值，无需迁移步骤。
-- 已有旧 `mica_playlists` JSON 的设备首次启动后，歌单列表、歌曲顺序、排序、封面与自定义封面应一次性迁入 Room，后续增删改不再依赖 JSON；旧 key 可保留但不作为运行时事实来源。
-- 已有 Room v15/v16 数据库的设备升级到当前 v21 后，必须依次完成 `15→16`、`16→17`、`17→18`、`18→19`、`19→20` 和 `20→21`，不应丢失歌曲、歌词、浏览分组、播放历史或歌单；`20→21` 为旧歌曲写入空的 MV revision，并保持 `musicVideoUri` 为空。
+- 每次发版前的真机必测项与按变更触发项（扫描/缓存、USB/DSD/EQ/音效实验室、MV、悬浮歌词、频谱）统一见 [`RELEASE_GATE.md`](RELEASE_GATE.md)。
+- 本地音乐 MV 自动化契约仍由 `MusicVideoMatcherTest` 及 lease/fallback 交错单测守卫；触及 MV 播放链时按 `RELEASE_GATE.md` Gate 2 补真机首帧与回退回归。
 
 ### 并行真机 QA 包
 

@@ -27,6 +27,7 @@
 | [`DESIGN_SPEC.md`](../DESIGN_SPEC.md) | 设计规范 v1.3（含 §十五 规范与现网对照） |
 | [`TODO.md`](TODO.md) | 功能 living list |
 | [`CURRENT_FEATURE_STATUS.md`](CURRENT_FEATURE_STATUS.md) | 近期功能的当前行为、测试覆盖与真机验收边界 |
+| [`RELEASE_GATE.md`](RELEASE_GATE.md) | 精简分级发布门禁矩阵（Gate 0 CI / Gate 1 发版必测 / Gate 2 变更触发 / Gate 3 大版本观察） |
 | [`MOTION.md`](MOTION.md) | 动效权威 + View 岛分工 |
 | [`COVER_FLOW_IMPLEMENTATION.md`](COVER_FLOW_IMPLEMENTATION.md) | 播放页封面行为 **产品 §0 + 封面流 §1–12 + 拍立得 §13** |
 | [`PLAYER_PAGE_CONTRACT.md`](PLAYER_PAGE_CONTRACT.md) | 播放页契约、模块地图、回归清单 |
@@ -156,7 +157,7 @@
 
 | 日期 | 说明 |
 |------|------|
-| 2026-11-25 | 对齐 `exoplayer-only` HEAD `90bdd12a` / v0.4.5(code60) / targetSdk 36 / Room v35；补录 Emby、R8/MBassador、逐字注音与外显、斜杠契约与词尾时间验收、大队列防 ANR、扫描器可信专辑标签优先，移除 `assets/particle_cover` 退役待办 |
+| 2026-11-25 | 对齐 `exoplayer-only` HEAD `90bdd12a` / v0.4.5(code60) / targetSdk 36 / Room v35；补录 Emby、R8/MBassador、逐字注音与外显、斜杠契约与词尾时间验收、大队列防 ANR、扫描器可信专辑标签优先，移除 `assets/particle_cover` 退役待办；新增分层 [`RELEASE_GATE.md`](RELEASE_GATE.md) 并精简 `TESTING.md` 过时手测清单 |
 | 2026-10-09 | 对齐 HEAD `57f3b989` / 0.4.3(code58) / Room v35；增补 ADR-0008、SMB staged import、粒子正方形几何、雨幕玻璃、测试分类与 tag/工作树边界 |
 | 2026-06 | 初版三类归档 |
 | 2026-06 | 执行清单：合并 COVER_FLOW/REVIEW_NOTES；修 README/DESIGN_SPEC/REASONIX/OPEN_SOURCE/MOTION |

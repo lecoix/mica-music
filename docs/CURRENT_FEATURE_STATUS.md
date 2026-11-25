@@ -66,18 +66,22 @@
 - 扫描后单点 TOTAL PSS 约 367 MB，杀进程前约 351 MB；这是约 12 GB 档设备的单点读数，不是 8 GB/10k 完整逐字歌词峰值证明。
 - `dumpsys activity lastanr` 当轮未报告 Mica ANR，crash buffer 无 Mica FATAL；但 `/data/anr` 在扫描结束附近存在不可读 trace，不能据此宣称“零 ANR”。
 
-## 尚未关闭的发布验收
+## 尚未关闭的发布验收（分级见 `RELEASE_GATE.md`）
 
-- 目前**不能宣称发布前完整流程已通过**：现有真机证据主要集中在单台 Android 12 / 12 GB 设备（Xiaomi 22081212C + SK02 DAC）的 Debug/工作树包，不能等价替代正式签名 R8 Release 包。
-- 仍缺 Android 8/8.1 与 Android 14+/16（含真实 16 KB 页面设备）多端矩阵、正式签名 R8 Release 双 ABI（含真实 32 位进程）覆盖升级、真实 MP3 点播、DFF 拒绝样本、蓝牙/耳机拔出、通知控制/划掉 Activity，以及六种封面行为 × 歌词主题 × 浅深色 × 1:1 折叠屏/方屏布局的完整 UI 组合。
-- 频谱时钟对齐（`SpectrumPcmTimeline`）、音效实验室 USB 旁路、视频封面 H.264 长播与耗电、Emby 真实服务端矩阵、桌面/状态栏逐字注音与未填充透明度真机悬浮窗仍需补证。
-- Android Auto/不同 OEM 车机、锁屏、后台限制、Glance launcher 差异、分屏/小窗触摸、USB 多 DAC/扩展坞与 DSD256 仍需独立证据。
-- 8 GB 设备条件在自动同步 S3/S4 阶段曾被用户明确跳过；这不是 PASS。项目仍以 **10,000 首 + 完整逐字歌词 + 8 GB** 为设计容量基线，发布结论不得用 12 GB 设备结果等价替代。
+完整可执行门禁已收口到 [`RELEASE_GATE.md`](RELEASE_GATE.md)（分 Gate 0 CI / Gate 1 发版 15 分钟必测 / Gate 2 变更触发 / Gate 3 大版本与社区观察）：
+
+- **P0 发版必过缺口（Gate 1）**：现有真机证据主要集中在单台 Android 12 / 12 GB 设备的 Debug/工作树包，尚未对 `v0.4.5` **正式签名 R8 Release APK** 完整走完一轮 Gate 1 冒烟（覆盖升级、MP3/FLAC/ALAC-DSF 与焦点打断、随机模式杀进程恢复、后台/小组件、R8 远端源 SMB/Emby 连接播放、浅色可读性与缓存体积核查）。
+- **变更触发 / 大版本观察边界（Gate 2 / Gate 3，不阻断日常小版本，但不得宣称已验收）**：
+  - 8 GB 设备 10,000 首 + 完整逐字歌词实机峰值内存（仍是 `AGENTS.md` 硬性架构设计基线，不可用 12 GB 单点读数替代）；
+  - Android 8/8.1、真实 16 KB 页面 Android 15/16 设备、真实 32 位进程；
+  - 频谱时钟对齐多设备/蓝牙、音效实验室 USB 旁路、视频封面 H.264 长播耗电、桌面/状态栏悬浮窗注音与透明度、Emby 真实服务端矩阵；
+  - Android Auto / 多 OEM 车机、多 DAC / 扩展坞 / DSD256、1:1 折叠屏/方屏全主题排版。
 
 ## 相关权威文档
 
 - 领域词汇/owner：[`../CONTEXT.md`](../CONTEXT.md)
 - 文档索引：[`DOC_INDEX.md`](DOC_INDEX.md)
+- 发布门禁矩阵：[`RELEASE_GATE.md`](RELEASE_GATE.md)
 - 功能清单：[`TODO.md`](TODO.md)
 - Target SDK 36 迁移：[`TARGET_SDK_36_MIGRATION.md`](TARGET_SDK_36_MIGRATION.md)
 - 歌词注音与斜杠契约：[`LYRICS_RUBY_ALIGNMENT.md`](LYRICS_RUBY_ALIGNMENT.md)、[`LYRICS_SLASH_ROLE_CONTRACT.md`](LYRICS_SLASH_ROLE_CONTRACT.md)
