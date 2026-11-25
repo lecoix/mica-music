@@ -83,6 +83,10 @@ internal data class TagInfo(
     val lyricsCandidates: List<EmbeddedLyricsTextCandidate> = emptyList(),
 )
 
+/** Null means no authoritative album read; empty means the file has no album tag. */
+internal fun resolveScannedAlbum(fileAlbum: String?, draftAlbum: String): String =
+    MetadataTextFix.normalize(fileAlbum ?: draftAlbum).ifBlank { "未知专辑" }
+
 internal fun mergeTagInfo(primary: TagInfo, fallback: TagInfo): TagInfo {
     val releaseDate = primary.releaseDate.ifBlank { fallback.releaseDate }
     return TagInfo(
@@ -204,7 +208,7 @@ object AudioMetadataProbe {
 
     private const val TAG = "AudioMetadataProbe"
     private const val FLAC_METADATA_TRACE = "ScanFlacMeta"
-    internal const val CURRENT_METADATA_SCAN_VERSION = 2
+    internal const val CURRENT_METADATA_SCAN_VERSION = 3
 
     private val albumArtCache = ConcurrentHashMap<String, String?>()
     private val mp4CopyrightMarkers = listOf(
@@ -387,6 +391,7 @@ object AudioMetadataProbe {
             tagLibOk = false,
         )
         val retriever = MediaMetadataRetriever()
+        var resolvedAlbum = wavFallback?.let { resolveScannedAlbum(it.album, draft.album) }
         return try {
             profiler.measureOptional("retriever.setDataSource") {
                 setRetrieverDataSource(retriever, appCtx, uri)
@@ -395,10 +400,12 @@ object AudioMetadataProbe {
                 readTags(retriever, draft)
             }
             val tags = wavFallback?.let { mergeTagInfo(it, retrieverTags) } ?: retrieverTags
+            val album = resolveScannedAlbum(tags.album, draft.album)
+            resolvedAlbum = album
             val enriched = draft.copy(
                 title = tags.title,
                 artist = tags.artist,
-                album = tags.album,
+                album = album,
                 durationSec = tags.durationSec,
                 year = tags.year,
                 releaseDate = tags.releaseDate,
@@ -528,7 +535,7 @@ object AudioMetadataProbe {
                 readComment(appCtx, uri, lyricDraft)
             }
             ScannedSong(
-                song = draft.toSong(
+                song = draft.copy(album = resolvedAlbum ?: resolveScannedAlbum(null, draft.album)).toSong(
                     appCtx,
                     metadata,
                     albumArtUri = when (artifactPolicy) {
@@ -541,6 +548,8 @@ object AudioMetadataProbe {
                     lyricsDocument = lyrics.selectedOrCached(cachedSong),
                     copyrightOverride = copyright,
                     commentOverride = comment,
+                    // Retry unverified metadata on the next explicit deep scan.
+                    metadataScanVersion = if (resolvedAlbum == null) 2 else CURRENT_METADATA_SCAN_VERSION,
                     dateAddedMsOverride = draft.dateAddedMsFor(cachedSong),
                 ),
                 lyrics = lyrics,
@@ -620,7 +629,7 @@ object AudioMetadataProbe {
                 ?: albumArtist.takeIf { it.isNotBlank() }
                 ?: draft.artist,
         )
-        val album = MetadataTextFix.normalize(tags.album.takeIf { it.isNotBlank() } ?: draft.album)
+        val album = resolveScannedAlbum(tags.album, draft.album)
         val durationSec = when {
             tags.durationSec > 0 -> tags.durationSec
             draft.durationSec > 0 -> draft.durationSec
@@ -932,10 +941,9 @@ object AudioMetadataProbe {
                 ?: albumArtist.takeIf { it.isNotBlank() }
                 ?: draft.artist,
         )
+        // Preserve absence through the reader merge; MediaStore is not a tag reader.
         val album = MetadataTextFix.normalize(
-            retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM)
-                ?.takeIf { it.isNotBlank() }
-                ?: draft.album,
+            retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM).orEmpty(),
         )
         val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
             ?.toLongOrNull() ?: 0L
@@ -1105,7 +1113,7 @@ object AudioMetadataProbe {
     ): ScannedSong {
         val title = tags.title.ifBlank { draft.title }
         val artist = tags.artist.ifBlank { draft.artist }
-        val album = tags.album.ifBlank { draft.album }
+        val album = resolveScannedAlbum(tags.album.takeIf { it.isNotBlank() || albumTagRead }, draft.album)
         val albumArtist = tags.albumArtist
         val enriched = draft.copy(
             title = title,

@@ -31,6 +31,8 @@ internal object DsdMetadataReader {
         val tags: Tags = Tags(),
         val albumArtBytes: ByteArray? = null,
         val embeddedLyricsDocument: com.mica.music.data.LyricsDocument? = null,
+        // DFF currently reads technical metadata only, so absence is not proven there.
+        val albumTagRead: Boolean = false,
     )
 
     private data class Id3Data(
@@ -42,6 +44,7 @@ internal object DsdMetadataReader {
         val rawDiscNumber: String = "",
         val frameSummary: String = "",
         val lyricsDocument: com.mica.music.data.LyricsDocument? = null,
+        val albumTagRead: Boolean = false,
     )
 
     fun read(context: Context, uri: Uri, draft: TrackDraft): Result? =
@@ -105,6 +108,7 @@ internal object DsdMetadataReader {
             tags = id3.tags,
             albumArtBytes = id3.albumArtBytes,
             embeddedLyricsDocument = id3.lyricsDocument,
+            albumTagRead = id3.albumTagRead,
         )
     }
 
@@ -170,7 +174,7 @@ internal object DsdMetadataReader {
     }
 
     private fun readDsfId3(channel: FileChannel, metadataOffset: Long): Id3Data {
-        if (metadataOffset <= 0L) return Id3Data(Tags(), null, status = "offset-missing")
+        if (metadataOffset <= 0L) return Id3Data(Tags(), null, status = "offset-missing", albumTagRead = metadataOffset == 0L)
         val tagHeader = channel.readAt(metadataOffset, 10)
             ?: return Id3Data(Tags(), null, status = "header-read-miss")
         val hasId3Header = Id3Binary.isId3Header(tagHeader, 0)
@@ -210,6 +214,7 @@ internal object DsdMetadataReader {
             rawDiscNumber = rawDiscNumber,
             frameSummary = id3FrameSummary(frames),
             lyricsDocument = EmbeddedLyricsReader.readId3Document(bytes),
+            albumTagRead = hasId3Header && bytes.size >= Id3Binary.synchsafeSize(tagHeader, 6).toLong() + 10,
         )
     }
 

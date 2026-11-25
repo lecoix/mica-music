@@ -83,7 +83,7 @@ class ScanProfilerTest {
             mediaUri = draft.mediaUri,
             sizeBytes = draft.sizeBytes,
             dateModifiedMs = draft.dateModifiedMs,
-            metadataScanVersion = 0,
+            metadataScanVersion = 2,
         )
 
         assertNull(
