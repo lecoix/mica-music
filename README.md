@@ -2,7 +2,7 @@
 
 > 极简直角 · 多种主题 · 自定义
 
-一款以本地曲库为核心的 **HiFi 播放器**，支持多种播放页主题与自定义、内嵌/外挂/结构化歌词、ALAC/DSF/APE、USB 独占，并可选接入 Navidrome/OpenSubsonic、WebDAV 与 SMB 远程曲库。
+一款以本地曲库为核心的 **HiFi 播放器**，支持多种播放页主题与自定义、内嵌/外挂/结构化歌词（含逐字注音）、ALAC/DSF/APE、USB 独占，并可选接入 Navidrome/OpenSubsonic、WebDAV、SMB 与 Emby 远程曲库。
 
 ---
 <p align="center">
@@ -34,7 +34,7 @@
 
 1. Android Studio → `File → Open`，选择**本仓库根目录**
 2. 若未递归克隆，初始化 TagLib 的 utfcpp submodule：`git submodule update --init third_party/taglib/src/main/cpp/taglib/3rdparty/utfcpp`
-3. 等待 Gradle Sync（首次会下载 Gradle 8.9 与依赖）
+3. 等待 Gradle Sync（首次会下载 Gradle 8.11.1 与依赖）
 4. 连接 **arm64 真机**（或 arm64 模拟器），点击 `Run 'app'`
 
 命令行编译：
@@ -69,8 +69,8 @@ Windows PowerShell 5.1 若看到中文乱码，先在当前会话启用 UTF-8：
 | **播放顺序** | 服务持有已接受的有效播放顺序与源顺序；随机、插播、拖动、删除、恢复及自然切歌遵守 ADR-0008，不能只凭随机 seed 推导编辑后的队列。 |
 | **曲库扫描** | 自托管 TagLib、封面缓存与取色、MediaStore/SAF Full Scan；DEVICE 与 SAF/FOLDER durable automatic sync 已接 ordinary scheduler，并带 completeness/capability gate、重试与 kill switch |
 | **持久化** | Room 曲库与歌单；`ServicePlaybackStateStore` 冷启动恢复队列与进度（外部队列仅在权限可存续时恢复） |
-| **歌词** | 内嵌 + 外挂 `.lrc` / TTML / 逐字歌词；三行/展开歌词、双语与偏移；桌面/状态栏歌词、车机 presentation 与可选 Lyricon provider 共用结构化歌词事实 |
-| **远程曲库** | Navidrome/OpenSubsonic、WebDAV、SMB2/3；SMB 默认仅浏览当前目录，显式添加文件夹才索引选定范围：完整发现后先发布可播放条目，再有界补齐元数据；封面、歌词按需获取并缓存。 |
+| **歌词** | 内嵌 + 外挂 `.lrc` / TTML / 逐字歌词与逐字注音（Ruby）；三行/展开歌词、双语（与视觉分行解耦）及偏移；桌面/状态栏悬浮歌词（支持注音及未填充颜色/透明度）、车机 presentation 与可选 Lyricon provider 共用结构化歌词事实 |
+| **远程曲库** | Navidrome/OpenSubsonic、WebDAV、SMB2/3、Emby；SMB 默认仅浏览当前目录，显式添加文件夹才索引选定范围（完整发现后先发布可播放条目，再有界补齐元数据）；Emby 支持 API Key 分页索引、静态直出流与按需内嵌封面/歌词；所有远端封面与歌词均按需获取并缓存 |
 | **浏览** | 本地 + 远程统一搜索；歌曲 / 歌手 / 专辑 / 最近播放 / 歌单 / 远程曲库 / 音乐库分析 |
 | **迷你栏** | 浮岛毛玻璃（BlurView）/ 极简 Hi‑Fi 底栏、迷你播放栏歌词 |
 | **界面** | 可自定义强调色/背景、自定义背景图片、七种播放页背景枚举（动态烟云在设置 UI 暂隐藏）、六种封面行为、横屏；Glance 提供“自适应 / 四宫格 / 大封面”三类桌面小组件 |
@@ -146,4 +146,4 @@ SMB 范围导入协议见 [`ADR-0007`](docs/adr/0007-smb-browse-and-selected-tra
 
 ---
 #爱发电：https://ifdian.net/a/lwcoz
-**Made with AI · 2026-010**
+**Made with AI · 2026-11**

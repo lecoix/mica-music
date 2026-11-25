@@ -1,6 +1,6 @@
 # Mica — Reasonix Code Context
 
-> 现状复核：2026-10-09。已提交 HEAD `57f3b989` 为 **0.4.3 / code 58 / Room v35**；`v0.4.3` tag 早于 HEAD 最近 4 个提交，不能据此声称它们已发布。正式发布验收见 `docs/CURRENT_FEATURE_STATUS.md`。
+> 现状复核：2026-11-25。`exoplayer-only` HEAD `90bdd12a`（tag **`v0.4.5`** / code 60 / Room v35 / targetSdk 36，Release 已启用 R8 压缩）。正式发布验收见 `docs/CURRENT_FEATURE_STATUS.md`。
 
 > AI / 工具用速览。**版本与依赖以 `gradle/libs.versions.toml` 为准**；领域词汇见 `CONTEXT.md`；动效与文档索引见 `docs/DOC_INDEX.md`。
 
@@ -17,13 +17,13 @@
 ## Layout
 
 - `app/src/main/java/com/mica/music/`
-  - `data/` — `Song`, Room v35（本地曲库/歌词/自动同步状态/歌单/远端 catalog）, scanner, preferences 与 shared domain；`data/remote/` 持有 Navidrome/OpenSubsonic、WebDAV、SMB 与远端自动同步；`data/playback/` 持有 `ServicePlaybackStateStore`。`data/` 不得 import 顶层 `media/` / `playback/` implementation package
+  - `data/` — `Song`, Room v35（本地曲库/歌词/自动同步状态/歌单/远端 catalog）, scanner, preferences 与 shared domain；`data/remote/` 持有 Navidrome/OpenSubsonic、WebDAV、SMB、Emby 与远端自动同步；`data/playback/` 持有 `ServicePlaybackStateStore`。`data/` 不得 import 顶层 `media/` / `playback/` implementation package
   - `playback/` — `PlayerController`（Compose/UI facade）、`PlaybackRuntime`（非 Compose application runtime）、connection、queue/timeline/tuning/statistics coordinator、MediaController queue sync 与睡眠定时器
   - `media/` — Exo 播放管线、`MicaMediaService`、`AudioPipelineCoordinator`、`AudioOffloadCircuitBreaker`、`MicaCompositePlayer`、`ServicePlaybackEngineCoordinator`、DSF、EQ implementation（`media/eq/`）
   - `audio/` / `usb/` — 跨 data/media/playback 共享的 neutral contract/value：`AudioQualityMode`、`EqBandConstants`、`UsbStableIdentity`
   - `ui/components/` — `PlayerSheetHost`, `MiniPlayer`, `SongRow`, `LyricsDisplay`, …
   - `ui/screens/` — `HomeScreen`, `NowPlayingScreen`, `CustomPlayerLowerPanel`（`CUSTOM_STANDARD` 竖屏自由布局编辑/渲染）, `SettingsScreen`, …
-  - `ui/screens/player/` — `PlayerPageLayoutEngine`、封面流 View 岛（`CoverFlowRails`）、粒子封面（现网 `ParticleCoverHost` / `ParticleCoverRenderer` GLES；`ThreeParticleCoverHost` WebView 回退）、拍立得（`PhotoStackTransitionHost`）
+  - `ui/screens/player/` — `PlayerPageLayoutEngine`、封面流 View 岛（`CoverFlowRails`）、粒子封面（纯 GLES：`ParticleCoverHost` / `ParticleCoverRenderer`，WebView 旧管线已退役）、拍立得（`PhotoStackTransitionHost`）
   - `ui/theme/` — `MicaTheme`, 云母渐变, `MicaMaterialBackdrop` (BlurView)
   - `ui/navigation/` — `AppNavigation`, `AppNavigationMain`, `PlayerSheetOverlay`, `AppNavigationCoordinator`
   - `ui/motion/` — `MicaMotion.kt`
@@ -31,11 +31,15 @@
 - `app/src/test/java/.../player/` — `CoverFlowRailsTest`, `PlayerPageLayoutEngineTest`, …
 - `MicaMainActivity.kt` — **双 `ComposeView`**：`BlurTarget` 包裹主内容 + 底部 overlay（迷你栏 BlurView）
 
-## 2026-10 已提交架构增量
+## 2026-10—11 已提交架构增量
 
-- 队列有效顺序：`PlaybackOrderState` / `ServicePlaybackOrderOwner` / `ServicePlaybackStateCoordinator` 负责 accepted permutation、源顺序、逻辑随机标志、游标与串行快照；成员增删以物理下标做 Media3 增量操作。详见 ADR-0008。
-- SMB：`SmbBrowserPane` 只浏览当前层；`SmbFolderLibraryLoader` 是进程级显式导入 owner；`SmbFolderLibraryIndexer` 先完整发现并提交可播条目，再至多四路 64 KiB tag read-ahead 补齐元数据。原始音频播放 DataSource 的预读策略独立。详见 ADR-0007。
-- 测试：Behavior / Architecture / Implementation 三类角色，OBSOLETE 是退役标签。分类校验见 `docs/testing/README.md`，数量以 manifest 的重新校验结果为准。
+- **R8 & Target SDK 36**：`targetSdk 36` + NDK `r28c` + 16 KB ELF LOAD 对齐（`408e1c77`，真机 16 KB 运行待验收）；Release 开启 `isMinifyEnabled = true`，`app/proguard-rules.pro` 保留 Compose、FFmpeg JNI、Jaudiotagger ID3 及 SMBJ/MBassador `@Handler` 与 `ReflectiveHandlerInvocation` 构造函数（`0b28e223` / `73727779`）。
+- **Emby 远程源**：`data/remote/emby/` 提供 API Key（Keystore `BearerToken` + `X-Emby-Token`）、10,000 首分页上限、静态直出流、音频元数据、256 KiB read-ahead 按需内嵌封面与 `EmbyLyricsLoader` 按需歌词（`976c056e` / `0585bc0c` / `81eca7d5`）。
+- **歌词逐字注音与斜杠契约**：`LyricTextPart.ruby` 严格按源提供范围对齐并扩展到桌面/状态栏悬浮窗（`8ce53841` / `7b10a12d`）；源词尾时间跨渲染器保留（`6616e940`）；普通斜杠视觉分行（`SPLIT`）与语言内容选择（`ALL / ORIGINAL / TRANSLATION`）完全解耦（`d9be0a58`）。
+- **队列性能与安全**：`018191c1` 消除重复全队列元数据重算并针对大队列收拢媒体通知控制器命令以防 ANR；`b9a6e9cf` 在队列关闭过渡期禁用列表与滚动条交互；`7991239d` 让扫描器验证到的专辑标签优先于 MediaStore 默认目录回退。
+- **队列有效顺序**：`PlaybackOrderState` / `ServicePlaybackOrderOwner` / `ServicePlaybackStateCoordinator` 负责 accepted permutation、源顺序、逻辑随机标志、游标与串行快照；成员增删以物理下标做 Media3 增量操作。详见 ADR-0008。
+- **SMB**：`SmbBrowserPane` 只浏览当前层；`SmbFolderLibraryLoader` 是进程级显式导入 owner；`SmbFolderLibraryIndexer` 先完整发现并提交可播条目，再至多四路 64 KiB tag read-ahead 补齐元数据。原始音频播放 DataSource 的预读策略独立。详见 ADR-0007。
+- **测试**：Behavior / Architecture / Implementation 三类角色，OBSOLETE 是退役标签。分类校验见 `docs/testing/README.md`，数量以 manifest 的重新校验结果为准。
 
 ## Playback UI boundaries
 
@@ -74,7 +78,8 @@
 - **arm64 only** — x86 emulator unsupported
 - **Backdrop blur** — 浮岛 `MicaMaterialBackdrop` + `BlurTarget`; 勿用 Compose `Modifier.blur()` 做毛玻璃
 - **封面流**（`PAUSE_FOLD` / `RETRO_3D`）— 只改 `CoverFlowRails` / `CoverFlowCarouselView`; 勿在 Compose 重建槽位动画
-- **粒子封面**（`PARTICLE_COVER`）— 现网 **GLES**（`ParticleCoverPlayerLayer` → `ParticleCoverHost`）；WebView 回退 `ThreeParticleCoverHost` 仅 `UseNativeParticleCoverInPlayer = false` 或预览对比；见 `docs/PARTICLE_COVER_OPENGL_MIGRATION.md` §0
+- **粒子封面**（`PARTICLE_COVER`）— 现网纯 **GLES**（`ParticleCoverPlayerLayer` → `ParticleCoverHost`）；WebView 旧管线 `ThreeParticleCoverHost` / `assets/particle_cover` 已于 `d0d5d56e` 退役；见 `docs/PARTICLE_COVER_OPENGL_MIGRATION.md` §0
+- **R8 / ProGuard** — Release 已启用 `isMinifyEnabled = true`；新增反射、JNI 或事件总线依赖时须同步核查 `app/proguard-rules.pro`（参考 SMBJ/MBassador 构造函数 keep 规则 `73727779`）
 - **`.dff`** — 可扫描，播放前路由拒绝（`.dsf` 走 Exo 扩展）
 - **MockData.kt** — legacy, unused
 - **Configuration cache** — if builds act stale, run `clean-assemble-debug.ps1`

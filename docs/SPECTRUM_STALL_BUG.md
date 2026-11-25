@@ -1,8 +1,8 @@
 # 频谱停滞（Spectrum Stall）问题档案
 
-> 2026-09-11 状态复核：§0 的 sink media clock / PCM timeline / analysis engine 属于**当前未提交工作树的 staged 修复**。桌面 focused/full JVM 已有通过记录，设备验收仍在进行；不要把它描述成 0.4.0 clean HEAD 或 release 已交付。
+> 2026-11-25 状态复核：§0 的 sink media clock / `SpectrumPcmTimeline` / `SpectrumAnalysisEngine` 已合入 `v0.4.5`（`90bdd12a`），JVM/受控 AudioOutput 测试通过；多 OEM AudioTrack、蓝牙输出与视觉时钟对齐真机验收仍待补齐。
 
-> 最后更新：2026-09-11
+> 最后更新：2026-11-25
 > 当前改动：频谱改用 sink 媒体时钟选择 PCM 窗口；验证记录见 §0。§1–10 为历史调查，不代表现行实现或本次验收。
 
 ## 0. 2026-09-10：播放时钟与频谱旁路

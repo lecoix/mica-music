@@ -21,7 +21,7 @@
 
 系统通知、车载等独立文本输出继续使用既有整行投影。桌面与状态栏悬浮窗的后续接入见下节。
 
-## 2026-10-26：桌面与状态栏悬浮窗（工作树实现）
+## 2026-10-26：桌面与状态栏悬浮窗（已合入 v0.4.5：`7b10a12d` / `93d3e288`，真机待验收）
 
 - `buildExternalLyricsLine` 将已经确认的 `LyricRuby` 范围附到当前句 `ExternalLyricsText.ruby`，不解析整库、不重新匹配时间。依据已确立的 SPLIT/语言选择独立契约（`LYRICS_SLASH_ROLE_CONTRACT.md` Phase 3/4），真实结构化 ORIGINAL / TRANSLATION / READING 不随 SPLIT 开关合并；有效 Ruby 仅附于原文，译文换行不影响原文范围。原文被拆分/清理到范围依据不成立或含硬换行时保留原文及整行读音。
 - `forExternalDisplay` 在最终展示边界应用全局读音开关和原文/译文选择。只有有效范围与完整读音匹配时才隐藏独立 READING 行；关闭读音同时清除 inline 范围，不需要等待重新加载。无法匹配的读音继续整行展示。

@@ -1,10 +1,21 @@
 # Mica 功能清单
 
-> 最后整理：2026-10-09。以 `codex/enable-r8` 已提交 HEAD `57f3b989` 为准（0.4.3 / code 58 / Room v35）；正式 `v0.4.3` tag 早于最近四个提交。领域词汇见 [CONTEXT.md](../CONTEXT.md)；近期功能状态见 [CURRENT_FEATURE_STATUS.md](CURRENT_FEATURE_STATUS.md)；文档索引见 [DOC_INDEX.md](DOC_INDEX.md)。
+> 最后整理：2026-11-25。以 `exoplayer-only` 已提交 HEAD `90bdd12a`（tag `v0.4.5` / code 60 / Room v35 / targetSdk 36）为准。领域词汇见 [CONTEXT.md](../CONTEXT.md)；近期功能状态见 [CURRENT_FEATURE_STATUS.md](CURRENT_FEATURE_STATUS.md)；文档索引见 [DOC_INDEX.md](DOC_INDEX.md)。
 
 ---
 
 ## 已实现
+
+### 2026-11-25 已落地主线增量（v0.4.4—v0.4.5）
+
+- [x] **Android 16 / targetSdk 36 迁移与 16 KB ELF 对齐**：`targetSdk 36`、NDK `r28c (28.2.13676358)`、`graphics-path 1.1.0`、Robolectric `4.16.1`；Debug/Release APK 静态 16 KB LOAD/zipalign 结构检查通过（真实 16 KB 页面设备运行验收仍见下方发布门禁），参见 [`TARGET_SDK_36_MIGRATION.md`](TARGET_SDK_36_MIGRATION.md)。
+- [x] **R8 Release 压缩与 MBassador Keep 规则**：Release 启用 `isMinifyEnabled = true`、CI 堆调整，并保留 Compose、FFmpeg JNI、Jaudiotagger、SMBJ/MBassador `@Handler` 及 `ReflectiveHandlerInvocation` 构造函数（`0b28e223` / `edb3d3bb` / `73727779`）。
+- [x] **Emby 远程曲库 MVP 与按需音频元数据/内嵌封面/歌词**：API Key Keystore 加密存储 + `X-Emby-Token`、分页索引（单源上限 10,000 首）、静态直出流与 seek、专辑主图回退、256 KiB read-ahead 内嵌封面提取与按需歌词加载（`976c056e` / `0585bc0c` / `81eca7d5`）。
+- [x] **歌词逐字注音（含桌面/状态栏外显）、源词尾时间与斜杠契约解耦**：严格源范围 Ruby 对齐与悬浮窗渲染（明确「仅原文」隐藏注音/读音）、源词尾时间跨渲染器保留、普通斜杠视觉分行与语言选择独立、外部歌词未填充颜色/透明度自定义、经典歌词间奏闪烁与收起回弹修复（`2918d360`..`93d3e288`）。
+- [x] **大队列防 ANR 与关闭态交互保护**：减少重复全队列元数据重算、收拢大队列媒体通知控制器命令；队列关闭过渡中禁用点击/滚动/拖拽/删除（`018191c1` / `b9a6e9cf`）。
+- [x] **扫描器优先可信专辑标签、歌单与横屏频谱修复**：验证到真实专辑标签（含验证为空）时优先于 MediaStore 默认目录回退；修复歌单命名新建原子化、重命名标签可读性与总览底部留白；修复横屏切换歌词页后的频谱资格恢复（`7991239d` / `207bd966` / `97fd135d`）。
+- [x] **粒子封面 WebView 旧管线退役**：`d0d5d56e` 已移除 `ThreeParticleCoverHost` 与 `app/src/main/assets/particle_cover`，仅保留原生 GLES 渲染链路（跨 GPU 性能与视觉验收归入发布门禁）。
+- [ ] **正式发布门禁（P0）**：8 GB / 10,000 首完整逐字歌词峰值内存与响应、R8 正式签名包 + 双 ABI（含真实 32 位进程）、Android 8/8.1 & 14+/16（含 16 KB 页面设备）覆盖升级、频谱时钟对齐 / 音效实验室 USB 旁路 / 视频封面 H.264 长播、Emby 真实服务端矩阵、Android Auto / OEM 车机、多 DAC / DSD256、以及 1:1 折叠屏/方屏封面布局真机验收仍未全绿。
 
 ### 2026-10-09 已提交状态同步
 
@@ -14,7 +25,6 @@
 - [x] **正方形粒子封面 GLES 几何修复**：覆盖 songId parity × 播放进度回归。
 - [x] **近期 UI/歌词/设置**：紧凑比例、拍立得 seek 热区、定时读音及译文轨、图标预设、设置子页重组。
 - [x] **测试角色分类**：Behavior / Architecture / Implementation 三层；OBSOLETE 是退役标记，当前数量需以重新生成的 manifest 为准。
-- [ ] **正式发布门禁**：最近四个提交未包含于 `v0.4.3` tag，8GB/10k 完整逐字歌词、多 OEM/USB/32 位/R8 正式签名验收仍未全绿。
 
 ### 2026-09-11 已落地主线增量
 
@@ -87,7 +97,7 @@
 - [x] 六种**播放页封面行为**（设置 → 播放页封面行为；见 `[COVER_FLOW_IMPLEMENTATION.md](COVER_FLOW_IMPLEMENTATION.md)` §0 与 `[CONTEXT.md](../CONTEXT.md)`）：
   - **标准**（`STANDARD`）：大封面 + 横向轻扫切歌
   - **自定义标准**（`CUSTOM_STANDARD`）：标准封面布局的可配置歌词页/横屏契约
-  - **粒子封面**（`PARTICLE_COVER`）：边缘粒子化与切歌分解；现网 **GLES**（`ParticleCoverPlayerLayer` → `ParticleCoverHost` / `ParticleCoverRenderer`）；WebView 回退仅 `UseNativeParticleCoverInPlayer = false`。详见 `[PARTICLE_COVER_OPENGL_MIGRATION.md](PARTICLE_COVER_OPENGL_MIGRATION.md)` §0
+  - **粒子封面**（`PARTICLE_COVER`）：边缘粒子化与切歌分解；现网纯 **GLES**（`ParticleCoverPlayerLayer` → `ParticleCoverHost` / `ParticleCoverRenderer`）；WebView 旧管线已于 `d0d5d56e` 退役。详见 `[PARTICLE_COVER_OPENGL_MIGRATION.md](PARTICLE_COVER_OPENGL_MIGRATION.md)` §0
   - **平行封面带**（`PAUSE_FOLD`）、**复古立体封面**（`RETRO_3D`）：七轨 View 岛封面流
   - **拍立得回忆**（`PHOTO_STACK`）：拍立得叠放转场；沉浸白边可选播放中显示当前歌词（默认关；过长走马灯，有逐字时间轴时填充）
 - [x] 根据背景自动/固定调整文字对比度
@@ -198,7 +208,7 @@
   - 当前从正式主题撤下：固定烘焙图无法同时适配 19.5:9、20:9 等长屏裁剪、圆角安全区、歌词列位置与朱印构图，光带还会抢过文字成为视觉主体。
   - 若以后重启，先在真实手机比例下解决“光带随可见纸面重排”的构图规则，再比较多套静态比例资源与轻量运行时着色方案；没有真机矩阵与耗电/GPU 测量前，不把完整 Three.js 运行时带进播放器。
 - [ ] **动态烟云打磨**
-- [ ] **粒子封面 WebView 退役**：播放页已切 GLES；删除 `ThreeParticleCoverHost` / `assets/particle_cover`、完成 parity 与性能验收见 `[PARTICLE_COVER_OPENGL_MIGRATION.md](PARTICLE_COVER_OPENGL_MIGRATION.md)`
+- [x] **粒子封面 WebView 退役**：播放页已切纯 GLES，`d0d5d56e` 已删除 `ThreeParticleCoverHost` 与 `app/src/main/assets/particle_cover`；跨 GPU 兼容性、性能与温控复验归入发布门禁（历史迁移记录见 `[PARTICLE_COVER_OPENGL_MIGRATION.md](PARTICLE_COVER_OPENGL_MIGRATION.md)`）
 - [ ] 播放页 **歌词切换动效**（平滑过渡 / 滚动居中）
 - [x] 歌词 **双语**（分隔显示或原文/译文切换）
 
@@ -250,7 +260,7 @@
   - **回退与验收**：按 `songId + musicVideoRevision` 一次熔断并原位回退纯音频，保留队列/位置/播放意图；匹配索引仍为 O(歌曲数 + MP4 数)。真实 H.264 首帧、长时漂移、耗电及 Shared/USB 各音频输出路径仍需真机验收。
 - [ ] **瘦身**（APK / 运行时占用）
   - **播放缓存**：复查 ExoPlayer / 扩展解码缓存与临时文件上限，避免大曲库长期占用膨胀
-  - **依赖与资源**：ProGuard/R8、未用资源与 so；设置项说明占用
+  - **依赖与资源**：Release R8 压缩已启用（`0b28e223` / `73727779`）；后续继续核查未用资源、native `.so` 体积与设置项占用说明
 - [x] **平行封面带** / **复古立体封面**（见上「六种播放页封面行为」；`[COVER_FLOW_IMPLEMENTATION.md](COVER_FLOW_IMPLEMENTATION.md)` §0–§12）
   - **观感**：启用后播放页常驻平行/立体封面带；播放 / 暂停不再触发布局放大缩小。
   - **实现**：View + Canvas 七轨；启用时强制裁切填充；与任意播放页背景组合。

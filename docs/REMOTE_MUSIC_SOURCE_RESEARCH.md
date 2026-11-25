@@ -1,8 +1,8 @@
 # 远程音乐源调研记录
 
-> 状态：**MVP 已实现并合并；本文后半保留原调研/provenance 与兼容性记录**
-> 最近更新：2026-10-09（已提交 `b332de4a`；历史 2026-08/09 的递归 SMB catalog 测试保留原始背景）
-> 当前范围：Navidrome / WebDAV / SMB  
+> 状态：**MVP 已实现并合并（含 Emby）；本文后半保留原调研/provenance 与兼容性记录**
+> 最近更新：2026-11-25（已提交 `v0.4.5 / 90bdd12a`；历史 2026-08/09 的递归 SMB catalog 测试保留原始背景）
+> 当前范围：Navidrome / WebDAV / SMB / Emby
 > 本文同时承担当前远程曲库实现状态、历史调研/provenance 与兼容边界记录。2026-08-29 之前的“候选/预期”文字按历史语境阅读；当前实现以本页实施状态、代码与 `CURRENT_FEATURE_STATUS.md` 为准。USB 输出与 DSD 的交叉约束同步参考 [`USB_EXCLUSIVE_AUDIO_STATUS.md`](USB_EXCLUSIVE_AUDIO_STATUS.md)。
 
 ## 2026-10-08 SMB 选定范围入库（当前实现）
@@ -653,13 +653,14 @@ Android-WebDav-Music-Player 和 tsm-player 当前没有明确源码许可证，�
 
 发布判断：**remote-music MVP 无已知 release blocker，可以进入合并/发布候选阶段。** 后续剩余工作属于非阻塞 polish，例如若需要可补 Navidrome `getCoverArt` 的协议抓包证据、扩展更大真实 Navidrome 曲库 soak、以及 UI/文案细节收尾。
 
-## Emby experimental MVP (2026-11-06; `experiment/emby-remote-source`)
+## Emby 远端源（已合入 v0.4.5：`976c056e` / `0585bc0c` / `81eca7d5`）
 
-- Base `fed556864bb824712cbbe770f72c012b685a0392`; no production merge or release.
+- 起源于 2026-11-06 的 `experiment/emby-remote-source` 原型，经 `976c056e`、`0585bc0c`（专辑主图回退）、`81eca7d5`（音频元数据与按需内嵌封面/歌词）与 `6e614a32` 合入 `exoplayer-only` / `v0.4.5`（`90bdd12a`）。
 - Source config stores only an opaque Keystore credential reference. The API Key is held as encrypted `BearerToken` material and injected as `X-Emby-Token` solely in ephemeral HTTP requests; never put it in endpoint/query/catalog/queue/diagnostic strings.
-- Library access: `/emby/Items?IncludeItemTypes=Audio&Recursive=true&StartIndex=N&Limit=500`. Only Audio items are mapped; sync is strictly capped at 10,000 tracks, deduplicated and single-source snapshot-committed under the source operation token.
+- Library access: `/emby/Items?IncludeItemTypes=Audio&Recursive=true&StartIndex=N&Limit=500`. Only Audio items are mapped; sync is strictly capped at 10,000 tracks, deduplicated and single-source snapshot-committed under the source operation token. Audio metadata fields are surfaced from Emby item metadata (`81eca7d5`).
 - Playback: `/emby/Audio/{itemId}/stream?static=true` with nonredirecting HTTP DataSource and ordinary seek/range requests. No automatic transcoding or playback reporting.
-- Artwork: `/emby/Items/{itemId}/Images/Primary` fetched JIT through the existing revisioned remote artwork provider. Artwork loads are bounded to 16 MiB.
-- Emby API Key must have library access (server APIs can expose libraries differently under user-specific access permissions); verify connection, metadata, cover, static stream/seek, 401 and large-library behavior against a real server before claiming device acceptance.
-- Out of scope: lyrics, report playback, default transcoding, Jellyfin, playlist write-back, offline download.
+- Artwork: `/emby/Items/{itemId}/Images/Primary` fetched JIT through the existing revisioned remote artwork provider (falling back to album primary artwork when a track has no primary image, `0585bc0c`); tracks without server-rendered primary images can also resolve embedded artwork on demand via `EmbyArtworkLoader` using TagLib byte-range reads (`256 KiB` read-ahead) against the authenticated stream (`81eca7d5`). Artwork loads are bounded to 16 MiB.
+- Lyrics: playback-only on-demand hydration via `EmbyLyricsLoader` (`81eca7d5`), reading Emby `MediaSources` subtitle/Extradata streams and authenticated subtitle endpoints without downloading lyric payloads during catalog sync.
+- Emby API Key must have library access (server APIs can expose libraries differently under user-specific access permissions); verify connection, metadata, cover, lyrics, static stream/seek, 401 and large-library behavior against a real server before claiming full device acceptance.
+- Still out of scope: playback reporting, default transcoding, Jellyfin-specific extensions, playlist write-back, offline download.
 - Reference designs: XyMusic Apache-2.0 Emby client, MediaBrowser Emby.SDK/ApiClients. Implementation is independently written; no GPL-derived implementation copied.

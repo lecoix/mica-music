@@ -1,11 +1,9 @@
 # 粒子封面手册（产品 §0 + GLES 迁移施工）
 
-> **当前修订（2026-10-07）**：提交 `77386225` 去掉基于 songId 奇偶的 X-only 散射反转，修复正方形封面粒子水平/垂直膨胀不对称。`ParticleCoverGeometryDeviceTest` 在 Xiaomi Android 12 / Adreno 730 验证两种 parity × 四个播放进度的真实 GLES 像素，8 组横纵比约 1.01。此证据不外推 Mali/其他 GPU；后续章节的迁移计划保留历史语境。
+> **当前修订（2026-11-25）**：WebView 旧管线（`ThreeParticleCoverHost.kt` 与 `app/src/main/assets/particle_cover/`）已于 `d0d5d56e` 彻底移除，播放页仅保留原生 GLES 路径。此前 `77386225` 去掉基于 songId 奇偶的 X-only 散射反转，修复正方形封面粒子水平/垂直膨胀不对称；`ParticleCoverGeometryDeviceTest` 在 Xiaomi Android 12 / Adreno 730 验证两种 parity × 四个播放进度的真实 GLES 像素，8 组横纵比约 1.01。此证据不外推 Mali/其他 GPU；§1 及后续章节保留为历史迁移记录。
 
-> 现状复核：2026-09-11。播放页生产路径仍为 native GLES；Three.js/WebView 只作为 legacy fallback，退役前须保留 parity/性能/低端机验收与开源 notice。
-
-> **状态**：2026-07 — 播放页现网已走 **GLES**（`UseNativeParticleCoverInPlayer = true`）；本文 §0 为产品说明，§1+ 为 WebView 退役与视觉 parity 施工。  
-> **读者**：改粒子交互、切歌动画、调参前必读。  
+> **状态**：播放页现网为纯原生 **GLES**；本文 §0 为产品说明，§1+ 为历史 WebView 退役与视觉 parity 迁移记录。
+> **读者**：改粒子交互、切歌动画、调参前必读。
 > 播放页契约：[`PLAYER_PAGE_CONTRACT.md`](PLAYER_PAGE_CONTRACT.md)；领域词汇：[`CONTEXT.md`](../CONTEXT.md)。
 
 ---
@@ -42,12 +40,12 @@
 
 | 层 | 文件 | 说明 |
 |----|------|------|
-| 全屏层 | [`ParticleCoverPlayerLayer.kt`](../app/src/main/java/com/mica/music/ui/screens/player/ParticleCoverPlayerLayer.kt) | `NowPlayingScreen` 挂载；`UseNativeParticleCoverInPlayer = true` |
+| 全屏层 | [`ParticleCoverPlayerLayer.kt`](../app/src/main/java/com/mica/music/ui/screens/player/ParticleCoverPlayerLayer.kt) | `NowPlayingScreen` 挂载（原生 GLES） |
 | GLES 宿主 | [`ParticleCoverHost.kt`](../app/src/main/java/com/mica/music/ui/screens/player/view/ParticleCoverHost.kt) | `TextureView` + 渲染线程 |
 | 渲染 | [`ParticleCoverView.kt`](../app/src/main/java/com/mica/music/ui/screens/player/view/ParticleCoverView.kt) / [`ParticleCoverRenderer.kt`](../app/src/main/java/com/mica/music/ui/screens/player/view/ParticleCoverRenderer.kt) | 稳态边缘粒子 + 切歌过渡 |
 | 布局 | [`ParticleCoverPageLayout.kt`](../app/src/main/java/com/mica/music/ui/screens/player/ParticleCoverPageLayout.kt) | `ParticleCoverFrame`、紧凑歌词 alpha |
 | 策略 | [`ParticleCoverThemePolicy.kt`](../app/src/main/java/com/mica/music/ui/screens/player/ParticleCoverThemePolicy.kt) | 与封面流 stage 互斥 |
-| **回退** | `ThreeParticleCoverHost.kt`（已退役历史文件） | WebView + Three.js；仅当 `UseNativeParticleCoverInPlayer = false` |
+| **已退役回退** | `ThreeParticleCoverHost.kt`（`d0d5d56e` 已删除） | 历史 WebView + Three.js 管线及 `assets/particle_cover/` 已完全移除 |
 
 ### 0.5 与迁移文档的关系
 

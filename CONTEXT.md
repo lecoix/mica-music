@@ -1,6 +1,6 @@
 # Mica Music — 播放
 
-> 2026-10-09 已提交基线复核：`codex/enable-r8` HEAD `57f3b989`、Room **v35**（v32 的 SAF mass-deletion 累计确认仍有效，后续 v33–v35 承载 SMB selected tracks/scopes 与迁移）。DEVICE + SAF/FOLDER AUTO 已在生产代码。扫描/封面修复 owner 为 `LibraryOperationExecutor`（`LibraryScanOrchestrator` 已退役）。未提交 R8/Vivo 诊断与播放页 UI 修改不视为已提交功能；正式 APK 状态以 tag/构建证据为准。
+> 2026-11-25 已提交基线复核：`exoplayer-only` HEAD `90bdd12a`（tag **`v0.4.5`** / code 60、`targetSdk 36`、R8 Release 压缩已开启）、Room **v35**（v32 的 SAF mass-deletion 累计确认仍有效，后续 v33–v35 承载 SMB selected tracks/scopes 与迁移）。DEVICE + SAF/FOLDER AUTO 与远端曲库（Navidrome/WebDAV/SMB/Emby）均已在生产代码。扫描/封面修复 owner 为 `LibraryOperationExecutor`（`LibraryScanOrchestrator` 已退役）。未提交工作树修改不视为已提交功能；正式 APK 验收状态以构建与真机证据为准。
 
 Mica 本地音乐播放器的领域语言：曲目与队列、出声路径、播放页 UI 与布局。本文只定义**叫什么**、**指什么**。
 
@@ -16,11 +16,11 @@ _Avoid_: caption、subtitle
 
 **LyricsDocument（歌词文档）**：
 渲染器无关的版本化歌词事实来源：格式（`LyricsFormat`）、来源位置（`LyricsOrigin`）、行、原文/读音/译文分段、逐字 token 与行结束时间。parser 只判定格式，reader 只判定来源位置，因此外挂 TTML、内嵌 LRC 等组合可以被准确表达。`LyricTextRole` 含 `ORIGINAL`、`READING`（文件自带罗马音/音译，如 TTML `x-roman` / `x-romanization`、Apple `iTunesMetadata/transliterations`，以及 LRC/SPL 同戳三行中的第 2 行 / 主行后紧邻无戳续行在三轨时的读音行）、`TRANSLATION`、`EXTRA`。LRC/SPL：同戳 2 行→原文+译文；同戳 3 行及以上→原文+读音+译文（对齐网易三轨合并）；主行后紧邻无时间戳行按 SPL 挂为续行（空行断开）。读音默认显示在原文上方，可由 `LyricsPreferences.lyricReadingEnabled` 关闭。LRC/SPL 逐行只丢空、`//`、纯音符、元数据/容器噪声（`LyricsSanitizer.isIgnorableLyricText`）；内嵌字节解码的乱码/可渲染性仍由 `LyricsEncoding` 负责。自数据库 v9 起，v2 对象 JSON 按 `EMBEDDED`、`EXTERNAL_LRC`、`EXTERNAL_TTML` 三槽持久化在 `song_lyrics.lyricsJson`，运行时先读取轻量槽位目录，再按用户优先级只读取并解码第一个有效载荷；损坏载荷回退到下一个已存在槽。`songs.lyricsJson` 仅作为 `MIGRATION_8_9` 的旧数据输入保留，不再是运行时事实来源，并应在后续显式 Room schema migration 中删除。`song_lyrics.revision` 为兼容字段，不作为读取可见性条件；读取失败时旧歌词按稳定 `songId` 保持可见。`lyricsDataVersion` 表示数据库已成功提交的 parser 代次，并参与 UI 与通知歌词的内存缓存键；parser 升级只有在完整扫描零歌词读取失败时才推进。v1 `source` 与历史 `[{t,x,c,e}]` 数组仅由 `LyricsDocumentCodec` 兼容读取。
-入库阶段不再用显示分隔符把普通文本改写成 `TRANSLATION`：`splitPartsAtIngest` 只保留源角色，文本分隔只是展示层启发式，结构化角色与逐字时间由源文档直接保留。
+入库阶段不再用显示分隔符把普通文本改写成 `TRANSLATION`：`splitPartsAtIngest` 只保留源角色，文本分隔只是展示层启发式，且普通未逐字 LRC/PLAIN 的视觉分行开关（`SPLIT`）与语言内容选择（`ALL / ORIGINAL / TRANSLATION`）完全独立，结构化角色与逐字源词尾时间由源文档直接保留（详见 `docs/LYRICS_SLASH_ROLE_CONTRACT.md`）。
 _Avoid_: 让 UI 从 `LyricLine.text` 再猜双语结构；把 `songs.lyricsJson` 重新作为运行时歌词事实来源
 
 **Ruby annotation（逐字注音）**：
-原文 `LyricTextPart.ruby` 的 UTF-16 范围与读音对应关系，允许一字多音及多字共音。优先保留 TTML Ruby 的明确分组；独立读音轨只在文件实际提供的原文/读音起止时间严格、唯一对应时建立范围，不能使用后续推导的 end。无法完整确定时保留整行读音，不均分、不猜测。范围随可选 JSON 字段持久化；当前工作树 local parser 14 / remote cache 4，旧歌词重扫后补齐。显示与容量边界见 `docs/LYRICS_RUBY_ALIGNMENT.md`（2026-10-25 工作树实现，未做真机验收）。
+原文 `LyricTextPart.ruby` 的 UTF-16 范围与读音对应关系，允许一字多音及多字共音。优先保留 TTML Ruby 的明确分组；独立读音轨只在文件实际提供的原文/读音起止时间严格、唯一对应时建立范围，不能使用后续推导的 end。无法完整确定时保留整行读音，不均分、不猜测。范围随可选 JSON 字段持久化；local parser 14 / remote cache 4，旧歌词重扫后补齐。应用内（经典/紧凑/横屏/歌词云/信笺）与桌面/状态栏外部悬浮窗均已合入 `v0.4.5`（明确选「仅原文」时同时隐藏注音、整行读音与译文）；显示、容量与待真机验收边界见 `docs/LYRICS_RUBY_ALIGNMENT.md`。
 _Avoid_: 用整行罗马音长度或 token 数量猜对应；把注音拼进原文；用推导出的时间为旧载荷补猜范围
 
 **Lyrics cache coordinator（歌词缓存协调器）**：
@@ -172,7 +172,7 @@ _Avoid_: 在 `PlayerController` callbacks 中重新实现去重、pending target
 _Avoid_: 把统计持久化绑到 `MainViewModel` / `MusicLibrary.ioScope`；对每次事件独立 `launch` 写 prefs；仅靠置空 Controller 回调“修泄漏”而丢掉后台播放统计
 
 **RemoteSourceManager（远端来源管理）**：
-应用侧远端来源配置与 catalog 同步入口。同一 `sourceInstanceId` 的 Navidrome / WebDAV / SMB catalog sync（含手动与 WorkManager 自动）经 per-source mutex **单飞串行**，避免同配置并发 refresh 共用 `RemoteOperationToken` 时后完成的旧 listing 覆盖新结果。`beginOperation` / `beginOperationSnapshot` 仍只快照 `(configRevision, operationGeneration)`，不在每次 begin 推进 generation；generation 仍由源编辑 `replace` 或显式 `invalidateOperations` 推进。
+应用侧远端来源配置与 catalog 同步入口。同一 `sourceInstanceId` 的 Navidrome / WebDAV / SMB / Emby catalog sync（含手动与 WorkManager 自动）经 per-source mutex **单飞串行**，避免同配置并发 refresh 共用 `RemoteOperationToken` 时后完成的旧 listing 覆盖新结果。`beginOperation` / `beginOperationSnapshot` 仍只快照 `(configRevision, operationGeneration)`，不在每次 begin 推进 generation；generation 仍由源编辑 `replace` 或显式 `invalidateOperations` 推进。Emby 使用 Keystore 加密的 API Key（仅以 `X-Emby-Token` 注入瞬时 HTTP 请求），同步上限 10,000 首，音频内嵌封面与歌词均按需加载而不随 catalog 批量下载。
 _Avoid_: 绕过 Manager 直接并发调用各 `*SourceSync.sync`；把每次 artwork/stream `beginOperationSnapshot` 当成会 bump 的 refresh 代际
 
 **Authoritative playback queue（权威播放队列）**：
@@ -347,7 +347,7 @@ _Avoid_: debounce、loading
 封面区交互形态，设置 → 播放页封面行为：
 `STANDARD`（标准大封面，横向轻扫切歌）；
 `CUSTOM_STANDARD`（以标准大封面为基准，下半屏使用 `PlayerLowerLayoutConfig`，禁止下半屏沉浸，歌词页统一横向整页滑动）；
-`PARTICLE_COVER`（粒子封面，封面边缘粒子化与切歌分解动画；现网 **GLES** `TextureView` + `ParticleCoverRenderer`，`UseNativeParticleCoverInPlayer = true`；WebView 回退见 `ThreeParticleCoverHost`；产品说明见 `docs/PARTICLE_COVER_OPENGL_MIGRATION.md` §0）；
+`PARTICLE_COVER`（粒子封面，封面边缘粒子化与切歌分解动画；现网纯 **GLES** `TextureView` + `ParticleCoverRenderer`；WebView 旧管线 `ThreeParticleCoverHost` / `assets/particle_cover` 已于 `d0d5d56e` 退役；产品说明见 `docs/PARTICLE_COVER_OPENGL_MIGRATION.md` §0）；
 `PAUSE_FOLD`（平行封面带）；
 `RETRO_3D`（复古立体封面流）；
 `PHOTO_STACK`（拍立得回忆，拍立得叠放转场）。
@@ -409,7 +409,7 @@ _Avoid_: 在 Composable 内直接读 `SharedPreferences` 或绕过门面写 key
 
 **PlayerLowerBackgroundMode（播放页背景）**：
 播放页下半屏（及必要时全屏）背景样式，设置 → 播放页背景：
-`THEME`（主题色）、`ARTWORK_GRADIENT`（封面渐变）、`COVER_GLOW`（封面模糊）、`DYNAMIC_LIGHT`（动态烟云，低分辨率封面纹理 + GLES 渲染）、`DYNAMIC_ARTWORK`（流光溢彩，多层封面纹理 + shader 切歌 crossfade）。
+`THEME`（主题色）、`ARTWORK_GRADIENT`（封面渐变）、`COVER_GLOW`（封面模糊）、`DYNAMIC_LIGHT`（动态烟云，设置 UI 暂隐藏，低分辨率封面纹理 + GLES 渲染）、`DYNAMIC_ARTWORK`（流光溢彩，多层封面纹理 + shader 切歌 crossfade）、`STAR_MAP`（星图，连续球面星图与太阳系天体）、`RAIN_GLASS`（雨幕玻璃，静态街景 + 自有 GLES 水滴/湿痕/折射/模糊链）。
 与 `PlayerCoverFlowMode` **并列、可任意组合**。
 _Avoid_: player theme、background preset、把播放页背景与封面行为混为一项设置
 
