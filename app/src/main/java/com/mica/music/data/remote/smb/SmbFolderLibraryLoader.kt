@@ -47,9 +47,19 @@ internal class SmbFolderLibraryLoader(
             }
             job = scope.launch {
                 try {
-                    val result = indexer.index(next, directory, includeChildren) { count ->
-                        update(next) { it.copy(entriesReady = true, message = "已加入 $count 首，正在补齐歌曲信息…") }
-                    }
+                    var entriesCount = 0
+                    val result = indexer.index(
+                        request = next,
+                        directory = directory,
+                        includeSubdirectories = includeChildren,
+                        onEntriesPublished = { count ->
+                            entriesCount = count
+                            update(next) { it.copy(entriesReady = true, message = "已加入 $count 首，正在补齐歌曲信息…") }
+                        },
+                        onProbeProgress = { probed, total ->
+                            update(next) { it.copy(entriesReady = true, message = "已加入 $entriesCount 首，正在补齐歌曲信息（$probed/$total）…") }
+                        },
+                    )
                     update(next) {
                         it.copy(active = false, message = when {
                             !result.complete -> "目录读取不完整，未修改曲库"

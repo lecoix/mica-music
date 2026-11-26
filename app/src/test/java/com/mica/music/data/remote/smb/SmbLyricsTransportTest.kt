@@ -84,6 +84,54 @@ class SmbLyricsTransportTest {
         assertTrue(session.closed)
     }
 
+    @Test
+    fun directOpenLookupSkipsParentDirectoryEnumerationForSidecarAndEmbedded() = runTest {
+        // 1. Direct .ttml hit without enumerating parent directory
+        val ttmlFile = FakeFile(
+            """<tt xmlns="http://www.w3.org/ns/ttml"><body><div><p begin="1s" end="2s">Direct TTML</p></div></body></tt>"""
+                .encodeToByteArray(),
+        )
+        val ttmlSession = DirectOpenFakeSession(
+            files = mapOf("Library\\Album\\Song.ttml" to ttmlFile),
+        )
+        val ttmlLoader = SmbLyricsLoader(
+            requestResolver = SmbPlaybackRequestResolver { request() },
+            embeddedLoader = RemoteEmbeddedLyricsLoader { _, _, _ -> error("Embedded must not run") },
+            sessionFactory = SmbSessionFactory { _, _ -> ttmlSession },
+        )
+        val ttmlDoc = ttmlLoader.load(song())
+        assertEquals(LyricsFormat.TTML, ttmlDoc.format)
+        assertEquals("Direct TTML", ttmlDoc.lines.single().parts.single().text)
+        assertEquals(0, ttmlSession.visitCalls)
+        assertEquals(listOf("Library\\Album\\Song.ttml"), ttmlSession.probedPaths)
+        assertTrue(ttmlSession.closed)
+
+        // 2. Missing .ttml and .lrc -> direct embedded fallback with zero parent directory visits
+        val audioFile = FakeFile(byteArrayOf(1, 2, 3, 4))
+        val embeddedSession = DirectOpenFakeSession(
+            files = mapOf("Library\\Album\\Song.flac" to audioFile),
+        )
+        var embeddedCalls = 0
+        val embeddedLoader = SmbLyricsLoader(
+            requestResolver = SmbPlaybackRequestResolver { request() },
+            embeddedLoader = RemoteEmbeddedLyricsLoader { _, _, _ ->
+                embeddedCalls++
+                embeddedDocument()
+            },
+            sessionFactory = SmbSessionFactory { _, _ -> embeddedSession },
+        )
+        val embeddedDoc = embeddedLoader.load(song())
+        assertEquals(1, embeddedCalls)
+        assertEquals(LyricsOrigin.EMBEDDED, embeddedDoc.origin)
+        assertEquals(0, embeddedSession.visitCalls)
+        assertEquals(
+            listOf("Library\\Album\\Song.ttml", "Library\\Album\\Song.lrc"),
+            embeddedSession.probedPaths,
+        )
+        assertTrue(audioFile.closed)
+        assertTrue(embeddedSession.closed)
+    }
+
     private fun request() = SmbPlaybackRequest(
         sourceInstanceId = "smb-lyrics",
         sourceConfigRevision = 1,
@@ -133,6 +181,39 @@ class SmbLyricsTransportTest {
         override fun openFile(serverPath: String): SmbRandomAccessFile {
             openedPaths += serverPath
             return checkNotNull(files[serverPath]) { "Unexpected SMB open: $serverPath" }
+        }
+
+        override fun close() {
+            closed = true
+        }
+    }
+
+    private class DirectOpenFakeSession(
+        private val files: Map<String, FakeFile>,
+    ) : SmbSessionHandle {
+        val probedPaths = mutableListOf<String>()
+        var visitCalls = 0
+        var closed = false
+
+        override val supportsDirectOpenLookup: Boolean
+            get() = true
+
+        override fun list(serverPath: String): List<SmbDirectoryEntry> {
+            visitCalls++
+            throw AssertionError("Direct open lookup must not enumerate parent directory: $serverPath")
+        }
+
+        override fun visit(serverPath: String, consume: (SmbDirectoryEntry) -> Boolean) {
+            visitCalls++
+            throw AssertionError("Direct open lookup must not visit parent directory: $serverPath")
+        }
+
+        override fun openFile(serverPath: String): SmbRandomAccessFile =
+            checkNotNull(files[serverPath]) { "Unexpected SMB open: $serverPath" }
+
+        override fun openFileIfExists(serverPath: String): SmbRandomAccessFile? {
+            probedPaths += serverPath
+            return files[serverPath]
         }
 
         override fun close() {

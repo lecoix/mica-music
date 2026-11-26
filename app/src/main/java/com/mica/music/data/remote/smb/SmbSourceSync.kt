@@ -8,6 +8,7 @@ import com.mica.music.data.remote.REMOTE_METADATA_IO_CONCURRENCY
 import com.mica.music.data.remote.REMOTE_METADATA_PROBE_REVISION
 import com.mica.music.data.remote.RemoteOperationSnapshot
 import com.mica.music.data.remote.RemoteSidecarArtworkCandidate
+import com.mica.music.data.remote.RemoteSidecarArtworkIndex
 import com.mica.music.data.remote.RemoteSourceOwner
 import com.mica.music.data.remote.RemoteSourceType
 import com.mica.music.data.remote.RemoteTrackMetadataProbe
@@ -181,6 +182,7 @@ internal class SmbSourceSync(
                 )
             }
             val folderArtwork = selectRemoteFolderSidecarArtwork(artworkCandidates)
+            val artworkIndex = RemoteSidecarArtworkIndex.from(artworkCandidates)
             val audioEntries = resolvedEntries.filter { resolved ->
                 !resolved.entry.isDirectory && extension(resolved.entry.name) in AUDIO_EXTENSIONS
             }
@@ -191,7 +193,7 @@ internal class SmbSourceSync(
                 val entry = resolved.entry
                 val relativePath = resolved.relativePath
                 val suffix = extension(entry.name)
-                val artwork = selectRemoteTrackSidecarArtwork(entry.name, artworkCandidates)
+                val artwork = artworkIndex.selectForTrack(entry.name)
                 val base = RemoteTrackSummary(
                     ref = RemoteTrackRef(sourceId, relativePath),
                     title = entry.name.substringBeforeLast('.', entry.name).ifBlank { entry.name },

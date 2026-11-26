@@ -29,45 +29,56 @@ internal class SmbLyricsLoader(
                 val audioName = request.relativePath.substringAfterLast('/')
                 val baseName = audioName.substringBeforeLast('.').trim()
                 val coroutine = currentCoroutineContext()
-                val entries = ArrayList<SmbDirectoryEntry>()
-                var visited = 0
-                session.visit(request.endpoint.serverPath(parentPath)) { entry ->
+                if (session.supportsDirectOpenLookup) {
+                    // Fast path: probe exact same-stem sidecars directly without enumerating the
+                    // entire parent directory (avoids O(dirSize) stalls on slow routers / flat shares).
+                    tryReadDirectSidecar(session, request.endpoint, parentPath, "$baseName.ttml")
+                        ?.let { return@withContext LyricsSlots(externalTtml = it).selected() }
                     coroutine.ensureActive()
-                    if (++visited > SmbDirectoryBrowser.MAX_VISITED_ENTRIES) throw IOException("SMB lyric directory exceeds budget")
-                    if (!entry.isDirectory && (entry.name.equals("$baseName.lrc", true) || entry.name.equals("$baseName.ttml", true))) {
-                        if (entries.size >= 16) throw IOException("Too many ambiguous lyric sidecars")
-                        entries += entry
+                    tryReadDirectSidecar(session, request.endpoint, parentPath, "$baseName.lrc")
+                        ?.let { return@withContext LyricsSlots(externalLrc = it).selected() }
+                    coroutine.ensureActive()
+                } else {
+                    val entries = ArrayList<SmbDirectoryEntry>()
+                    var visited = 0
+                    session.visit(request.endpoint.serverPath(parentPath)) { entry ->
+                        coroutine.ensureActive()
+                        if (++visited > SmbDirectoryBrowser.MAX_VISITED_ENTRIES) throw IOException("SMB lyric directory exceeds budget")
+                        if (!entry.isDirectory && (entry.name.equals("$baseName.lrc", true) || entry.name.equals("$baseName.ttml", true))) {
+                            if (entries.size >= 16) throw IOException("Too many ambiguous lyric sidecars")
+                            entries += entry
+                        }
+                        true
                     }
-                    true
-                }
-                val sidecars = entries
-                    .asSequence()
-                    .filterNot(SmbDirectoryEntry::isDirectory)
-                    .filter { entry ->
-                        entry.name.equals("$baseName.lrc", ignoreCase = true) ||
-                            entry.name.equals("$baseName.ttml", ignoreCase = true)
-                    }
-                    .sortedWith(
-                        compareBy<SmbDirectoryEntry> {
-                            if (it.name.endsWith(".ttml", ignoreCase = true)) 0 else 1
-                        }.thenBy { it.name.lowercase() },
-                    )
-                    .toList()
+                    val sidecars = entries
+                        .asSequence()
+                        .filterNot(SmbDirectoryEntry::isDirectory)
+                        .filter { entry ->
+                            entry.name.equals("$baseName.lrc", ignoreCase = true) ||
+                                entry.name.equals("$baseName.ttml", ignoreCase = true)
+                        }
+                        .sortedWith(
+                            compareBy<SmbDirectoryEntry> {
+                                if (it.name.endsWith(".ttml", ignoreCase = true)) 0 else 1
+                            }.thenBy { it.name.lowercase() },
+                        )
+                        .toList()
 
-                val ttml = readSidecars(
-                    session = session,
-                    endpoint = request.endpoint,
-                    parentPath = parentPath,
-                    entries = sidecars.filter { it.name.endsWith(".ttml", ignoreCase = true) },
-                )
-                LyricsSanitizer.pickBestDocument(ttml)?.let { return@withContext LyricsSlots(externalTtml = it).selected() }
-                val lrc = readSidecars(
-                    session = session,
-                    endpoint = request.endpoint,
-                    parentPath = parentPath,
-                    entries = sidecars.filter { it.name.endsWith(".lrc", ignoreCase = true) },
-                )
-                LyricsSanitizer.pickBestDocument(lrc)?.let { return@withContext LyricsSlots(externalLrc = it).selected() }
+                    val ttml = readSidecars(
+                        session = session,
+                        endpoint = request.endpoint,
+                        parentPath = parentPath,
+                        entries = sidecars.filter { it.name.endsWith(".ttml", ignoreCase = true) },
+                    )
+                    LyricsSanitizer.pickBestDocument(ttml)?.let { return@withContext LyricsSlots(externalTtml = it).selected() }
+                    val lrc = readSidecars(
+                        session = session,
+                        endpoint = request.endpoint,
+                        parentPath = parentPath,
+                        entries = sidecars.filter { it.name.endsWith(".lrc", ignoreCase = true) },
+                    )
+                    LyricsSanitizer.pickBestDocument(lrc)?.let { return@withContext LyricsSlots(externalLrc = it).selected() }
+                }
 
                 val embedded = SmbSeekableByteSource(
                     session.openFile(request.endpoint.serverPath(request.relativePath)),
@@ -96,9 +107,25 @@ internal class SmbLyricsLoader(
         readSidecar(session, endpoint.serverPath(relativePath))
     }
 
-    private fun readSidecar(session: SmbSessionHandle, serverPath: String): LyricsDocument? {
-        val file = session.openFile(serverPath)
-        return file.use { input ->
+    private fun tryReadDirectSidecar(
+        session: SmbSessionHandle,
+        endpoint: SmbEndpoint,
+        parentPath: String,
+        fileName: String,
+    ): LyricsDocument? {
+        val relativePath = SmbPathCodec.normalizeRelativePath(
+            if (parentPath.isBlank()) fileName else "$parentPath/$fileName",
+        )
+        val file = session.openFileIfExists(endpoint.serverPath(relativePath)) ?: return null
+        val doc = readOpenedSidecar(file) ?: return null
+        return LyricsSanitizer.pickBestDocument(listOf(doc))
+    }
+
+    private fun readSidecar(session: SmbSessionHandle, serverPath: String): LyricsDocument? =
+        readOpenedSidecar(session.openFile(serverPath))
+
+    private fun readOpenedSidecar(file: SmbRandomAccessFile): LyricsDocument? =
+        file.use { input ->
             val length = input.length
             if (length < 0L || length > ExternalLyricsReader.MAX_EXTERNAL_LYRICS_BYTES || length > Int.MAX_VALUE) {
                 throw IOException("SMB lyrics exceeds size limit")
@@ -113,5 +140,4 @@ internal class SmbLyricsLoader(
             }
             ExternalLyricsReader.parseRemoteDocument(bytes)
         }
-    }
 }

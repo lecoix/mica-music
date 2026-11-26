@@ -93,6 +93,14 @@ internal interface SmbSessionHandle : Closeable {
     }
     fun checkDirectory(serverPath: String) { list(serverPath) }
     fun openFile(serverPath: String): SmbRandomAccessFile
+    /**
+     * Whether [openFileIfExists] can probe exact relative paths without enumerating the parent
+     * directory first. Enabled on real SMBJ handles; false by default for legacy test fakes.
+     */
+    val supportsDirectOpenLookup: Boolean
+        get() = false
+    /** Opens [serverPath] or returns null if the server reports the file does not exist. */
+    fun openFileIfExists(serverPath: String): SmbRandomAccessFile? = openFile(serverPath)
 }
 
 internal fun interface SmbSessionFactory {
@@ -185,6 +193,12 @@ internal fun classifySmbStatus(status: NtStatus): SmbFailureKind = when (status)
     else -> SmbFailureKind.CONNECT
 }
 
+private val SMB_MISSING_FILE_STATUSES = setOf(
+    NtStatus.STATUS_OBJECT_NAME_NOT_FOUND,
+    NtStatus.STATUS_OBJECT_PATH_NOT_FOUND,
+    NtStatus.STATUS_NO_SUCH_FILE,
+)
+
 private class SmbjSessionHandle(
     private val client: SMBClient,
     private val connection: Connection,
@@ -225,6 +239,9 @@ private class SmbjSessionHandle(
         throw SmbException(SmbFailureKind.IO, "SMB directory listing failed", failure)
     }
 
+    override val supportsDirectOpenLookup: Boolean
+        get() = true
+
     override fun openFile(serverPath: String): SmbRandomAccessFile = try {
         val file = share.openFile(
             serverPath,
@@ -239,6 +256,30 @@ private class SmbjSessionHandle(
             null,
         )
         SmbjRandomAccessFile(file)
+    } catch (failure: Throwable) {
+        throw SmbException(SmbFailureKind.IO, "SMB file open failed", failure)
+    }
+
+    override fun openFileIfExists(serverPath: String): SmbRandomAccessFile? = try {
+        val file = share.openFile(
+            serverPath,
+            EnumSet.of(AccessMask.FILE_READ_DATA, AccessMask.FILE_READ_ATTRIBUTES),
+            null,
+            EnumSet.of(
+                SMB2ShareAccess.FILE_SHARE_READ,
+                SMB2ShareAccess.FILE_SHARE_WRITE,
+                SMB2ShareAccess.FILE_SHARE_DELETE,
+            ),
+            SMB2CreateDisposition.FILE_OPEN,
+            null,
+        )
+        SmbjRandomAccessFile(file)
+    } catch (failure: SMBApiException) {
+        if (failure.status in SMB_MISSING_FILE_STATUSES) {
+            null
+        } else {
+            throw SmbException(SmbFailureKind.IO, "SMB file open failed", failure)
+        }
     } catch (failure: Throwable) {
         throw SmbException(SmbFailureKind.IO, "SMB file open failed", failure)
     }

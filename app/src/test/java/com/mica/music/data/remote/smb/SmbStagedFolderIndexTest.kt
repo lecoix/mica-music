@@ -124,6 +124,170 @@ class SmbStagedFolderIndexTest {
         } finally { f.db.close() }
     }
 
+    @Test fun checkpointedProbedMetadataSurvivesCancellationAndIsReusedOnNextRefresh() = runBlocking {
+        val f = MultiTrackFixture(trackCount = 4)
+        val checkpointCommitted = CompletableDeferred<Unit>()
+        val releaseRemaining = CountDownLatch(1)
+        val process = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            f.repo.upsertSource(f.source)
+            val probe = RemoteTrackMetadataProbe { fileName, _ ->
+                if (fileName == "Track_03.flac" || fileName == "Track_04.flac") {
+                    check(releaseRemaining.await(15, TimeUnit.SECONDS))
+                }
+                RemoteTrackMetadata(title = "Tagged $fileName")
+            }
+            val loader = SmbFolderLibraryLoader(
+                repository = f.repo,
+                indexer = f.indexer(probe, checkpointBatchSize = 2),
+                scope = process,
+            )
+            loader.start(f.source.id, "Album", false)
+            withTimeout(10_000) {
+                loader.state.first { it.entriesReady && it.message.contains("（") }
+                checkpointCommitted.complete(Unit)
+            }
+            checkpointCommitted.await()
+
+            // Cancel while Track_03 and Track_04 are still blocked in probing.
+            loader.cancel()
+            releaseRemaining.countDown()
+            process.coroutineContext[Job]!!.children.toList().joinAll()
+
+            val persistedAfterCancel = f.repo.tracksForSource(f.source.id)
+            assertEquals(4, persistedAfterCancel.size)
+            val persistedProbed = persistedAfterCancel.filter { it.metadataProbeRevision == REMOTE_METADATA_PROBE_REVISION }
+            assertEquals(2, persistedProbed.size)
+            assertEquals(setOf("Tagged Track_01.flac", "Tagged Track_02.flac"), persistedProbed.map { it.title }.toSet())
+
+            // Next refresh must reuse the 2 checkpointed tracks and only probe the remaining 2.
+            val probedNames = java.util.Collections.synchronizedList(mutableListOf<String>())
+            val refreshResult = f.indexer(
+                RemoteTrackMetadataProbe { fileName, _ ->
+                    probedNames += fileName
+                    RemoteTrackMetadata(title = "Refreshed $fileName")
+                },
+                checkpointBatchSize = 2,
+            ).indexStaged(f.source.id, "Album", false) {}
+            assertTrue(refreshResult.complete && refreshResult.published)
+            assertEquals(2, refreshResult.metadataReusedCount)
+            assertEquals(2, refreshResult.metadataProbedCount)
+            assertEquals(setOf("Track_03.flac", "Track_04.flac"), probedNames.toSet())
+        } finally {
+            releaseRemaining.countDown()
+            process.cancel()
+            f.db.close()
+        }
+    }
+
+    @Test fun staleCheckpointCannotOverwriteNewerRequestOrRemovedScope() = runBlocking {
+        for (action in listOf("replace", "remove")) {
+            val f = MultiTrackFixture(trackCount = 4)
+            val reachedCheckpointBoundary = CompletableDeferred<Unit>()
+            val releaseOld = CountDownLatch(1)
+            try {
+                f.repo.upsertSource(f.source)
+                val oldRequest = checkNotNull(f.repo.beginSmbFolderIndex(f.source.id))
+                val oldProbe = RemoteTrackMetadataProbe { fileName, _ ->
+                    if (fileName != "Track_01.flac") {
+                        // Hold Track_02..04 so checkpoint #1 (batch=2) cannot commit until releaseOld fires.
+                        reachedCheckpointBoundary.complete(Unit)
+                        check(releaseOld.await(15, TimeUnit.SECONDS))
+                    }
+                    RemoteTrackMetadata(title = "Stale $fileName")
+                }
+                val oldIndexer = f.indexer(oldProbe, checkpointBatchSize = 2)
+                val oldJob = async(Dispatchers.IO) {
+                    runCatching { oldIndexer.index(oldRequest, "Album", false, onEntriesPublished = {}) }
+                }
+                try {
+                    withTimeout(10_000) { reachedCheckpointBoundary.await() }
+                    when (action) {
+                        "replace" -> {
+                            val newer = f.indexer(
+                                RemoteTrackMetadataProbe { fileName, _ -> RemoteTrackMetadata(title = "Fresh $fileName") },
+                                checkpointBatchSize = 2,
+                            ).indexStaged(f.source.id, "Album", false) {}
+                            assertTrue(newer.published)
+                        }
+                        "remove" -> {
+                            val scopeId = f.repo.smbFolderScopes(f.source.id).single().id
+                            assertTrue(f.repo.removeSmbFolderScope(f.source.id, scopeId))
+                        }
+                    }
+                } finally {
+                    releaseOld.countDown()
+                }
+                val oldOutcome = oldJob.await()
+                assertTrue("Old request should fail or not publish for $action", oldOutcome.isFailure || oldOutcome.getOrNull()?.published == false)
+                val finalRows = f.repo.tracksForSource(f.source.id)
+                when (action) {
+                    "replace" -> {
+                        assertEquals(4, finalRows.size)
+                        assertTrue(finalRows.all { it.title.startsWith("Fresh ") })
+                    }
+                    "remove" -> assertTrue(finalRows.isEmpty())
+                }
+            } finally {
+                releaseOld.countDown()
+                f.db.close()
+            }
+        }
+    }
+
+    @Test fun indexedSidecarLookupsMatchLinearOverloads() {
+        val lyrics = listOf(
+            RemoteLyricsSidecarCandidate("Song_A.LRC", "Album/Song_A.LRC", "rev1", 100),
+            RemoteLyricsSidecarCandidate("song_a.ttml", "Album/song_a.ttml", "rev2", 200),
+            RemoteLyricsSidecarCandidate("Song_B.lrc", "Album/Song_B.lrc", "rev3", 150),
+        )
+        val lyricsIndex = RemoteLyricsSidecarIndex.from(lyrics)
+        for (name in listOf("Song_A.flac", "SONG_B.mp3", "Song_C.m4a")) {
+            val expected = remoteTrackLyricsRevision(name, "Album/$name", "fileRev", 1024L, lyrics)
+            val actual = remoteTrackLyricsRevision(name, "Album/$name", "fileRev", 1024L, lyricsIndex)
+            assertEquals("Lyrics revision mismatch for $name", expected, actual)
+        }
+
+        val artworks = listOf(
+            RemoteSidecarArtworkCandidate("Song_A.png", "Album/Song_A.png", "revP", 500),
+            RemoteSidecarArtworkCandidate("song_a.JPG", "Album/song_a.JPG", "revJ", 400),
+            RemoteSidecarArtworkCandidate("Song_B.webp", "Album/Song_B.webp", "revW", 300),
+        )
+        val artIndex = RemoteSidecarArtworkIndex.from(artworks)
+        for (name in listOf("Song_A.flac", "SONG_B.mp3", "Song_C.m4a")) {
+            assertEquals(
+                selectRemoteTrackSidecarArtwork(name, artworks),
+                artIndex.selectForTrack(name),
+            )
+        }
+    }
+
+    private class MultiTrackFixture(private val trackCount: Int) {
+        val db = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext(), MicaDatabase::class.java).allowMainThreadQueries().build()
+        val repo = RemoteCatalogRepository(db)
+        val source = RemoteSourceInstance(id = "staged-multi", type = RemoteSourceType.SMB, displayName = "Multi", endpoint = "smb://host/share", credentialRef = "credential")
+        fun indexer(probe: RemoteTrackMetadataProbe, checkpointBatchSize: Int = SmbFolderLibraryIndexer.DEFAULT_PROBE_CHECKPOINT_BATCH_SIZE) =
+            SmbFolderLibraryIndexer(
+                repository = repo,
+                credentials = SecureRemoteCredentialStore { RemoteCredentialSnapshot(it, 1, RemoteCredentialMaterial.Anonymous) },
+                sessions = SmbSessionFactory { _, _ ->
+                    object : SmbSessionHandle {
+                        override fun list(serverPath: String) = (1..trackCount).map { i ->
+                            SmbDirectoryEntry("Track_${i.toString().padStart(2, '0')}.flac", false, 1000L + i, "rev-$i")
+                        }
+                        override fun openFile(serverPath: String) = object : SmbRandomAccessFile {
+                            override val length = 1000L
+                            override fun read(fileOffset: Long, buffer: ByteArray, offset: Int, length: Int) = -1
+                            override fun close() = Unit
+                        }
+                        override fun close() = Unit
+                    }
+                },
+                metadataProbe = probe,
+                probeCheckpointBatchSize = checkpointBatchSize,
+            )
+    }
+
     private class Fixture {
         val db = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext(), MicaDatabase::class.java).allowMainThreadQueries().build()
         val repo = RemoteCatalogRepository(db)

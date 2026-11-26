@@ -158,12 +158,12 @@ internal class SmbDirectoryBrowser(
             }
             context.ensureActive()
             checkCurrent()
-            val artworkByStem = artworks.groupBy { it.fileName.substringBeforeLast('.').lowercase(java.util.Locale.ROOT) }
+            val artworkIndex = RemoteSidecarArtworkIndex.from(artworks)
+            val lyricsIndex = RemoteLyricsSidecarIndex.from(lyrics)
             entries.indices.forEach { index ->
                 val entry = entries[index]
                 val track = entry.track ?: return@forEach
-                val art = selectRemoteTrackSidecarArtwork(entry.name,
-                    artworkByStem[entry.name.substringBeforeLast('.').lowercase(java.util.Locale.ROOT)].orEmpty())
+                val art = artworkIndex.selectForTrack(entry.name)
                 entries[index] = entry.copy(track = track.copy(
                     artworkOpaqueId = art?.let {
                         RemoteFileArtworkIdCodec.encode(it.resourceId, it.contentRevision)
@@ -173,7 +173,7 @@ internal class SmbDirectoryBrowser(
                         resourceId = track.ref.opaqueTrackId,
                         contentRevision = track.contentRevision,
                         sizeBytes = track.sizeBytes,
-                        candidates = lyrics,
+                        index = lyricsIndex,
                     ),
                 ))
             }

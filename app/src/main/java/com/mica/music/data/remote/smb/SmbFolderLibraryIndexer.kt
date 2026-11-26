@@ -8,7 +8,9 @@ import com.mica.music.data.remote.REMOTE_METADATA_IO_CONCURRENCY
 import com.mica.music.data.remote.REMOTE_METADATA_PROBE_REVISION
 import com.mica.music.data.remote.RemoteOperationSnapshot
 import com.mica.music.data.remote.RemoteLyricsSidecarCandidate
+import com.mica.music.data.remote.RemoteLyricsSidecarIndex
 import com.mica.music.data.remote.RemoteSidecarArtworkCandidate
+import com.mica.music.data.remote.RemoteSidecarArtworkIndex
 import com.mica.music.data.remote.RemoteSourceOwner
 import com.mica.music.data.remote.RemoteSourceType
 import com.mica.music.data.remote.RemoteTrackMetadataProbe
@@ -19,16 +21,19 @@ import com.mica.music.data.remote.isRemoteSidecarArtworkFile
 import com.mica.music.data.remote.isRemoteLyricsSidecarFile
 import com.mica.music.data.remote.remoteArtworkRevisionKey
 import com.mica.music.data.remote.remoteTrackLyricsRevision
-import com.mica.music.data.remote.selectRemoteTrackSidecarArtwork
 import com.mica.music.util.DiagnosticLog
 import java.util.ArrayDeque
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReferenceArray
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /** Validity is mutated only by RemoteCatalogRepository under its publication mutex. */
@@ -67,6 +72,7 @@ internal class SmbFolderLibraryIndexer(
     private val credentials: SecureRemoteCredentialStore,
     private val sessions: SmbSessionFactory = SmbjSessionFactory(),
     private val metadataProbe: RemoteTrackMetadataProbe? = null,
+    private val probeCheckpointBatchSize: Int = DEFAULT_PROBE_CHECKPOINT_BATCH_SIZE,
 ) {
     suspend fun index(
         sourceId: String,
@@ -78,15 +84,25 @@ internal class SmbFolderLibraryIndexer(
         return index(request, directory, includeSubdirectories)
     }
 
-    suspend fun indexStaged(sourceId: String, directory: String, includeSubdirectories: Boolean,
-        onEntriesPublished: suspend (Int) -> Unit): SmbFolderIndexResult {
+    suspend fun indexStaged(
+        sourceId: String,
+        directory: String,
+        includeSubdirectories: Boolean,
+        onProbeProgress: (suspend (probed: Int, total: Int) -> Unit)? = null,
+        onEntriesPublished: suspend (Int) -> Unit,
+    ): SmbFolderIndexResult {
         val request = repository.beginSmbFolderIndex(sourceId)
             ?: throw SmbException(SmbFailureKind.STALE_OPERATION, "SMB source unavailable")
-        return index(request, directory, includeSubdirectories, onEntriesPublished)
+        return index(request, directory, includeSubdirectories, onProbeProgress, onEntriesPublished)
     }
 
-    internal suspend fun index(request: SmbFolderIndexRequest, directory: String,
-        includeSubdirectories: Boolean, onEntriesPublished: (suspend (Int) -> Unit)? = null): SmbFolderIndexResult {
+    internal suspend fun index(
+        request: SmbFolderIndexRequest,
+        directory: String,
+        includeSubdirectories: Boolean,
+        onProbeProgress: (suspend (probed: Int, total: Int) -> Unit)? = null,
+        onEntriesPublished: (suspend (Int) -> Unit)? = null,
+    ): SmbFolderIndexResult {
         val operation = request.operation
         val sourceId = operation.token.sourceInstanceId
         val owner = repository.sourceOwner(sourceId)
@@ -120,10 +136,21 @@ internal class SmbFolderLibraryIndexer(
                 request = request,
                 publishEntries = if (onEntriesPublished == null) null else { tracks ->
                     ensureCurrent()
-                    check(repository.replaceSmbFolderScopeIfCurrent(operation.token, root, includeSubdirectories, tracks, request)) { "Stale folder entries" }
+                    if (!repository.replaceSmbFolderScopeIfCurrent(operation.token, root, includeSubdirectories, tracks, request)) {
+                        throw SmbException(SmbFailureKind.STALE_OPERATION, "Stale folder entries")
+                    }
                     entriesPublished = true
                     ensureCurrent()
                     onEntriesPublished(tracks.size)
+                    ensureCurrent()
+                },
+                publishCheckpoint = if (onEntriesPublished == null || probeCheckpointBatchSize <= 0) null else { tracks, probed, total ->
+                    ensureCurrent()
+                    if (!repository.replaceSmbFolderScopeIfCurrent(operation.token, root, includeSubdirectories, tracks, request)) {
+                        throw SmbException(SmbFailureKind.STALE_OPERATION, "Stale folder checkpoint")
+                    }
+                    ensureCurrent()
+                    onProbeProgress?.invoke(probed, total)
                     ensureCurrent()
                 },
             )
@@ -138,13 +165,18 @@ internal class SmbFolderLibraryIndexer(
                 metadataReusedCount = 0,
             )
         }
-        val published = repository.replaceSmbFolderScopeIfCurrent(
-            token = operation.token,
-            relativeDirectory = root,
-            includeSubdirectories = includeSubdirectories,
-            tracks = discovery.tracks,
-            request = request,
-        )
+        val published = if (entriesPublished && discovery.metadataProbedCount == 0) {
+            ensureCurrent()
+            true
+        } else {
+            repository.replaceSmbFolderScopeIfCurrent(
+                token = operation.token,
+                relativeDirectory = root,
+                includeSubdirectories = includeSubdirectories,
+                tracks = discovery.tracks,
+                request = request,
+            )
+        }
         ensureCurrent()
         if (published && !entriesPublished) onEntriesPublished?.invoke(discovery.tracks.size)
         return SmbFolderIndexResult(
@@ -166,6 +198,7 @@ internal class SmbFolderLibraryIndexer(
         includeSubdirectories: Boolean,
         request: SmbFolderIndexRequest,
         publishEntries: (suspend (List<RemoteTrackSummary>) -> Unit)?,
+        publishCheckpoint: (suspend (List<RemoteTrackSummary>, Int, Int) -> Unit)?,
     ): Discovery {
         val context = currentCoroutineContext()
         val startedNanos = System.nanoTime()
@@ -253,8 +286,10 @@ internal class SmbFolderLibraryIndexer(
                     true
                 }
                 if (!complete) break
+                val artworkIndex = RemoteSidecarArtworkIndex.from(artworks)
+                val lyricsIndex = RemoteLyricsSidecarIndex.from(lyrics)
                 localTracks.forEachIndexed { index, track ->
-                    val artwork = selectRemoteTrackSidecarArtwork(track.fileName, artworks)
+                    val artwork = artworkIndex.selectForTrack(track.fileName)
                     localTracks[index] = track.copy(
                         artworkOpaqueId = artwork?.let {
                             RemoteFileArtworkIdCodec.encode(it.resourceId, it.contentRevision)
@@ -264,7 +299,7 @@ internal class SmbFolderLibraryIndexer(
                             resourceId = track.ref.opaqueTrackId,
                             contentRevision = track.contentRevision,
                             sizeBytes = track.sizeBytes,
-                            candidates = lyrics,
+                            index = lyricsIndex,
                         ),
                     )
                 }
@@ -272,6 +307,7 @@ internal class SmbFolderLibraryIndexer(
             }
 
             if (complete && metadataProbe != null && tracks.isNotEmpty()) {
+                tracks.sortWith(compareBy<RemoteTrackSummary>({ it.ref.opaqueTrackId.lowercase(Locale.ROOT) }, { it.ref.opaqueTrackId }))
                 val reusable = repository.reusableSmbTracksIfCurrent(
                     token = operation.token,
                     refs = tracks.map(RemoteTrackSummary::ref),
@@ -292,27 +328,62 @@ internal class SmbFolderLibraryIndexer(
                 publishEntries?.invoke(tracks)
                 context.ensureActive()
                 ensureCurrent(owner, operation, request)
-                probeCandidates.chunked(REMOTE_METADATA_IO_CONCURRENCY).forEach { chunk ->
-                    context.ensureActive()
-                    ensureCurrent(owner, operation, request)
-                    val enriched = coroutineScope {
-                        chunk.map { indexed ->
+
+                if (probeCandidates.isNotEmpty()) {
+                    val trackSlots = AtomicReferenceArray<RemoteTrackSummary>(tracks.size)
+                    tracks.forEachIndexed { index, track -> trackSlots.set(index, track) }
+                    val cursor = AtomicInteger(0)
+                    val completedTotal = AtomicInteger(0)
+                    val completedSinceCheckpoint = AtomicInteger(0)
+                    val checkpointMutex = Mutex()
+                    val workerCount = minOf(REMOTE_METADATA_IO_CONCURRENCY, probeCandidates.size)
+                    coroutineScope {
+                        List(workerCount) {
                             async(Dispatchers.IO) {
-                                indexed.index to enrichMetadata(
-                                    session = session,
-                                    endpoint = endpoint,
-                                    relativePath = indexed.value.ref.opaqueTrackId,
-                                    base = indexed.value,
-                                )
+                                while (true) {
+                                    context.ensureActive()
+                                    ensureCurrent(owner, operation, request)
+                                    val next = cursor.getAndIncrement()
+                                    if (next >= probeCandidates.size) break
+                                    val indexed = probeCandidates[next]
+                                    val track = enrichMetadata(
+                                        session = session,
+                                        endpoint = endpoint,
+                                        relativePath = indexed.value.ref.opaqueTrackId,
+                                        base = indexed.value,
+                                    )
+                                    context.ensureActive()
+                                    ensureCurrent(owner, operation, request)
+                                    trackSlots.set(indexed.index, track)
+                                    val doneCount = completedTotal.incrementAndGet()
+                                    val sinceCheckpoint = completedSinceCheckpoint.incrementAndGet()
+                                    if (
+                                        publishCheckpoint != null &&
+                                        probeCheckpointBatchSize > 0 &&
+                                        sinceCheckpoint >= probeCheckpointBatchSize &&
+                                        doneCount < probeCandidates.size
+                                    ) {
+                                        checkpointMutex.withLock {
+                                            if (completedSinceCheckpoint.get() >= probeCheckpointBatchSize) {
+                                                completedSinceCheckpoint.set(0)
+                                                context.ensureActive()
+                                                ensureCurrent(owner, operation, request)
+                                                val snapshot = List(trackSlots.length()) { i -> trackSlots.get(i) }
+                                                publishCheckpoint(snapshot, completedTotal.get(), probeCandidates.size)
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }.awaitAll()
                     }
                     context.ensureActive()
                     ensureCurrent(owner, operation, request)
-                    enriched.forEach { (index, track) -> tracks[index] = track }
+                    for (i in 0 until trackSlots.length()) {
+                        tracks[i] = trackSlots.get(i)
+                    }
                 }
                 val failedCount = probeCandidates.count { tracks[it.index].metadataProbeRevision != REMOTE_METADATA_PROBE_REVISION }
-                tracks.sortWith(compareBy<RemoteTrackSummary>({ it.ref.opaqueTrackId.lowercase(Locale.ROOT) }, { it.ref.opaqueTrackId }))
                 return Discovery(
                     tracks = tracks,
                     complete = true,
@@ -412,6 +483,7 @@ internal class SmbFolderLibraryIndexer(
         const val MAX_TRACKS = 50_000
         const val MAX_VISITED_ENTRIES = 100_000
         const val MAX_DESCRIPTOR_BYTES = 64L * 1024L * 1024L
+        const val DEFAULT_PROBE_CHECKPOINT_BATCH_SIZE = 64
         private const val MAX_INDEX_NANOS = 30_000_000_000L
         private val AUDIO_MIME = mapOf(
             "mp3" to "audio/mpeg",

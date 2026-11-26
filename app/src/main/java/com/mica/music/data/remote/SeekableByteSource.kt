@@ -123,6 +123,7 @@ internal class ReadAheadSeekableByteSource(
 }
 
 internal const val DEFAULT_REMOTE_METADATA_READ_AHEAD_BYTES = 1024 * 1024
+internal const val REMOTE_EMBEDDED_LYRICS_READ_AHEAD_BYTES = 256 * 1024
 internal const val REMOTE_METADATA_IO_CONCURRENCY = 4
 
 /** Browse metadata that can be populated without downloading artwork or lyric payloads. */
@@ -216,7 +217,12 @@ internal class AndroidTagLibEmbeddedLyricsLoader(
     private val appContext = context.applicationContext
 
     override fun load(source: SeekableByteSource, fileName: String, mimeType: String): LyricsDocument {
-        val bufferedSource = ReadAheadSeekableByteSource(source)
+        // 256 KiB read-ahead balances bandwidth savings (vs 1 MiB) and RTT count when TagLib
+        // skips across large embedded FLAC/M4A cover blocks on high-latency SMB routers.
+        val bufferedSource = ReadAheadSeekableByteSource(
+            source,
+            readAheadBytes = REMOTE_EMBEDDED_LYRICS_READ_AHEAD_BYTES,
+        )
         val nonClosingProxySource = object : SeekableByteSource {
             override val sizeBytes: Long
                 get() = bufferedSource.sizeBytes

@@ -70,6 +70,34 @@ internal object RemoteEmbeddedArtworkIdCodec {
     }
 }
 
+/** Pre-indexed O(1) track-stem sidecar artwork lookup for large flat directories. */
+internal class RemoteSidecarArtworkIndex private constructor(
+    private val bestByLowerStem: Map<String, RemoteSidecarArtworkCandidate>,
+) {
+    fun selectForTrack(trackFileName: String): RemoteSidecarArtworkCandidate? {
+        if (bestByLowerStem.isEmpty()) return null
+        val stem = trackFileName.substringBeforeLast('.', trackFileName).lowercase(Locale.ROOT)
+        return bestByLowerStem[stem]
+    }
+
+    companion object {
+        val EMPTY = RemoteSidecarArtworkIndex(emptyMap())
+
+        fun from(candidates: List<RemoteSidecarArtworkCandidate>): RemoteSidecarArtworkIndex {
+            if (candidates.isEmpty()) return EMPTY
+            val best = HashMap<String, RemoteSidecarArtworkCandidate>(candidates.size)
+            candidates.forEach { candidate ->
+                val stem = candidate.fileName.substringBeforeLast('.', candidate.fileName).lowercase(Locale.ROOT)
+                val existing = best[stem]
+                if (existing == null || REMOTE_ARTWORK_ORDER.compare(candidate, existing) < 0) {
+                    best[stem] = candidate
+                }
+            }
+            return RemoteSidecarArtworkIndex(best)
+        }
+    }
+}
+
 /** Track-specific sidecars are safe even in a directory containing many unrelated albums. */
 internal fun selectRemoteTrackSidecarArtwork(
     trackFileName: String,

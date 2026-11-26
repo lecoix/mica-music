@@ -70,11 +70,23 @@ internal class RevisionedDiskCache(
 
     private fun fileFor(key: String): File = File(directory, sha256(key) + FILE_SUFFIX)
 
-    private fun sha256(value: String): String = MessageDigest.getInstance("SHA-256")
-        .digest(value.toByteArray(Charsets.UTF_8))
-        .joinToString("") { "%02x".format(it) }
+    private fun sha256(value: String): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(value.toByteArray(Charsets.UTF_8))
+        val chars = CharArray(digest.size * 2)
+        for (i in digest.indices) {
+            val b = digest[i].toInt() and 0xff
+            chars[i * 2] = HEX_DIGITS[b ushr 4]
+            chars[i * 2 + 1] = HEX_DIGITS[b and 0x0f]
+        }
+        return String(chars)
+    }
 
     private companion object {
         const val FILE_SUFFIX = ".bin"
+        val HEX_DIGITS = charArrayOf(
+            '0', '1', '2', '3', '4', '5', '6', '7',
+            '8', '9', 'a', 'b', 'c', 'd', 'e', 'f',
+        )
     }
 }
