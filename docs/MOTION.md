@@ -115,7 +115,7 @@ val motionEnabled = rememberMicaMotionEnabled()
 | 播放页沉浸（下半屏） | ✅ | `NowPlayingScreen` | 先冻结间距与底栏起止，再 `lerp` + fade Long |
 | 播放页封面 lerp | ✅ | `NowPlayingScreen` | 单一 `headerFocus`（`max(lyricsProgress, queueProgress)`）驱动多属性 Long；拍立得进队列改为 Polaroid 原位淡出，不跟封面槽缩顶栏 |
 | 切歌擦除 | ✅ | `NowPlayingTrackWipe` | `tweenFloat` Medium |
-| 迷你播放器→播放共享封面 | ✅ | `AppNavigation` + `MiniPlayer` + `NowPlayingCoverSection` | 进入/返回用同一封面 overlay lerp；返回与页面下滑同步起跑；特殊封面行为（封面流 / 粒子 / 拍立得）回退普通转场 |
+| 播放页底部 Sheet 展开/收起 | ✅ | `PlayerSheetHost` + `AppNavigation` | 单一 `expansion`（`0..1`）驱动页面纵滑 + 遮罩淡入 + 跟手 Predictive Back；早期跨路由共享封面已随底部 Sheet 架构退役 |
 | 列表→播放共享元素 | ⏳ | — | 待做；目标：列表项封面作为来源，来源不可见时回退迷你播放器或普通转场 |
 | BottomSheet / 对话框 | ⏳ | Material 默认 | 待对齐 Medium + 统一 expand |
 | 迷你栏展开全屏 | ⏳ | — | 待做 |

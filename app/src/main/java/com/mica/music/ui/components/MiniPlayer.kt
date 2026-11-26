@@ -22,7 +22,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -30,12 +29,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -147,8 +143,6 @@ fun MiniPlayer(
     swipeEnabled: Boolean = false,
     leftSwipeAction: MiniPlayerSwipeAction = MiniPlayerSwipeAction.NEXT,
     rightSwipeAction: MiniPlayerSwipeAction = MiniPlayerSwipeAction.PREVIOUS,
-    coverAlpha: Float = 1f,
-    onCoverBoundsChanged: (Rect?) -> Unit = {},
     resolvedText: MiniPlayerText? = null,
     karaokeLine: LyricLine? = null,
     nextLyricLineTimeMs: Int? = null,
@@ -217,8 +211,6 @@ fun MiniPlayer(
             onPlayPause = onPlayPause,
             onExpand = onExpand,
             onLongPress = onLongPress,
-            coverAlpha = coverAlpha,
-            onCoverBoundsChanged = onCoverBoundsChanged,
             bottomInset = bottomInset,
             modifier = swipeModifier,
         )
@@ -233,7 +225,6 @@ fun MiniPlayer(
             onPlayPause = onPlayPause,
             onExpand = onExpand,
             onLongPress = onLongPress,
-            onCoverBoundsChanged = onCoverBoundsChanged,
             bottomInset = bottomInset,
             modifier = swipeModifier,
         )
@@ -402,8 +393,6 @@ private fun FloatingIslandMiniPlayer(
     onPlayPause: () -> Unit,
     onExpand: () -> Unit,
     onLongPress: () -> Unit,
-    coverAlpha: Float,
-    onCoverBoundsChanged: (Rect?) -> Unit,
     bottomInset: Dp,
     modifier: Modifier = Modifier,
 ) {
@@ -466,10 +455,7 @@ private fun FloatingIslandMiniPlayer(
                     noCoverPlaceholderResId = R.drawable.no_cover_placeholder_small,
                     decodeTarget = CoverDecodeTarget.forCompactCover(),
                     allowPreviousImageUnderlay = true,
-                    modifier = Modifier
-                        .size(FloatingCoverSize)
-                        .onGloballyPositioned { onCoverBoundsChanged(it.boundsInRoot()) }
-                        .graphicsLayer { alpha = coverAlpha },
+                    modifier = Modifier.size(FloatingCoverSize),
                 )
                 Spacer(Modifier.width(HifiSpacing.md))
                 Column(Modifier.weight(1f)) {
@@ -515,7 +501,6 @@ private fun AudiophileMiniPlayer(
     onPlayPause: () -> Unit,
     onExpand: () -> Unit,
     onLongPress: () -> Unit,
-    onCoverBoundsChanged: (Rect?) -> Unit,
     bottomInset: Dp,
     modifier: Modifier = Modifier,
 ) {
@@ -525,9 +510,6 @@ private fun AudiophileMiniPlayer(
         LocalCustomMicaBackground.current,
     )
     val hasCustomWallpaper = LocalCustomWallpaperPath.current != null
-    LaunchedEffect(Unit) {
-        onCoverBoundsChanged(null)
-    }
 
     Box(
         modifier = modifier

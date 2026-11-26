@@ -19,7 +19,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import com.mica.music.data.CoverDisplayMode
 import com.mica.music.data.PlayerLowerBackgroundMode
 import com.mica.music.data.Song
@@ -192,7 +191,6 @@ internal fun OutgoingCoverArtworkWipe(
     target: PlayerCoverWipeVisual,
     pendingDirection: TrackSkipDirection?,
     contentPadding: PaddingValues,
-    coverContentAlpha: Float,
     modifier: Modifier = Modifier,
 ) {
     val outgoing = state.renderOutgoing(target) ?: return
@@ -216,8 +214,7 @@ internal fun OutgoingCoverArtworkWipe(
                         x = outgoing.cover.startPadding,
                         y = outgoing.cover.topPadding,
                     )
-                    .size(outgoing.cover.width, outgoing.cover.height)
-                    .graphicsLayer { alpha = coverContentAlpha },
+                    .size(outgoing.cover.width, outgoing.cover.height),
                 letterboxAlpha = outgoing.cover.letterboxAlpha,
                 crossfadeMillis = 0,
                 publishHoldoverOnSuccess = false,

@@ -48,7 +48,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
@@ -118,8 +117,6 @@ fun HomeScreen(
     onOpenEqualizer: () -> Unit,
     onOpenAbout: () -> Unit,
     onOpenSongDetail: (String) -> Unit,
-    miniPlayerCoverAlpha: Float = 1f,
-    onMiniPlayerCoverBoundsChanged: (Rect?) -> Unit = {},
     showMiniPlayer: Boolean = true,
     locateCurrentSongRequest: Int = 0,
     homeNavigationIntent: HomeNavigationIntent? = null,
@@ -1360,8 +1357,6 @@ fun HomeScreen(
                         swipeEnabled = uiSettings.miniPlayerSwipeEnabled,
                         leftSwipeAction = uiSettings.miniPlayerLeftSwipeAction,
                         rightSwipeAction = uiSettings.miniPlayerRightSwipeAction,
-                        coverAlpha = miniPlayerCoverAlpha,
-                        onCoverBoundsChanged = onMiniPlayerCoverBoundsChanged,
                         resolvedText = miniPlayerText(
                             song = song,
                             isPlaying = playbackState.isPlaying,

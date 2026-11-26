@@ -35,7 +35,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -43,8 +42,6 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
@@ -123,12 +120,10 @@ internal fun NowPlayingCoverSection(
     detachMusicVideoOutput: (TextureView, Long) -> Unit,
     trackSkipDirection: TrackSkipDirection?,
     lyricsExpanded: Boolean,
-    coverContentAlpha: Float,
     coverSwipeEnabled: Boolean = true,
     coverShadowEnabled: Boolean = false,
     coverShadowStrength: Float = 1f,
     suppressArtworkScrim: Boolean = false,
-    onCoverBoundsChanged: (Rect?) -> Unit,
     onCoverAspectRatioChanged: (Float) -> Unit,
     onCloseLyrics: () -> Unit,
     onCloseQueue: () -> Unit = {},
@@ -262,10 +257,6 @@ internal fun NowPlayingCoverSection(
         )
     }
 
-    LaunchedEffect(coverSlotVisible) {
-        if (!coverSlotVisible) onCoverBoundsChanged(null)
-    }
-
     val preloadAdjacentCovers = frame.coverFlowStageActive ||
         coverFlowMode == PlayerCoverFlowMode.STANDARD ||
         coverFlowMode == PlayerCoverFlowMode.CUSTOM_STANDARD
@@ -349,8 +340,7 @@ internal fun NowPlayingCoverSection(
                         .padding(top = frame.cover.particleInfoTopPadding)
                         .fillMaxWidth()
                         .graphicsLayer {
-                            alpha = coverContentAlpha *
-                                (1f - frame.queueProgress.coerceIn(0f, 1f))
+                            alpha = 1f - frame.queueProgress.coerceIn(0f, 1f)
                         },
                     onLongPress = onCoverLongPress,
                 )
@@ -374,7 +364,6 @@ internal fun NowPlayingCoverSection(
                     cameraDistancePx = cameraDistancePx,
                     pinCoverFlowDecodeToViewport = pinCoverFlowDecodeToViewport,
                     coverBoxHeight = coverBoxHeight,
-                    coverContentAlpha = coverContentAlpha,
                     gesturesEnabledOverride = coverFlowGesturesEnabledOverride,
                     lyricsExpanded = lyricsExpanded,
                     onCloseLyrics = onCloseLyrics,
@@ -386,7 +375,6 @@ internal fun NowPlayingCoverSection(
                     onNext = onNext,
                     onAspectRatioChanged = onCoverAspectRatioChanged,
                     onMotionActiveChanged = onCoverMotionActiveChanged,
-                    onCoverBoundsChanged = onCoverBoundsChanged,
                     navigationBridge = coverFlowNavigation,
                     motionEnabled = motionEnabled,
                 )
@@ -399,9 +387,6 @@ internal fun NowPlayingCoverSection(
                     seekState = seekState,
                     isPlaying = isPlaying,
                     screenWidth = screenWidth,
-                    coverWidthPx = coverWidthPx,
-                    coverHeightPx = coverHeightPx,
-                    coverContentAlpha = coverContentAlpha,
                     immersiveCaption = photoStackImmersiveCaption,
                     onPrevious = onPrevious,
                     onNext = onNext,
@@ -411,8 +396,6 @@ internal fun NowPlayingCoverSection(
                     navigationBridge = photoStackNavigation,
                     onPlayQueueIndex = onPlayQueueIndex,
                     decodeTarget = photoStackDecodeTarget,
-                    onCoverBoundsChanged = onCoverBoundsChanged,
-                    density = density,
                 )
             }
             if (!frame.coverFlowStageActive && coverSlotVisible && !frame.photoStack.normalLayerVisible) {
@@ -426,7 +409,6 @@ internal fun NowPlayingCoverSection(
                     coverSwipeGesturesEnabled = coverSwipeGesturesEnabled,
                     coverShadowEnabled = coverShadowEnabled,
                     coverShadowStrength = coverShadowStrength,
-                    coverContentAlpha = coverContentAlpha,
                     coverScrimExtend = coverScrimExtend,
                     coverBoxHeight = coverBoxHeight,
                     lyricsExpanded = lyricsExpanded,
@@ -434,7 +416,6 @@ internal fun NowPlayingCoverSection(
                     onCloseQueue = onCloseQueue,
                     onCoverClick = onCoverClick,
                     onCoverLongPress = onCoverLongPress,
-                    onCoverBoundsChanged = onCoverBoundsChanged,
                     isDark = isDark,
                 ) { wipeLayerHeight ->
                     StandardOrParticleCoverRenderer(

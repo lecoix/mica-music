@@ -46,8 +46,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
@@ -243,8 +241,6 @@ fun NowPlayingContent(
     customLayoutEditRequested: Boolean = false,
     onCustomLayoutEditRequestConsumed: () -> Unit = {},
     contentPadding: PaddingValues = PaddingValues(),
-    coverContentAlpha: Float = 1f,
-    onCoverBoundsChanged: (Rect?) -> Unit = {},
     handleBackToClose: Boolean = true,
 ) {
     val song = surfaceState.currentSong
@@ -1007,11 +1003,6 @@ fun NowPlayingContent(
                     actions.previous()
                 }
             }
-            LaunchedEffect(customCoverVisible) {
-                if (!customCoverVisible && effectiveCoverFlowMode == PlayerCoverFlowMode.CUSTOM_STANDARD) {
-                    onCoverBoundsChanged(null)
-                }
-            }
             val externalCoverIncomingWipe: Modifier =
                 if (coverArtworkUsesInternalWipe) {
                     Modifier
@@ -1116,8 +1107,7 @@ fun NowPlayingContent(
                     attachMusicVideoOutput = actions.attachMusicVideoOutput,
                     detachMusicVideoOutput = actions.detachMusicVideoOutput,
                     trackSkipDirection = effectiveTrackWipeDirection,
-                            lyricsExpanded = classicLyricsExpanded && !photoStackLyricsPageEnabled,
-                    coverContentAlpha = coverContentAlpha,
+                    lyricsExpanded = classicLyricsExpanded && !photoStackLyricsPageEnabled,
                     coverSwipeEnabled = effectiveCoverFlowMode != PlayerCoverFlowMode.CUSTOM_STANDARD ||
                         customLayout.coverSwipeEnabled,
                     coverShadowEnabled = effectiveCoverFlowMode == PlayerCoverFlowMode.CUSTOM_STANDARD &&
@@ -1130,7 +1120,6 @@ fun NowPlayingContent(
                         1f
                     },
                     suppressArtworkScrim = fullBleedLandscapeStandard,
-                    onCoverBoundsChanged = onCoverBoundsChanged,
                     onCoverAspectRatioChanged = { coverAspectRatio = it },
                     onCloseLyrics = { lyricsExpanded = false },
                     onCloseQueue = { queueSheetOpen = false },
@@ -1886,10 +1875,7 @@ fun NowPlayingContent(
                                                 motionEnabled = motionEnabled,
                                                 fadeWhenNoDirection = true,
                                                 modifier = coverModifier
-                                                    .then(coverSharedModifier)
-                                                    .onGloballyPositioned {
-                                                        onCoverBoundsChanged(it.boundsInRoot())
-                                                    },
+                                                    .then(coverSharedModifier),
                                             ) { coverSong ->
                                                 SongCover(
                                                     albumArtUri = coverSong.albumArtUri,

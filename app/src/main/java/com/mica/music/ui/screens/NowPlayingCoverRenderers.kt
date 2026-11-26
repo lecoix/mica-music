@@ -18,12 +18,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -70,7 +67,6 @@ internal fun CoverFlowCoverRenderer(
     cameraDistancePx: Float,
     pinCoverFlowDecodeToViewport: Boolean,
     coverBoxHeight: Dp,
-    coverContentAlpha: Float,
     gesturesEnabledOverride: Boolean?,
     lyricsExpanded: Boolean,
     onCloseLyrics: () -> Unit,
@@ -82,7 +78,6 @@ internal fun CoverFlowCoverRenderer(
     onNext: () -> Unit,
     onAspectRatioChanged: (Float) -> Unit,
     onMotionActiveChanged: (Boolean) -> Unit,
-    onCoverBoundsChanged: (Rect?) -> Unit,
     navigationBridge: CoverFlowCarouselNavigationBridge,
     motionEnabled: Boolean,
 ) {
@@ -116,19 +111,7 @@ internal fun CoverFlowCoverRenderer(
             .height(coverBoxHeight)
             .coverOriginPlacement(top = cover.topPadding)
             .graphicsLayer {
-                alpha = coverContentAlpha
                 clip = false
-            }
-            .onGloballyPositioned { coords ->
-                val bounds = coords.boundsInRoot()
-                onCoverBoundsChanged(
-                    Rect(
-                        left = bounds.left + coverStartPaddingPx,
-                        top = bounds.top,
-                        right = bounds.left + coverStartPaddingPx + coverWidthPx,
-                        bottom = bounds.top + coverHeightPx,
-                    ),
-                )
             },
     )
     if (frame.lower.coverEdgeOnPlaySurface) {
@@ -140,7 +123,7 @@ internal fun CoverFlowCoverRenderer(
             spectrumEnabled = frame.spectrumEnabled,
             isPlaying = isPlaying,
             contentColors = contentColors,
-            alpha = (1f - frame.lower.chromeProgressAlpha) * coverContentAlpha,
+            alpha = 1f - frame.lower.chromeProgressAlpha,
             reflectionHeight = centerCoverHeight * CoverFlowMath.ReflectionHeightFraction,
             reflectionGap = HifiSpacing.sm * centerScale,
             modifier = Modifier
@@ -177,9 +160,6 @@ internal fun PhotoStackCoverRenderer(
     seekState: PlaybackSeekState,
     isPlaying: Boolean,
     screenWidth: Dp,
-    coverWidthPx: Float,
-    coverHeightPx: Float,
-    coverContentAlpha: Float,
     immersiveCaption: PhotoStackImmersiveCaption?,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
@@ -189,32 +169,17 @@ internal fun PhotoStackCoverRenderer(
     navigationBridge: PhotoStackCarouselNavigationBridge,
     onPlayQueueIndex: (Int) -> Unit,
     decodeTarget: CoverDecodeTarget,
-    onCoverBoundsChanged: (Rect?) -> Unit,
-    density: androidx.compose.ui.unit.Density,
 ) {
     val cover = frame.cover
     val slotStart = ((screenWidth - frame.photoStack.slotWidth) / 2).coerceAtLeast(0.dp)
-    val cardLeftPx = with(density) { ((frame.photoStack.slotWidth - frame.photoStack.cardWidth) / 2).toPx() }
-    val cardTopPx = with(density) { frame.photoStack.cardTopInset.toPx() }
     Box(
         modifier = Modifier
             .coverOriginPlacement(start = slotStart, top = cover.topPadding)
             .size(frame.photoStack.slotWidth, frame.photoStack.slotHeight)
             .graphicsLayer {
-                alpha = coverContentAlpha * (1f - frame.queueProgress.coerceIn(0f, 1f))
+                alpha = 1f - frame.queueProgress.coerceIn(0f, 1f)
                 clip = false
                 compositingStrategy = CompositingStrategy.ModulateAlpha
-            }
-            .onGloballyPositioned { coords ->
-                val bounds = coords.boundsInRoot()
-                onCoverBoundsChanged(
-                    Rect(
-                        left = bounds.left + cardLeftPx,
-                        top = bounds.top + cardTopPx,
-                        right = bounds.left + cardLeftPx + coverWidthPx,
-                        bottom = bounds.top + cardTopPx + coverHeightPx,
-                    ),
-                )
             },
         contentAlignment = Alignment.Center,
     ) {
@@ -482,7 +447,6 @@ internal fun CoverRendererSlot(
     coverSwipeGesturesEnabled: Boolean,
     coverShadowEnabled: Boolean,
     coverShadowStrength: Float,
-    coverContentAlpha: Float,
     coverScrimExtend: Dp,
     coverBoxHeight: Dp,
     lyricsExpanded: Boolean,
@@ -490,7 +454,6 @@ internal fun CoverRendererSlot(
     onCloseQueue: () -> Unit,
     onCoverClick: (() -> Unit)?,
     onCoverLongPress: (() -> Unit)?,
-    onCoverBoundsChanged: (Rect?) -> Unit,
     isDark: Boolean,
     content: @Composable (Dp) -> Unit,
 ) {
@@ -504,7 +467,6 @@ internal fun CoverRendererSlot(
                 clip = !coverArtworkScrim && !coverFlowReflection && !particleNormalLayerVisible &&
                     !frame.particleCover.enabled && !coverShadowEnabled
             }
-            .onGloballyPositioned { onCoverBoundsChanged(it.boundsInRoot()) }
             .pointerInput(coverSwipeGesturesEnabled, frame.coverFlowStageActive) {
                 if (coverSwipeGesturesEnabled && !frame.coverFlowStageActive) {
                     detectHorizontalDragGestures(
@@ -530,7 +492,6 @@ internal fun CoverRendererSlot(
             modifier = Modifier
                 .matchParentSize()
                 .graphicsLayer {
-                    alpha = coverContentAlpha
                     clip = !coverArtworkScrim && !coverFlowReflection && !particleNormalLayerVisible &&
                         !frame.particleCover.enabled && !coverShadowEnabled
                     if (standardMode && !frame.coverFlowStageActive) {

@@ -189,8 +189,7 @@
 - [x] **路由**：设置/播放页/详情等 NavHost 淡入+纵滑；侧栏抽屉与遮罩统一曲线
 - [x] **播放页下半屏沉浸**：元数据区与底栏控制区 alpha 交叉淡入（400ms）
 - [x] **歌词聚焦**：曲线并入 `MicaMotion`（封面 lerp / 底栏下沉保持）
-- [x] **播放页打开/关闭共享封面第一版**：迷你播放器封面→播放页封面；返回时反向收回；特殊封面流主题回退普通转场
-- [ ] **共享封面转场架构整理**：从 `AppNavigation` 拆出独立 `SharedCoverTransitionHost/Coordinator`，导航层只挂载入口；坐标稳定、源/目标隐藏、图片预热、IME/路由转场防污染等状态集中管理并配套测试清单
+- [x] **播放页打开/关闭共享封面与历史钩子退役**：早期 `AppNavigation` 路由级共享封面已随 `PlayerSheetHost` 底部 Sheet + Predictive Back 架构（`17f4ddb5`）退役，并已清理残留的无调用方 `onCoverBoundsChanged` / `coverAlpha` / `coverContentAlpha` 透传与空跑布局测量；若后续在 `PlayerSheetHost` 内新增带转场的展开式迷你播放栏，直接基于同一浮层单进度 `expansion` 设计即可，无需复刻旧跨路由状态机
 - [x] **播放页浮层返回状态机整理**：将 `PlayerSheetHost` 的 `expanded`、predictive back、关闭动画拆成显式 `Expanded / PredictiveClosing / Closing / Collapsed` 状态，避免外部展开状态与本地动画值各自作为真值源
 - [ ] **列表→播放共享元素**：列表项封面作为进入来源，来源不可见时回退迷你播放器或普通转场
 - [ ] **浮层**：BottomSheet / 对话框自定义 expand（Material 默认动画；待与 `MicaMotion` 对齐）
