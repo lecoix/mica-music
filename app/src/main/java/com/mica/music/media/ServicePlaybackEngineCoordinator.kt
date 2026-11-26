@@ -18,6 +18,7 @@ internal class ServicePlaybackEngineCoordinator(
     var onPlaybackFailure: ((PlaybackFailure) -> Unit)? = null
     var onPlaybackBoundary: ((ConfirmedPlaybackBoundary) -> Unit)? = null
     var onMusicVideoFallback: ((Song) -> Unit)? = null
+    var onOffloadErrorFallback: ((PlaybackException) -> Boolean)? = null
 
     fun start() {
         player.playbackCoordinator = this
@@ -33,6 +34,7 @@ internal class ServicePlaybackEngineCoordinator(
         onPlaybackFailure = null
         onPlaybackBoundary = null
         onMusicVideoFallback = null
+        onOffloadErrorFallback = null
     }
 
     fun playCurrent() {
@@ -146,6 +148,7 @@ internal class ServicePlaybackEngineCoordinator(
             return
         }
         if (recoverFromMusicVideoFailure(song, error)) return
+        if (onOffloadErrorFallback?.invoke(error) == true) return
         val kind = PlaybackFailureClassifier.classify(error)
         handleFailure(
             request.id,

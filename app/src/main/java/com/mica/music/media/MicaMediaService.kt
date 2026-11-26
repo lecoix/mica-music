@@ -606,6 +606,10 @@ class MicaMediaService : MediaSessionService() {
                     )
                 }
             }
+            coordinator.onOffloadErrorFallback = { error ->
+                playbackStackLifecycle.isActive(stack) &&
+                    audioOffloadCircuitBreaker?.tryRecoverFromPlayerError(error) == true
+            }
         }
 
         var restoredFromStore = false
@@ -740,6 +744,7 @@ class MicaMediaService : MediaSessionService() {
         playbackEngineCoordinator = null
         audioOffloadCircuitBreaker?.let { breaker ->
             stack.exoPlayer.removeListener(breaker)
+            stack.exoPlayer.removeAnalyticsListener(breaker)
             stack.exoPlayer.removeAudioOffloadListener(breaker)
             breaker.release()
         }
@@ -922,7 +927,8 @@ class MicaMediaService : MediaSessionService() {
 
     private fun flushAudioPipeline(reason: String) {
         val player = compositePlayer ?: return
-        if (player.playbackState == Player.STATE_IDLE) return
+        val hasRecoverableError = player.playerError != null && player.currentMediaItem != null
+        if (player.playbackState == Player.STATE_IDLE && !hasRecoverableError) return
         val positionMs = player.currentPosition
         val shouldResume = player.playWhenReady
         player.flushPlaybackPipeline(positionMs, resumePlayback = shouldResume)
@@ -992,7 +998,8 @@ class MicaMediaService : MediaSessionService() {
     }
 
     private fun installAudioOffloadCircuitBreaker(exo: ExoPlayer) {
-        val breaker = AudioOffloadCircuitBreaker(
+        lateinit var breaker: AudioOffloadCircuitBreaker
+        breaker = AudioOffloadCircuitBreaker(
             snapshot = {
                 AudioOffloadPlaybackSnapshot(
                     mediaId = exo.currentMediaItem?.mediaId,
@@ -1009,7 +1016,7 @@ class MicaMediaService : MediaSessionService() {
             onFallbackToPcm = {
                 DiagnosticLog.important(
                     "AudioOffload",
-                    "stall-detected fallback=pcm mediaId=${exo.currentMediaItem?.mediaId}",
+                    "fallback=pcm reason=${breaker.lastFallbackReason} mediaId=${exo.currentMediaItem?.mediaId}",
                 )
                 audioPipelineCoordinator?.onOffloadCircuitOpened()
             },
@@ -1020,9 +1027,16 @@ class MicaMediaService : MediaSessionService() {
                 )
                 AudioOffloadPreferences.recordVerifiedFailure(this)
             },
+            onAudioTrackOffloadChanged = { offloaded ->
+                DiagnosticLog.event(
+                    "AudioOffload",
+                    "audio-track-offload active=$offloaded mediaId=${exo.currentMediaItem?.mediaId}",
+                )
+            },
         )
         audioOffloadCircuitBreaker = breaker
         exo.addListener(breaker)
+        exo.addAnalyticsListener(breaker)
         exo.addAudioOffloadListener(breaker)
     }
 }

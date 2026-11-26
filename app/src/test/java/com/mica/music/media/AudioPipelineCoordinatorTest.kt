@@ -280,6 +280,77 @@ class AudioPipelineCoordinatorTest {
     }
 
     @Test
+    fun analyticsOffloadTrackMakesEqualizerToggleFlushBackToPcm() {
+        val effects = mutableListOf<String>()
+        val scheduler = ManualScheduler()
+        val snapshot = AudioOffloadPlaybackSnapshot(
+            mediaId = "song-a",
+            uriScheme = "content",
+            playbackState = Player.STATE_READY,
+            playWhenReady = true,
+            isPlaying = true,
+            playbackSuppressionReason = Player.PLAYBACK_SUPPRESSION_REASON_NONE,
+            totalBufferedDurationMs = 5_000L,
+            currentPositionMs = 1_000L,
+        )
+        lateinit var breaker: AudioOffloadCircuitBreaker
+        val coordinator = AudioPipelineCoordinator(
+            initialState = AudioPipelineState(
+                equalizerEnabled = false,
+                spectrumTapEnabled = false,
+                offloadPreferenceEnabled = true,
+            ),
+            invalidateCircuitBreaker = { breaker.invalidateExternalBoundary() },
+            resetCircuitBreaker = { breaker.resetForManualRetry() },
+            applyConfiguration = { effects += "apply:offload=${it.offloadEnabled}" },
+            persistQualityMode = { effects += "quality=$it" },
+            flushPipeline = { effects += "flush:$it" },
+            isOffloadedPlayback = { breaker.currentlyOffloaded },
+        )
+        breaker = AudioOffloadCircuitBreaker(
+            snapshot = { snapshot },
+            scheduler = scheduler,
+            onFallbackToPcm = { effects += "stale-fallback" },
+            onVerifiedFailure = { effects += "verified-failure" },
+        )
+        val eventTime = androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime(
+            0L,
+            androidx.media3.common.Timeline.EMPTY,
+            0,
+            null,
+            0L,
+            androidx.media3.common.Timeline.EMPTY,
+            0,
+            null,
+            0L,
+            0L,
+        )
+        val offloadConfig = androidx.media3.exoplayer.audio.AudioSink.AudioTrackConfig(
+            androidx.media3.common.C.ENCODING_MP3,
+            44_100,
+            android.media.AudioFormat.CHANNEL_OUT_STEREO,
+            false,
+            true,
+            16_384,
+        )
+        breaker.onAudioTrackInitialized(eventTime, offloadConfig)
+        val staleWatch = scheduler.lastTask()
+
+        coordinator.onEqualizerEnabledChanged(true)
+        scheduler.run(staleWatch)
+
+        assertFalse(breaker.sessionDisabled)
+        assertEquals(
+            listOf(
+                "quality=DSP",
+                "apply:offload=false",
+                "flush:offload-to-pcm:equalizer-enabled=true",
+            ),
+            effects,
+        )
+    }
+
+    @Test
     fun circuitOpeningAppliesPcmBeforeFlushingThePipeline() {
         val effects = mutableListOf<String>()
         val coordinator = AudioPipelineCoordinator(

@@ -90,6 +90,47 @@ class ServicePlaybackEngineCoordinatorTest {
     }
 
     @Test
+    fun offloadAudioTrackErrorDelegatesToCircuitBreakerWithoutRecordingOrdinaryFailure() {
+        val song = SongFixtures.song("mp3-offload", container = "MP3", mime = "audio/mpeg")
+        val items = listOf(
+            SongMediaItemCodec.encode(song),
+            SongMediaItemCodec.encode(SongFixtures.song("next", container = "MP3", mime = "audio/mpeg")),
+        )
+        val error = ExoPlaybackException.createForRenderer(
+            IllegalStateException("offload init failed"),
+            "MediaCodecAudioRenderer",
+            0,
+            Format.Builder().setSampleMimeType("audio/mpeg").build(),
+            C.FORMAT_HANDLED,
+            false,
+            ExoPlaybackException.ERROR_CODE_AUDIO_TRACK_OFFLOAD_INIT_FAILED,
+        )
+        val exo = mockExoWithQueue(items, currentIndex = 0, positionMs = 4_000L)
+        every { exo.playerError } returns error
+        val player = MicaCompositePlayer(exo)
+        var ordinaryFailure: PlaybackFailure? = null
+        var offloadFallbackCalls = 0
+        val coordinator = ServicePlaybackEngineCoordinator(
+            player = player,
+            context = RuntimeEnvironment.getApplication(),
+        )
+        coordinator.onPlaybackFailure = { ordinaryFailure = it }
+        coordinator.onOffloadErrorFallback = {
+            offloadFallbackCalls++
+            true
+        }
+        coordinator.start()
+        coordinator.onSelectMediaItem(0, 4_000L)
+
+        coordinator.onPlayerError(error)
+
+        assertEquals(1, offloadFallbackCalls)
+        assertEquals(null, ordinaryFailure)
+        verify(exactly = 0) { exo.setMediaItems(any<List<MediaItem>>(), any(), any()) }
+        coordinator.release()
+    }
+
+    @Test
     fun sameMusicVideoRevisionTripsCircuitBreakerOnlyOnce() {
         val registry = MusicVideoFailureRegistry()
 
