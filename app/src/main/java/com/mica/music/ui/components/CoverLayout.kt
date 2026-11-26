@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
+import com.mica.music.data.scanner.AlbumArtCache
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.min
 
@@ -38,8 +39,13 @@ fun resolveCoverAspectRatioFromUri(context: Context, albumArtUri: String?): Floa
     coverAspectRatioCache[albumArtUri]?.let { return it }
     val ratio = runCatching {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        context.contentResolver.openInputStream(Uri.parse(albumArtUri))?.use { input ->
-            BitmapFactory.decodeStream(input, null, bounds)
+        val residentBacking = AlbumArtCache.residentBackingFileForManagedArtwork(context, albumArtUri)
+        if (residentBacking != null) {
+            BitmapFactory.decodeFile(residentBacking.absolutePath, bounds)
+        } else {
+            context.contentResolver.openInputStream(Uri.parse(albumArtUri))?.use { input ->
+                BitmapFactory.decodeStream(input, null, bounds)
+            }
         }
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
         coerceCoverAspectRatio(bounds.outWidth.toFloat(), bounds.outHeight.toFloat())

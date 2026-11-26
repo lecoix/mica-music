@@ -84,7 +84,7 @@ _Avoid_: 在音频链或 EQ UI 内直接读 equalizer_* key
 _Avoid_: 系统 `AudioEffect`；默认开启；把音效写入 `AudioQualityMode.DSP`；在 USB 独占路径套用；把压缩器/动态 EQ 当作已实现
 
 **Album art repair coordinator（封面缓存修复协调器）**：
-根据 `AlbumArtCache.health(...)`、上次扫描来源、SAF 目录可用性和设备音频权限，决定是否启动封面缓存修复以及从设备还是文件夹重扫。`health(...)` 只允许做 URI / 文件存在性 / 非空等元数据级检查，**禁止在启动或曲库复用路径全量读取 managed artwork 重新算 SHA-256**；content-addressed SHA 只在写入时，以及实际 Coil/Provider 加载失败后由 `ManagedArtworkRecovery` 的低优先级单线程按 `contentKey` 合并强校验。确认缓存损坏/缺失后再从原歌曲懒重建；managed artwork 不进入 Coil 二级磁盘缓存。协调器只做整库修复计划；`MusicLibrary.launchArtworkCacheRepairIfNeeded` 调用 `plan(...)` 后，将可执行计划交给 `LibraryOperationExecutor.launchArtworkCacheRepair(plan)` 执行（`forceRefreshArtwork=true`、不强制刷新歌词）。
+根据 `AlbumArtCache.health(...)`、上次扫描来源、SAF 目录可用性和设备音频权限，决定是否启动封面缓存修复以及从设备还是文件夹重扫。封面磁盘缓存分两级：`cache/album_art_thumb`（≤320px WebP，96 MiB 预算，供扫描落盘及列表/队列/搜索/迷你栏/模糊背景直读）与 `cache/album_art`（48 MiB 按需原图 LRU，供播放页高清大图与外部 `AlbumArtContentProvider` 读取），均经 `ManagedArtworkFetcher` 在 `artworkAccessLock` 读锁保护下打开 FD。`health(...)` 只允许做 URI / 文件存在性 / 非空等元数据级检查，**禁止在启动或曲库复用路径全量读取 managed artwork 重新算 SHA-256**；content-addressed SHA 只在写入时，以及实际 Coil/Provider 加载失败后由 `ManagedArtworkRecovery` 按 `contentKey` 单飞校验并重建；managed artwork 不进入 Coil 二级磁盘缓存。协调器只做整库修复计划；`MusicLibrary.launchArtworkCacheRepairIfNeeded` 调用 `plan(...)` 后，将可执行计划交给 `LibraryOperationExecutor.launchArtworkCacheRepair(plan)` 执行（`forceRefreshArtwork=true`、不强制刷新歌词）。
 _Avoid_: 在 `MusicLibrary` 或 `LibraryOperationExecutor` 内继续堆封面缓存健康判断和修复来源选择；把 managed artwork 的完整 SHA 校验放回启动、`health()`、扫描复用或每次 `ContentProvider.openFile()` 路径
 
 **MusicLibrary（曲库门面）**：

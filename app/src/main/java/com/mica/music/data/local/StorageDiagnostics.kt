@@ -74,6 +74,7 @@ internal data class StorageDiagnosticsSnapshot(
     val filesBytes: Long,
     val noBackupBytes: Long,
     val albumArtBytes: Long,
+    val albumArtThumbBytes: Long = 0L,
     val albumArtStats: AlbumArtStorageStats,
     val legacyAlbumArtBytes: Long,
     val databaseFilesBytes: Long,
@@ -95,6 +96,10 @@ internal data class StorageDiagnosticsSnapshot(
         appendLine("No-backup files: ${formatStorageBytes(noBackupBytes)}")
         appendLine("Album art: ${formatStorageBytes(albumArtBytes)}")
         appendLine("Album art budget: ${formatStorageBytes(AlbumArtCache.MAX_CACHE_BYTES)}")
+        appendLine(
+            "Album art thumbnails: ${formatStorageBytes(albumArtThumbBytes)} " +
+                "(budget ${formatStorageBytes(AlbumArtCache.MAX_THUMB_CACHE_BYTES)})",
+        )
         appendLine("Album art files: ${albumArtStats.fileCount}")
         appendLine(
             "  size: avg=${formatStorageBytes(albumArtStats.averageFileBytes)} " +
@@ -148,17 +153,16 @@ internal object StorageDiagnostics {
                 .mapNotNull { song ->
                     val managed = AlbumArtCache.parseManagedArtworkUri(appContext, song.albumArtUri)
                         ?: return@mapNotNull null
-                    val resident = AlbumArtCache.fileForManagedArtwork(appContext, song.albumArtUri)
-                        ?.takeIf { it.isFile && it.length() > 0L }
+                    val original = AlbumArtCache.fileForManagedArtwork(appContext, song.albumArtUri)
                         ?: return@mapNotNull null
-                    Triple(song, managed, resident)
+                    Triple(song, managed, original)
                 }
                 .firstOrNull()
-                ?: return@withContext "Album art recovery: skipped (no resident managed artwork)"
+                ?: return@withContext "Album art recovery: skipped (no managed artwork)"
 
             val (song, managed, resident) = candidate
-            val beforeBytes = resident.length()
-            if (!resident.delete()) {
+            val beforeBytes = if (resident.isFile) resident.length() else 0L
+            if (resident.exists() && !resident.delete()) {
                 return@withContext "Album art recovery: failed to evict ${resident.name}"
             }
             val digest = runCatching {
@@ -183,6 +187,7 @@ internal object StorageDiagnostics {
     suspend fun collect(context: Context): StorageDiagnosticsSnapshot = withContext(Dispatchers.IO) {
         val appContext = context.applicationContext
         val albumArtDir = File(appContext.cacheDir, ScanCacheManager.DIR_ALBUM_ART)
+        val albumArtThumbDir = File(appContext.cacheDir, ScanCacheManager.DIR_ALBUM_ART_THUMB)
         val albumArtStats = inspectAlbumArtDirectory(albumArtDir)
         val database = MicaDatabase.get(appContext).openHelper.readableDatabase
         val databaseFile = appContext.getDatabasePath(MicaDatabase.DATABASE_NAME)
@@ -201,6 +206,7 @@ internal object StorageDiagnostics {
             filesBytes = directoryBytes(appContext.filesDir),
             noBackupBytes = directoryBytes(appContext.noBackupFilesDir),
             albumArtBytes = albumArtStats.totalFileBytes,
+            albumArtThumbBytes = directoryBytes(albumArtThumbDir),
             albumArtStats = albumArtStats,
             legacyAlbumArtBytes = directoryBytes(
                 File(appContext.noBackupFilesDir, ScanCacheManager.DIR_ALBUM_ART),

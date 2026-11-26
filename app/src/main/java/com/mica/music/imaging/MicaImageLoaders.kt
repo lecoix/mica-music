@@ -47,6 +47,9 @@ object MicaImageLoaders {
         if (::cover.isInitialized) return
         appContext = context.applicationContext
         cover = ImageLoader.Builder(appContext)
+            .components {
+                add(ManagedArtworkFetcher.Factory(appContext))
+            }
             .memoryCache {
                 MemoryCache.Builder(appContext)
                     .maxSizeBytes(48 * 1024 * 1024)
@@ -60,6 +63,9 @@ object MicaImageLoaders {
             }
             .build()
         background = ImageLoader.Builder(appContext)
+            .components {
+                add(ManagedArtworkFetcher.Factory(appContext))
+            }
             .memoryCache {
                 MemoryCache.Builder(appContext)
                     .maxSizeBytes(16 * 1024 * 1024)

@@ -113,7 +113,7 @@ object AudioMetadataProbe {
     internal fun hydrateArtwork(context: Context, song: Song): Song {
         val bytes = readEmbeddedArtworkBytes(context, song) ?: return song
         val albumArtUri = runCatching {
-            AlbumArtCache.storeManagedArtwork(context.applicationContext, song.id, bytes)
+            AlbumArtCache.storeManagedArtworkForScan(context.applicationContext, song.id, bytes)
         }.getOrNull() ?: return song
         val coverColorArgb = CoverColorExtractor.fromBytes(bytes) ?: song.coverColorArgb
         return song.copy(
@@ -278,7 +278,11 @@ object AudioMetadataProbe {
         val albumArtUri = when (artifactPolicy) {
             AudioMetadataProbeArtifactPolicy.FULL_SCAN ->
                 profiler.measureOptional("albumArt") {
-                    resolveAlbumArtFromStoreOnly(context, draft.albumId)
+                    resolveAlbumArtFromStoreOnly(
+                        context = context,
+                        albumId = draft.albumId,
+                        allowStoreFallback = isSafeForAlbumArtSharing(draft),
+                    )
                 }
             AudioMetadataProbeArtifactPolicy.READ_ONLY_CANONICAL -> null
         }
@@ -541,7 +545,11 @@ object AudioMetadataProbe {
                     albumArtUri = when (artifactPolicy) {
                         AudioMetadataProbeArtifactPolicy.FULL_SCAN ->
                             profiler.measureOptional("albumArt") {
-                                resolveAlbumArtFromStoreOnly(appCtx, draft.albumId)
+                                resolveAlbumArtFromStoreOnly(
+                                    context = appCtx,
+                                    albumId = draft.albumId,
+                                    allowStoreFallback = isSafeForAlbumArtSharing(draft),
+                                )
                             }
                         AudioMetadataProbeArtifactPolicy.READ_ONLY_CANONICAL -> null
                     },
@@ -1168,21 +1176,68 @@ object AudioMetadataProbe {
         )
     }
 
-    private fun artCacheKey(draft: TrackDraft): String = when {
-        draft.albumId > 0 -> "ms_album_${draft.albumId}"
-        else -> {
-            val album = draft.album.trim()
-            val artist = draft.artist.trim()
-            if (album.isNotEmpty() && album != "未知专辑") {
-                "tags_${album.lowercase()}_${artist.lowercase()}"
-            } else {
-                "track_${SongIdentity.documentId(draft.mediaUri)}"
-            }
+    private const val TRACK_ART_KEY_PREFIX = "track_"
+    private val genericFolderAlbumNames = setOf(
+        "music",
+        "download",
+        "downloads",
+        "audio",
+        "recordings",
+        "sound",
+        "sounds",
+        "songs",
+        "mp3",
+        "flac",
+        "qqmusic",
+        "cloudmusic",
+        "kwmusic",
+        "kgmusic",
+        "netease",
+        "0",
+    )
+
+    /**
+     * 仅在专辑名和艺人名均有效且非公共目录兜底专辑（如 Android MediaStore 对 `Music/`、
+     * `Download/` 目录无标签歌曲自动合成的共享 `album_id`）时，才允许同专辑共享封面。
+     */
+    internal fun isSafeForAlbumArtSharing(draft: TrackDraft): Boolean {
+        val album = draft.album.trim()
+        if (album.isEmpty() || album == "未知专辑" || album.equals("<unknown>", ignoreCase = true)) {
+            return false
+        }
+        val groupArtist = draft.albumArtist.trim().ifBlank { draft.artist.trim() }
+        if (
+            groupArtist.isEmpty() ||
+            groupArtist == "未知艺人" ||
+            groupArtist.equals("<unknown>", ignoreCase = true)
+        ) {
+            return false
+        }
+        val albumLower = album.lowercase()
+        val folderLeaf = draft.folderPath.trim('/').substringAfterLast('/', "")
+        if (albumLower in genericFolderAlbumNames &&
+            (folderLeaf.isEmpty() || album.equals(folderLeaf, ignoreCase = true))
+        ) {
+            return false
+        }
+        return true
+    }
+
+    internal fun artCacheKey(draft: TrackDraft): String {
+        if (!isSafeForAlbumArtSharing(draft)) {
+            return "$TRACK_ART_KEY_PREFIX${draft.scanSongId()}"
+        }
+        val album = draft.album.trim().lowercase()
+        val groupArtist = draft.albumArtist.trim().ifBlank { draft.artist.trim() }.lowercase()
+        return if (draft.albumId > 0) {
+            "ms_album_${draft.albumId}_${album}_$groupArtist"
+        } else {
+            "tags_${album}_$groupArtist"
         }
     }
 
     /**
-     * 封面优先级：当前文件内嵌图 → 同专辑已缓存内嵌图 → MediaStore 专辑图。
+     * 封面优先级：当前文件内嵌图 → 同专辑同艺人已缓存内嵌图 → MediaStore 专辑图（仅非污染专辑）。
      * 每首歌都会先读自己的 embeddedPicture，避免误用其它专辑/曲目封面。
      */
     private fun resolveAlbumArt(
@@ -1192,10 +1247,13 @@ object AudioMetadataProbe {
         albumId: Long,
         songId: String,
     ): String? {
+        val shareable = !artKey.startsWith(TRACK_ART_KEY_PREFIX)
         saveEmbeddedPicture(context, retriever, songId)?.let { embedded ->
-            albumArtCache[artKey] = embedded
+            if (shareable) albumArtCache[artKey] = embedded
             return embedded
         }
+
+        if (!shareable) return null
 
         albumArtCache[artKey]?.let { return it }
 
@@ -1207,7 +1265,7 @@ object AudioMetadataProbe {
         return null
     }
 
-    /** TagLib 路径的封面解析：内嵌图字节 → 同专辑缓存 → MediaStore 专辑图。 */
+    /** TagLib 路径的封面解析：内嵌图字节 → 同专辑同艺人缓存 → MediaStore 专辑图（仅非污染专辑）。 */
     private fun resolveAlbumArtFromBytes(
         context: Context,
         coverBytes: ByteArray?,
@@ -1215,10 +1273,13 @@ object AudioMetadataProbe {
         albumId: Long,
         songId: String,
     ): String? {
+        val shareable = !artKey.startsWith(TRACK_ART_KEY_PREFIX)
         saveEmbeddedPictureBytes(context, coverBytes, songId)?.let { embedded ->
-            albumArtCache[artKey] = embedded
+            if (shareable) albumArtCache[artKey] = embedded
             return embedded
         }
+
+        if (!shareable) return null
 
         albumArtCache[artKey]?.let { return it }
 
@@ -1230,8 +1291,12 @@ object AudioMetadataProbe {
         return null
     }
 
-    private fun resolveAlbumArtFromStoreOnly(context: Context, albumId: Long): String? {
-        if (albumId <= 0) return null
+    private fun resolveAlbumArtFromStoreOnly(
+        context: Context,
+        albumId: Long,
+        allowStoreFallback: Boolean = true,
+    ): String? {
+        if (!allowStoreFallback || albumId <= 0) return null
         val albumUri = ContentUris.withAppendedId(
             MediaStore.Audio.Albums.EXTERNAL_CONTENT_URI,
             albumId,
@@ -1254,7 +1319,7 @@ object AudioMetadataProbe {
         songId: String,
     ): String? {
         if (bytes == null || bytes.size < 256) return null
-        return AlbumArtCache.storeManagedArtwork(context, songId, bytes)
+        return AlbumArtCache.storeManagedArtworkForScan(context, songId, bytes)
     }
 
     private fun canOpen(context: Context, uri: Uri): Boolean =

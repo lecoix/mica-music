@@ -14,6 +14,7 @@ import java.io.File
 internal object ScanCacheManager {
 
     const val DIR_ALBUM_ART = "album_art"
+    const val DIR_ALBUM_ART_THUMB = "album_art_thumb"
     const val DIR_LYRICS_PROBE = "lyrics_probe"
     const val DIR_LYRICS_META = "lyrics_meta"
     const val DIR_ALAC_STREAM = "alac_stream"

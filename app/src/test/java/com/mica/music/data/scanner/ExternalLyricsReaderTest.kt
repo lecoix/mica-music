@@ -60,22 +60,33 @@ class ExternalLyricsReaderTest {
     }
 
     @Test
-    fun strictProbeDistinguishesAbsentFoundAndFailed() {
+    fun strictProbeDistinguishesAbsentBlankFoundAndIoFailed() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val valid = File.createTempFile("lyrics-valid", ".lrc").apply {
             writeText("[00:01.00]line")
             deleteOnExit()
         }
         val blank = File.createTempFile("lyrics-blank", ".lrc").apply { deleteOnExit() }
+        val metadataOnly = File.createTempFile("lyrics-meta-only", ".lrc").apply {
+            writeText("[ti:Song Title]\n[ar:Artist]\n")
+            deleteOnExit()
+        }
+        val missing = File(valid.parentFile, "lyrics-missing-${System.nanoTime()}.lrc")
         val validUri = Uri.fromFile(valid)
         val blankUri = Uri.fromFile(blank)
+        val metadataOnlyUri = Uri.fromFile(metadataOnly)
+        val missingUri = Uri.fromFile(missing)
 
         val absent = ExternalLyricsReader.probeDirectDocuments(context, emptyList())
         val found = ExternalLyricsReader.probeDirectDocuments(context, listOf(validUri.toString()))
-        val failed = ExternalLyricsReader.probeDirectDocuments(context, listOf(blankUri.toString()))
+        val blankResult = ExternalLyricsReader.probeDirectDocuments(context, listOf(blankUri.toString()))
+        val metaOnlyResult = ExternalLyricsReader.probeDirectDocuments(context, listOf(metadataOnlyUri.toString()))
+        val failed = ExternalLyricsReader.probeDirectDocuments(context, listOf(missingUri.toString()))
 
         assertTrue(absent is ProbeResult.Ok && absent.value == null)
         assertTrue(found is ProbeResult.Ok && found.value?.lines?.isNotEmpty() == true)
+        assertTrue(blankResult is ProbeResult.Ok && blankResult.value == null)
+        assertTrue(metaOnlyResult is ProbeResult.Ok && metaOnlyResult.value == null)
         assertTrue(failed is ProbeResult.Failed)
     }
 

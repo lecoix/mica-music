@@ -65,18 +65,19 @@ fun SongCover(
     drawBackdropWhileLoading: Boolean = true,
     onImageReady: () -> Unit = {},
     onImageFailed: () -> Unit = {},
-    publishHoldoverOnSuccess: Boolean = true,
+    publishHoldoverOnSuccess: Boolean = false,
     holdoverUntilImageReady: Boolean = false,
     holdoverAlbumArtUri: String? = null,
     stableMemoryCacheKey: String? = null,
     decodeTarget: CoverDecodeTarget? = null,
-    allowPreviousImageUnderlay: Boolean = true,
+    allowPreviousImageUnderlay: Boolean = false,
     standardRequestSpec: StandardCoverRequestSpec? = null,
     @DrawableRes noCoverPlaceholderResId: Int = R.drawable.no_cover_placeholder,
 ) {
     val context = LocalContext.current
     val recoveryScope = rememberCoroutineScope()
     var repairRetryGeneration by remember(albumArtUri) { mutableIntStateOf(0) }
+    var loadFailed by remember(albumArtUri, repairRetryGeneration) { mutableStateOf(false) }
     val displayMode = LocalCoverDisplayMode.current
     val resolvedScale = contentScale ?: when (displayMode) {
         CoverDisplayMode.CROP_FILL -> ContentScale.Crop
@@ -118,18 +119,11 @@ fun SongCover(
     var lastPaintedUri by remember { mutableStateOf<String?>(null) }
     val isPainted = albumArtUri.isNullOrBlank() || lastPaintedUri == albumArtUri
 
-    LaunchedEffect(albumArtUri, decodeTarget, standardRequestSpec) {
+    LaunchedEffect(albumArtUri) {
         if (albumArtUri.isNullOrBlank()) {
             lastPaintedUri = null
+            loadFailed = false
             onImageReady()
-        } else {
-            when {
-                standardRequestSpec != null ->
-                    MicaImageLoaders.preloadCover(context, albumArtUri, standardRequestSpec)
-                decodeTarget != null ->
-                    MicaImageLoaders.preloadCover(context, albumArtUri, decodeTarget)
-                else -> MicaImageLoaders.preloadCover(context, albumArtUri)
-            }
         }
     }
 
@@ -140,10 +134,10 @@ fun SongCover(
             albumArtUri.isNullOrBlank() -> null
             holdoverAlbumArtUri != null && holdoverAlbumArtUri != albumArtUri -> holdoverAlbumArtUri
             lastPaintedUri != null && lastPaintedUri != albumArtUri -> lastPaintedUri
-            !isPainted -> coverHoldoverUri(
+            holdoverUntilImageReady && !isPainted -> coverHoldoverUri(
                 albumArtUri = albumArtUri,
                 imageReady = false,
-                allowSameUri = holdoverUntilImageReady,
+                allowSameUri = true,
             )
             else -> null
         }
@@ -157,7 +151,7 @@ fun SongCover(
     val coverImageLoader = remember { MicaImageLoaders.cover }
 
     Box(modifier = layoutModifier.background(effectiveBackdropColor)) {
-        if (albumArtUri.isNullOrBlank()) {
+        if (albumArtUri.isNullOrBlank() || loadFailed) {
             Image(
                 painter = painterResource(noCoverPlaceholderResId),
                 contentDescription = contentDescription,
@@ -221,6 +215,7 @@ fun SongCover(
                 contentScale = resolvedScale,
                 modifier = Modifier.fillMaxSize(),
                 onSuccess = { state ->
+                    loadFailed = false
                     lastPaintedUri = albumArtUri
                     if (publishHoldoverOnSuccess) {
                         markCoverHoldoverReady(albumArtUri)
@@ -242,10 +237,16 @@ fun SongCover(
                     lastPaintedUri = albumArtUri
                     onImageFailed()
                     val failedUri = albumArtUri
-                    recoveryScope.launch {
-                        if (MicaImageLoaders.recoverAfterLoadFailure(context, failedUri)) {
-                            repairRetryGeneration++
+                    if (repairRetryGeneration == 0) {
+                        recoveryScope.launch {
+                            if (MicaImageLoaders.recoverAfterLoadFailure(context, failedUri)) {
+                                repairRetryGeneration++
+                            } else {
+                                loadFailed = true
+                            }
                         }
+                    } else {
+                        loadFailed = true
                     }
                 },
             )

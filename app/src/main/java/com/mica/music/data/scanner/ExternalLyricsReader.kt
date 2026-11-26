@@ -47,11 +47,17 @@ internal object ExternalLyricsReader {
                         ?: return ProbeResult.Failed("externalLyricsTooLarge")
                     val text = decodeLyricsBytes(bytes)
                     parseLyricsFile(text)
-                        ?: return ProbeResult.Failed("externalLyricsParse")
                 }
-                candidates += document
+                if (document != null) {
+                    candidates += document
+                }
             } catch (error: CancellationException) {
                 throw error
+            } catch (_: SecurityException) {
+                // Android 11+ Scoped Storage can list another app's MediaStore.Files .lrc row
+                // without granting read access. Treat as unreadable for this sidecar rather than
+                // failing the whole track and discarding embedded lyrics forever.
+                continue
             } catch (_: Exception) {
                 return ProbeResult.Failed("externalLyricsRead")
             }

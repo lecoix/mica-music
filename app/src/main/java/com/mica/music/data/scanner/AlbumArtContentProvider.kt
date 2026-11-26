@@ -57,7 +57,7 @@ class AlbumArtContentProvider : ContentProvider() {
     private fun restoreArtworkFile(uri: Uri): Boolean {
         val appContext = context?.applicationContext ?: return false
         return runBlocking(Dispatchers.IO) {
-            ManagedArtworkRecovery.repairAfterLoadFailure(appContext, uri.toString())
+            ManagedArtworkRecovery.ensureOriginal(appContext, uri.toString())
         }
     }
 }

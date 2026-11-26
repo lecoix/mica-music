@@ -41,8 +41,7 @@ internal object SystemMediaArtworkResolver {
         }
         if (!requiresPrivateFileWorkaround(device)) return original
 
-        return AlbumArtCache.fileForManagedArtwork(appContext, rawArtworkUri)
-            ?.takeIf { file -> file.isFile && file.length() > 0L }
+        return AlbumArtCache.residentBackingFileForManagedArtwork(appContext, rawArtworkUri)
             ?.let(Uri::fromFile)
     }
 

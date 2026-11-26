@@ -465,6 +465,7 @@ private fun FloatingIslandMiniPlayer(
                     contentDescription = song.title,
                     noCoverPlaceholderResId = R.drawable.no_cover_placeholder_small,
                     decodeTarget = CoverDecodeTarget.forCompactCover(),
+                    allowPreviousImageUnderlay = true,
                     modifier = Modifier
                         .size(FloatingCoverSize)
                         .onGloballyPositioned { onCoverBoundsChanged(it.boundsInRoot()) }
