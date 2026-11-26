@@ -302,6 +302,7 @@ internal object DeviceShadowObjectProbeExecutor {
                             songId = plan.stableObjectKey,
                             revision = retained.lyricsCacheRevision,
                             slots = scanned.lyrics.slots,
+                            preservedSlots = scanned.lyrics.preservedSlots,
                         )
                         fullReplaceLyricsKeys += plan.stableObjectKey
                         mediaStoreSongLyricsKey(retained)?.let { lyricsKey ->
@@ -362,8 +363,9 @@ internal object DeviceShadowObjectProbeExecutor {
                     )
                     return@forEach
                 }
-                val slots = when (lyrics) {
-                    is LyricsProbeResult.Complete -> lyrics.slots.copy(embedded = null)
+                val (slots, preservedSlots) = when (lyrics) {
+                    is LyricsProbeResult.Complete ->
+                        lyrics.slots.copy(embedded = null) to lyrics.preservedSlots
                     LyricsProbeResult.ReadFailed -> {
                         issues += DeviceShadowProbeIssue(
                             stableObjectKey = plan.stableObjectKey,
@@ -390,6 +392,7 @@ internal object DeviceShadowObjectProbeExecutor {
                     songId = plan.stableObjectKey,
                     revision = updated.lyricsCacheRevision,
                     slots = slots,
+                    preservedSlots = preservedSlots,
                 )
                 resolvedLyricsKeys[plan.stableObjectKey] = lyricsKey
             }
@@ -473,21 +476,37 @@ internal fun defaultReadOnlyDeviceShadowAudioProbe(
 internal fun defaultDeviceShadowExternalLyricsProbe(
     context: android.content.Context,
 ): DeviceShadowExternalLyricsProbeApi = DeviceShadowExternalLyricsProbeApi { lrcUris, ttmlUris ->
-    val lrc = ExternalLyricsReader.probeDirectDocuments(context, lrcUris)
-    val ttml = ExternalLyricsReader.probeDirectDocuments(context, ttmlUris)
+    val lrc = ExternalLyricsReader.probeDirectDocumentsDetailed(context, lrcUris)
+    val ttml = ExternalLyricsReader.probeDirectDocumentsDetailed(context, ttmlUris)
     if (
-        lrc is com.mica.music.data.scanner.ProbeResult.Failed ||
-        ttml is com.mica.music.data.scanner.ProbeResult.Failed
+        lrc is com.mica.music.data.scanner.ExternalLyricsProbeResult.Failed ||
+        ttml is com.mica.music.data.scanner.ExternalLyricsProbeResult.Failed
     ) {
         LyricsProbeResult.ReadFailed
     } else {
+        val preserved = linkedSetOf<com.mica.music.data.LyricsSlot>()
+        val lrcDoc = when (lrc) {
+            is com.mica.music.data.scanner.ExternalLyricsProbeResult.Found -> lrc.document
+            com.mica.music.data.scanner.ExternalLyricsProbeResult.PermissionDenied -> {
+                preserved += com.mica.music.data.LyricsSlot.EXTERNAL_LRC
+                null
+            }
+            is com.mica.music.data.scanner.ExternalLyricsProbeResult.Failed -> null
+        }
+        val ttmlDoc = when (ttml) {
+            is com.mica.music.data.scanner.ExternalLyricsProbeResult.Found -> ttml.document
+            com.mica.music.data.scanner.ExternalLyricsProbeResult.PermissionDenied -> {
+                preserved += com.mica.music.data.LyricsSlot.EXTERNAL_TTML
+                null
+            }
+            is com.mica.music.data.scanner.ExternalLyricsProbeResult.Failed -> null
+        }
         LyricsProbeResult.Complete(
-            LyricsSlots(
-                externalLrc =
-                    (lrc as com.mica.music.data.scanner.ProbeResult.Ok).value,
-                externalTtml =
-                    (ttml as com.mica.music.data.scanner.ProbeResult.Ok).value,
+            slots = LyricsSlots(
+                externalLrc = lrcDoc,
+                externalTtml = ttmlDoc,
             ),
+            preservedSlots = preserved,
         )
     }
 }

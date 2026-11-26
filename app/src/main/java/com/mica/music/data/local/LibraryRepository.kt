@@ -272,11 +272,26 @@ class LibraryRepository internal constructor(
 
     internal suspend fun loadUserExclusions(
         sourceIdentity: SourceIdentityKey,
-    ): List<LibraryUserExclusion> =
-        userExclusionDao.getBySource(
-            source = sourceIdentity.source.storageValue,
-            stableIdentity = sourceIdentity.stableIdentity,
-        ).map(LibraryUserExclusionEntity::toModel)
+    ): List<LibraryUserExclusion> {
+        if (sourceIdentity.source != ScanSource.FOLDER) {
+            return userExclusionDao.getBySource(
+                source = sourceIdentity.source.storageValue,
+                stableIdentity = sourceIdentity.stableIdentity,
+            ).map(LibraryUserExclusionEntity::toModel)
+        }
+        val matched = userExclusionDao.getBySourceKind(sourceIdentity.source.storageValue)
+            .map(LibraryUserExclusionEntity::toModel)
+            .filter { exclusion -> sourceIdentity.sharesExclusionScopeWith(exclusion.sourceIdentity) }
+        if (matched.size <= 1) return matched
+        val bestByObjectKey = LinkedHashMap<String, LibraryUserExclusion>(matched.size)
+        for (exclusion in matched) {
+            val current = bestByObjectKey[exclusion.stableObjectKey]
+            if (current == null || exclusion.exclusionRevision > current.exclusionRevision) {
+                bestByObjectKey[exclusion.stableObjectKey] = exclusion
+            }
+        }
+        return bestByObjectKey.values.toList()
+    }
 
     internal suspend fun upsertUserExclusion(exclusion: LibraryUserExclusion) {
         userExclusionDao.upsert(exclusion.toEntity())
@@ -286,11 +301,37 @@ class LibraryRepository internal constructor(
         sourceIdentity: SourceIdentityKey,
         stableObjectKey: String,
     ) {
-        userExclusionDao.delete(
-            source = sourceIdentity.source.storageValue,
-            stableIdentity = sourceIdentity.stableIdentity,
-            stableObjectKey = stableObjectKey,
-        )
+        if (sourceIdentity.source != ScanSource.FOLDER) {
+            userExclusionDao.delete(
+                source = sourceIdentity.source.storageValue,
+                stableIdentity = sourceIdentity.stableIdentity,
+                stableObjectKey = stableObjectKey,
+            )
+            return
+        }
+        val overlappingIdentities = userExclusionDao.getBySourceKind(sourceIdentity.source.storageValue)
+            .asSequence()
+            .filter { it.stableObjectKey == stableObjectKey }
+            .map(LibraryUserExclusionEntity::toModel)
+            .filter { sourceIdentity.sharesExclusionScopeWith(it.sourceIdentity) }
+            .map { it.sourceIdentity.stableIdentity }
+            .distinct()
+            .toList()
+        if (overlappingIdentities.isEmpty()) {
+            userExclusionDao.delete(
+                source = sourceIdentity.source.storageValue,
+                stableIdentity = sourceIdentity.stableIdentity,
+                stableObjectKey = stableObjectKey,
+            )
+        } else {
+            overlappingIdentities.forEach { stableIdentity ->
+                userExclusionDao.delete(
+                    source = sourceIdentity.source.storageValue,
+                    stableIdentity = stableIdentity,
+                    stableObjectKey = stableObjectKey,
+                )
+            }
+        }
     }
 
     internal suspend fun loadFollowupOutboxPage(
@@ -393,19 +434,36 @@ class LibraryRepository internal constructor(
 
     suspend fun applyLyricsBatch(batch: List<ScannedSongLyrics>) {
         if (batch.isEmpty()) return
-        val songIds = batch.map(ScannedSongLyrics::songId)
-        val encoded = batch.flatMap { payload ->
-            payload.slots.entries().map { (slot, document) ->
-                SongLyricsEntity(
-                    songId = payload.songId,
-                    slot = slot.name,
-                    revision = payload.revision,
-                    lyricsJson = LyricsDocumentCodec.encode(document),
-                )
+        val fullReplaceSongIds = ArrayList<String>(batch.size)
+        val partialDeletes = ArrayList<Pair<String, List<String>>>()
+        val encoded = ArrayList<SongLyricsEntity>(batch.size)
+        for (payload in batch) {
+            if (payload.preservedSlots.isEmpty()) {
+                fullReplaceSongIds += payload.songId
+            } else {
+                val replaceable = LyricsSlot.entries
+                    .filterNot { it in payload.preservedSlots }
+                    .map(LyricsSlot::name)
+                if (replaceable.isNotEmpty()) {
+                    partialDeletes += payload.songId to replaceable
+                }
             }
+            payload.slots.entries()
+                .filterNot { (slot, _) -> slot in payload.preservedSlots }
+                .forEach { (slot, document) ->
+                    encoded += SongLyricsEntity(
+                        songId = payload.songId,
+                        slot = slot.name,
+                        revision = payload.revision,
+                        lyricsJson = LyricsDocumentCodec.encode(document),
+                    )
+                }
         }
         db.withTransaction {
-            lyricsDao.deleteBySongIds(songIds)
+            if (fullReplaceSongIds.isNotEmpty()) lyricsDao.deleteBySongIds(fullReplaceSongIds)
+            partialDeletes.forEach { (songId, slots) ->
+                lyricsDao.deleteBySongIdAndSlots(songId, slots)
+            }
             if (encoded.isNotEmpty()) lyricsDao.insertAll(encoded)
         }
     }
@@ -417,15 +475,27 @@ class LibraryRepository internal constructor(
                 scanId = scanId,
                 songId = payload.songId,
                 revision = payload.revision,
-                embeddedJson = payload.slots.embedded
-                    ?.takeIf { it.lines.isNotEmpty() }
-                    ?.let(LyricsDocumentCodec::encode),
-                externalLrcJson = payload.slots.externalLrc
-                    ?.takeIf { it.lines.isNotEmpty() }
-                    ?.let(LyricsDocumentCodec::encode),
-                externalTtmlJson = payload.slots.externalTtml
-                    ?.takeIf { it.lines.isNotEmpty() }
-                    ?.let(LyricsDocumentCodec::encode),
+                embeddedJson = if (LyricsSlot.EMBEDDED in payload.preservedSlots) {
+                    PRESERVE_STAGED_LYRICS_SLOT_SENTINEL
+                } else {
+                    payload.slots.embedded
+                        ?.takeIf { it.lines.isNotEmpty() }
+                        ?.let(LyricsDocumentCodec::encode)
+                },
+                externalLrcJson = if (LyricsSlot.EXTERNAL_LRC in payload.preservedSlots) {
+                    PRESERVE_STAGED_LYRICS_SLOT_SENTINEL
+                } else {
+                    payload.slots.externalLrc
+                        ?.takeIf { it.lines.isNotEmpty() }
+                        ?.let(LyricsDocumentCodec::encode)
+                },
+                externalTtmlJson = if (LyricsSlot.EXTERNAL_TTML in payload.preservedSlots) {
+                    PRESERVE_STAGED_LYRICS_SLOT_SENTINEL
+                } else {
+                    payload.slots.externalTtml
+                        ?.takeIf { it.lines.isNotEmpty() }
+                        ?.let(LyricsDocumentCodec::encode)
+                },
             )
         }
         lyricsDao.insertPending(pending)
@@ -442,15 +512,18 @@ class LibraryRepository internal constructor(
     ) {
         when (mode) {
             LyricsStagingMode.FULL_REPLACE -> {
-                lyricsDao.deleteLyricsReplacedByPending(scanId)
-                lyricsDao.promotePendingEmbedded(scanId)
+                lyricsDao.deleteEmbeddedLyricsReplacedByPending(scanId, PRESERVE_STAGED_LYRICS_SLOT_SENTINEL)
+                lyricsDao.deleteExternalLrcLyricsReplacedByPending(scanId, PRESERVE_STAGED_LYRICS_SLOT_SENTINEL)
+                lyricsDao.deleteExternalTtmlLyricsReplacedByPending(scanId, PRESERVE_STAGED_LYRICS_SLOT_SENTINEL)
+                lyricsDao.promotePendingEmbedded(scanId, PRESERVE_STAGED_LYRICS_SLOT_SENTINEL)
             }
             LyricsStagingMode.EXTERNAL_ONLY -> {
-                lyricsDao.deleteExternalLyricsReplacedByPending(scanId)
+                lyricsDao.deleteExternalLrcLyricsReplacedByPending(scanId, PRESERVE_STAGED_LYRICS_SLOT_SENTINEL)
+                lyricsDao.deleteExternalTtmlLyricsReplacedByPending(scanId, PRESERVE_STAGED_LYRICS_SLOT_SENTINEL)
             }
         }
-        lyricsDao.promotePendingExternalLrc(scanId)
-        lyricsDao.promotePendingExternalTtml(scanId)
+        lyricsDao.promotePendingExternalLrc(scanId, PRESERVE_STAGED_LYRICS_SLOT_SENTINEL)
+        lyricsDao.promotePendingExternalTtml(scanId, PRESERVE_STAGED_LYRICS_SLOT_SENTINEL)
         lyricsDao.deletePendingScan(scanId)
     }
 
@@ -992,3 +1065,4 @@ private data class PersistedBrowseGroups(
 )
 
 private const val FOLLOWUP_OBJECT_KEY_DELETE_BATCH_SIZE = 500
+private const val PRESERVE_STAGED_LYRICS_SLOT_SENTINEL = "__MICA_PRESERVE_SLOT__"

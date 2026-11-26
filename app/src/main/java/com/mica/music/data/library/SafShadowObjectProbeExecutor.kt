@@ -355,6 +355,7 @@ internal object SafShadowObjectProbeExecutor {
                 songId = entry.stableObjectKey,
                 revision = scanned.song.lyricsCacheRevision,
                 slots = result.slots,
+                preservedSlots = result.preservedSlots,
             )
             LyricsProbeResult.ReadFailed -> {
                 return ObjectProbeResult(

@@ -639,7 +639,12 @@ internal suspend fun persistScannedLyricsBatch(
     } else {
         songs.mapNotNull { scanned ->
             (scanned.lyrics as? LyricsProbeResult.Complete)?.let { completed ->
-                ScannedSongLyrics(scanned.song.id, scanned.song.lyricsCacheRevision, completed.slots)
+                ScannedSongLyrics(
+                    songId = scanned.song.id,
+                    revision = scanned.song.lyricsCacheRevision,
+                    slots = completed.slots,
+                    preservedSlots = completed.preservedSlots,
+                )
             }
         }
     }

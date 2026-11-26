@@ -92,8 +92,10 @@ internal class LibraryFolderBinding(
         val pendingIdentity = SourceIdentityKey.folders(pending.map { it.treeUri }) ?: return
         if (pendingIdentity != token.sourceIdentity) return
 
-        val previousUris = backing.libraryFolders.mapTo(linkedSetOf()) { it.treeUri }
+        val previousFolders = backing.libraryFolders
+        val previousUris = previousFolders.mapTo(linkedSetOf()) { it.treeUri }
         val committedUris = pending.mapTo(linkedSetOf()) { it.treeUri }
+        migrateExcludedDirectoriesForFolderTransition(previousFolders, pending)
         LibraryScanSettings.setLibraryFolders(backing.context, pending)
         LibraryScanSettings.clearPendingLibraryFolder(backing.context)
         applyActiveFolders(pending)
@@ -152,12 +154,36 @@ internal class LibraryFolderBinding(
                 LibraryFolderEntry(uriString, label)
             }
         }
+        val previousFolders = backing.libraryFolders
         val normalized = LibraryFolderSet.normalize(orderedEntries)
+        migrateExcludedDirectoriesForFolderTransition(previousFolders, normalized)
         applyActiveFolders(normalized)
         LibraryScanSettings.setLibraryFolders(backing.context, normalized)
         if (pendingMatches) {
             LibraryScanSettings.clearPendingLibraryFolder(backing.context)
             applyPendingFolders(null)
+        }
+    }
+
+    private fun migrateExcludedDirectoriesForFolderTransition(
+        previousFolders: List<LibraryFolderEntry>,
+        nextFolders: List<LibraryFolderEntry>,
+    ) {
+        if (previousFolders.isEmpty() || nextFolders.isEmpty()) return
+        val prevUris = previousFolders.map { it.treeUri.toUri() }
+        val nextUris = nextFolders.map { it.treeUri.toUri() }
+        if (prevUris == nextUris) return
+        val currentExcluded = LibraryScanSettings.excludedScanDirectories(backing.context)
+        if (currentExcluded.isEmpty()) return
+        val migrated = LibraryFolderSet.migrateExcludedDirectories(
+            context = backing.context,
+            excludedDirectories = currentExcluded,
+            previousTreeUris = prevUris,
+            nextTreeUris = nextUris,
+        )
+        if (migrated != currentExcluded) {
+            LibraryScanSettings.setExcludedScanDirectories(backing.context, migrated)
+            backing.configFingerprint = LibraryScanSettings.configFingerprint(backing.context)
         }
     }
 

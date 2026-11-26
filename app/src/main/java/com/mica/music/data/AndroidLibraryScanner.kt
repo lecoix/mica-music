@@ -179,17 +179,39 @@ internal class AndroidLibraryScanner(
         forceRefreshLyrics: Boolean,
         forceRefreshArtwork: Boolean,
         onLyricsBatch: (suspend (LyricsScanBatch) -> Unit)?,
-    ): ScanResult = FolderScanner.scanTrees(
-        context = context,
+    ): ScanResult = scanFoldersWithExcludedDirectories(
         treeUris = treeUris,
-        options = LibraryScanSettings.scanOptions(context).copy(
-            forceRefreshLyrics = forceRefreshLyrics,
-            forceRefreshArtwork = forceRefreshArtwork,
-        ),
         cachedSongs = cachedSongs,
         onProgress = onProgress,
+        forceRefreshLyrics = forceRefreshLyrics,
+        forceRefreshArtwork = forceRefreshArtwork,
         onLyricsBatch = onLyricsBatch,
+        excludedDirectoriesOverride = null,
     )
+
+    override suspend fun scanFoldersWithExcludedDirectories(
+        treeUris: List<Uri>,
+        cachedSongs: List<Song>,
+        onProgress: (Int, Int) -> Unit,
+        forceRefreshLyrics: Boolean,
+        forceRefreshArtwork: Boolean,
+        onLyricsBatch: (suspend (LyricsScanBatch) -> Unit)?,
+        excludedDirectoriesOverride: List<String>?,
+    ): ScanResult {
+        val baseOptions = LibraryScanSettings.scanOptions(context)
+        return FolderScanner.scanTrees(
+            context = context,
+            treeUris = treeUris,
+            options = baseOptions.copy(
+                forceRefreshLyrics = forceRefreshLyrics,
+                forceRefreshArtwork = forceRefreshArtwork,
+                excludedDirectories = excludedDirectoriesOverride ?: baseOptions.excludedDirectories,
+            ),
+            cachedSongs = cachedSongs,
+            onProgress = onProgress,
+            onLyricsBatch = onLyricsBatch,
+        )
+    }
 
     override suspend fun scanFolderForSongs(
         treeUri: Uri,

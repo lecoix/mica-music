@@ -799,13 +799,33 @@ object AudioMetadataProbe {
         profiler: ScanProfiler? = null,
     ): LyricsProbeResult {
         val externalLrc = profiler.measureOptional("lyrics.externalLrc") {
-            ExternalLyricsReader.probeDirectDocuments(context, draft.externalLrcUris)
+            ExternalLyricsReader.probeDirectDocumentsDetailed(context, draft.externalLrcUris)
         }
         val externalTtml = profiler.measureOptional("lyrics.externalTtml") {
-            ExternalLyricsReader.probeDirectDocuments(context, draft.externalTtmlUris)
+            ExternalLyricsReader.probeDirectDocumentsDetailed(context, draft.externalTtmlUris)
         }
-        if (externalLrc is ProbeResult.Failed || externalTtml is ProbeResult.Failed) {
+        if (
+            externalLrc is ExternalLyricsProbeResult.Failed ||
+            externalTtml is ExternalLyricsProbeResult.Failed
+        ) {
             return LyricsProbeResult.ReadFailed
+        }
+        val preservedSlots = linkedSetOf<com.mica.music.data.LyricsSlot>()
+        val externalLrcDoc = when (externalLrc) {
+            is ExternalLyricsProbeResult.Found -> externalLrc.document
+            ExternalLyricsProbeResult.PermissionDenied -> {
+                preservedSlots += com.mica.music.data.LyricsSlot.EXTERNAL_LRC
+                null
+            }
+            is ExternalLyricsProbeResult.Failed -> return LyricsProbeResult.ReadFailed
+        }
+        val externalTtmlDoc = when (externalTtml) {
+            is ExternalLyricsProbeResult.Found -> externalTtml.document
+            ExternalLyricsProbeResult.PermissionDenied -> {
+                preservedSlots += com.mica.music.data.LyricsSlot.EXTERNAL_TTML
+                null
+            }
+            is ExternalLyricsProbeResult.Failed -> return LyricsProbeResult.ReadFailed
         }
         val embedded = profiler.measureOptional("lyrics.embeddedResolve") {
             EmbeddedLyricsResolver.resolve(
@@ -834,15 +854,25 @@ object AudioMetadataProbe {
             is ProbeResult.Failed -> return LyricsProbeResult.ReadFailed
             is ProbeResult.Ok -> embedded.value?.takeIf { it.lines.isNotEmpty() }
         }
-        return LyricsProbeResult.Complete(LyricsSlots(
-            embedded = embeddedDocument,
-            externalLrc = (externalLrc as ProbeResult.Ok).value,
-            externalTtml = (externalTtml as ProbeResult.Ok).value,
-        ))
+        return LyricsProbeResult.Complete(
+            slots = LyricsSlots(
+                embedded = embeddedDocument,
+                externalLrc = externalLrcDoc,
+                externalTtml = externalTtmlDoc,
+            ),
+            preservedSlots = preservedSlots,
+        )
     }
 
     private fun LyricsProbeResult.selectedOrCached(cachedSong: Song?): LyricsDocument = when (this) {
-        is LyricsProbeResult.Complete -> slots.selected()
+        is LyricsProbeResult.Complete -> {
+            val selected = slots.selected()
+            if (selected.lines.isNotEmpty() || preservedSlots.isEmpty()) {
+                selected
+            } else {
+                cachedSong?.lyricsDocument ?: selected
+            }
+        }
         LyricsProbeResult.ReadFailed,
         LyricsProbeResult.NotProbed,
         -> cachedSong?.lyricsDocument ?: LyricsDocument()

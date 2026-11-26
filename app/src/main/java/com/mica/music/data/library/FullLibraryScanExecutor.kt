@@ -56,6 +56,20 @@ internal class FullLibraryScanExecutor(
             }
             return
         }
+        val activeTreeUris = folder.activeTreeUris()
+        val excludedDirectoriesOverride = if (
+            activeTreeUris.isNotEmpty() &&
+            activeTreeUris.map { it.toString() } != treeUris.map { it.toString() }
+        ) {
+            com.mica.music.data.LibraryFolderSet.migrateExcludedDirectories(
+                context = backing.context,
+                excludedDirectories = com.mica.music.data.preferences.LibraryScanSettings.excludedScanDirectories(backing.context),
+                previousTreeUris = activeTreeUris,
+                nextTreeUris = treeUris,
+            )
+        } else {
+            null
+        }
         scanEngine.performScan(
             source = ScanSource.FOLDER,
             requestedForceRefreshLyrics = false,
@@ -71,6 +85,7 @@ internal class FullLibraryScanExecutor(
                 onLyricsBatch = onLyricsBatch,
                 policy = policy,
                 artworkOnly = artworkOnly,
+                excludedDirectoriesOverride = excludedDirectoriesOverride,
             )
         }
     }
@@ -106,14 +121,16 @@ internal class FullLibraryScanExecutor(
         onLyricsBatch: suspend (com.mica.music.data.LyricsScanBatch) -> Unit,
         policy: ScanProbePolicy,
         artworkOnly: Boolean,
+        excludedDirectoriesOverride: List<String>? = null,
     ): ScanResult = if (policy.forceRefreshSongIds.isEmpty()) {
-        backing.libraryScanner.scanFolders(
+        backing.libraryScanner.scanFoldersWithExcludedDirectories(
             treeUris = treeUris,
             cachedSongs = cachedSongs,
             onProgress = onProgress,
             forceRefreshLyrics = policy.forceRefreshLyrics,
             forceRefreshArtwork = false,
             onLyricsBatch = onLyricsBatch,
+            excludedDirectoriesOverride = excludedDirectoriesOverride,
         )
     } else if (artworkOnly) {
         backing.libraryScanner.scanFoldersArtworkForSongs(

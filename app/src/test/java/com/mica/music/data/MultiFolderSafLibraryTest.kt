@@ -3,6 +3,7 @@ package com.mica.music.data
 import android.content.Context
 import android.net.Uri
 import androidx.test.core.app.ApplicationProvider
+import com.mica.music.data.library.LibraryUserExclusion
 import com.mica.music.data.library.SourceIdentityKey
 import com.mica.music.data.local.CachedLibrary
 import com.mica.music.data.local.LibrarySyncResult
@@ -90,6 +91,203 @@ class MultiFolderSafLibraryTest {
             listOf("Music", "Download", "Music (2)"),
             LibraryFolderSet.disambiguateRootLabels(listOf("Music", "Download", "Music")),
         )
+    }
+
+    @Test
+    fun rootPrefixesDisambiguateDuplicateNamesIndependentlyOfInputOrder() {
+        val providerA = "content://com.example.provider.a/tree/root-1"
+        val providerZ = "content://com.example.provider.z/tree/root-2"
+
+        val manualOrder = LibraryFolderSet.disambiguateRootLabelsByKey(
+            listOf(providerZ to "Music", providerA to "Music"),
+        )
+        val autoOrder = LibraryFolderSet.disambiguateRootLabelsByKey(
+            listOf(providerA to "Music", providerZ to "Music"),
+        )
+
+        assertEquals(listOf("Music (2)", "Music"), manualOrder)
+        assertEquals(listOf("Music", "Music (2)"), autoOrder)
+        assertEquals(
+            mapOf(providerZ to manualOrder[0], providerA to manualOrder[1]),
+            mapOf(providerA to autoOrder[0], providerZ to autoOrder[1]),
+        )
+    }
+
+    @Test
+    fun excludedDirectoriesMigrateAcrossSingleMultiAndDisambiguatedTransitions() {
+        val singleToMulti = LibraryFolderSet.migrateExcludedDirectoriesWithPrefixes(
+            excludedDirectories = listOf("Private", "Voice/Temp", "Download/Noise"),
+            previousTreeUris = listOf(URI_MUSIC),
+            previousPrefixes = listOf(""),
+            nextTreeUris = listOf(URI_MUSIC, URI_DOWNLOAD),
+            nextPrefixes = listOf("Music", "Download"),
+        )
+        assertEquals(
+            listOf("Music/Private", "Music/Voice/Temp", "Download/Noise"),
+            singleToMulti,
+        )
+
+        val multiToSingle = LibraryFolderSet.migrateExcludedDirectoriesWithPrefixes(
+            excludedDirectories = singleToMulti,
+            previousTreeUris = listOf(URI_MUSIC, URI_DOWNLOAD),
+            previousPrefixes = listOf("Music", "Download"),
+            nextTreeUris = listOf(URI_MUSIC),
+            nextPrefixes = listOf(""),
+        )
+        assertEquals(
+            listOf("Private", "Voice/Temp", "Download/Noise"),
+            multiToSingle,
+        )
+
+        val providerA = "content://com.example.provider.a/tree/root-1"
+        val providerB = "content://com.example.provider.b/tree/root-2"
+        val providerC = "content://com.example.provider.c/tree/root-3"
+        val disambiguationShift = LibraryFolderSet.migrateExcludedDirectoriesWithPrefixes(
+            excludedDirectories = listOf("Music (2)/Private", "Other/Keep"),
+            previousTreeUris = listOf(providerA, providerB, providerC),
+            previousPrefixes = listOf("Music", "Music (2)", "Other"),
+            nextTreeUris = listOf(providerB, providerC),
+            nextPrefixes = listOf("Music", "Other"),
+        )
+        assertEquals(listOf("Music/Private", "Other/Keep"), disambiguationShift)
+    }
+
+    @Test
+    fun userExclusionSurvivesSingleToMultiAndMultiToSingleFolderTransitions() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val songA1 = SongFixtures.song("doc_a1")
+        val songA2 = SongFixtures.song("doc_a2")
+        val songB1 = SongFixtures.song("doc_b1")
+        val scanner = MultiTreeTestScanner(
+            songsByTree = mapOf(
+                URI_MUSIC to listOf(songA1, songA2),
+                URI_DOWNLOAD to listOf(songB1),
+            ),
+        )
+        val store = InMemoryLibraryStore()
+        val library = MusicLibrary(
+            context = context,
+            libraryScanner = scanner,
+            libraryStore = store,
+            scanEnvironment = MultiTreeScanEnvironment(mutableSetOf(URI_MUSIC, URI_DOWNLOAD)),
+            ioDispatcher = dispatcher,
+            mainDispatcher = dispatcher,
+            ownsCoverColorPersistenceSink = false,
+        )
+
+        library.setLibraryFolders(listOf(LibraryFolderEntry(URI_MUSIC, "Music")))
+        library.scanLibraryFolder()
+        assertEquals(listOf("doc_a1", "doc_a2"), library.songs.map(Song::id))
+
+        assertTrue(library.removeSongFromLibrary(songA1, persistExclusion = true))
+        assertEquals(listOf("doc_a2"), library.songs.map(Song::id))
+
+        // Expanding Music -> Music + Download must keep doc_a1 excluded.
+        library.setLibraryFolders(
+            listOf(
+                LibraryFolderEntry(URI_MUSIC, "Music"),
+                LibraryFolderEntry(URI_DOWNLOAD, "Download"),
+            ),
+        )
+        library.scanLibraryFolder()
+        assertEquals(listOf("doc_a2", "doc_b1"), library.songs.map(Song::id))
+
+        // Removing doc_a2 while in multi-folder mode and shrinking back to single Music must keep both excluded.
+        assertTrue(library.removeSongFromLibrary(songA2, persistExclusion = true))
+        library.setLibraryFolders(listOf(LibraryFolderEntry(URI_MUSIC, "Music")))
+        library.scanLibraryFolder()
+        assertEquals(emptyList<String>(), library.songs.map(Song::id))
+
+        library.release()
+    }
+
+    @Test
+    fun excludedDirectoriesMigrateOnlyOnCommitAndStaleScanCannotCorruptThem() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val songA = SongFixtures.song("doc_a")
+        val songB = SongFixtures.song("doc_b")
+        val readable = mutableSetOf(URI_MUSIC, URI_DOWNLOAD)
+        val observedExcludedByScan = mutableListOf<List<String>?>()
+        val oldScanStarted = CompletableDeferred<Unit>()
+        val releaseOldScan = CompletableDeferred<Unit>()
+        var blockNextSingleScan = false
+
+        val scanner = MultiTreeTestScanner(
+            songsByTree = mapOf(
+                URI_MUSIC to listOf(songA),
+                URI_DOWNLOAD to listOf(songB),
+            ),
+            onScanTreesWithExcluded = { uris, excludedOverride ->
+                observedExcludedByScan += excludedOverride
+                if (uris.size == 1 && blockNextSingleScan) {
+                    blockNextSingleScan = false
+                    oldScanStarted.complete(Unit)
+                    releaseOldScan.await()
+                }
+                val songs = uris.flatMap { uri ->
+                    when (uri.toString()) {
+                        URI_MUSIC -> listOf(songA)
+                        URI_DOWNLOAD -> listOf(songB)
+                        else -> emptyList()
+                    }
+                }
+                ScanResult(songs = songs, totalSizeMb = songs.size)
+            },
+        )
+        val store = InMemoryLibraryStore()
+        val library = MusicLibrary(
+            context = context,
+            libraryScanner = scanner,
+            libraryStore = store,
+            scanEnvironment = MultiTreeScanEnvironment(readable),
+            ioDispatcher = dispatcher,
+            mainDispatcher = dispatcher,
+            ownsCoverColorPersistenceSink = false,
+        )
+
+        LibraryScanSettings.setExcludedScanDirectories(context, listOf("Private"))
+        library.setLibraryFolders(listOf(LibraryFolderEntry(URI_MUSIC, "Music")))
+        library.scanLibraryFolder()
+        assertEquals(listOf("Private"), LibraryScanSettings.excludedScanDirectories(context))
+
+        // Unreadable second folder fails closed and leaves excluded directories untouched.
+        library.setLibraryFolders(
+            listOf(
+                LibraryFolderEntry(URI_MUSIC, "Music"),
+                LibraryFolderEntry(URI_NETEASE, "Netease"),
+            ),
+        )
+        library.scanLibraryFolder()
+        assertEquals(listOf("Private"), LibraryScanSettings.excludedScanDirectories(context))
+
+        // Interleave a stale single-folder scan with a newer multi-folder commit.
+        blockNextSingleScan = true
+        val staleJob = async(dispatcher) { library.scanLibraryFolder() }
+        runCurrent()
+        oldScanStarted.await()
+
+        library.setLibraryFolders(
+            listOf(
+                LibraryFolderEntry(URI_MUSIC, "Music"),
+                LibraryFolderEntry(URI_DOWNLOAD, "Download"),
+            ),
+        )
+        library.launchScanLibraryFolder()
+        releaseOldScan.complete(Unit)
+        staleJob.await()
+        runCurrent()
+
+        assertEquals(listOf("Music/Private"), observedExcludedByScan.last())
+        assertEquals(listOf("Music/Private"), LibraryScanSettings.excludedScanDirectories(context))
+        assertEquals(listOf("doc_a", "doc_b"), library.songs.map(Song::id))
+
+        // Shrinking back to single Music strips the "Music/" prefix cleanly.
+        library.setLibraryFolders(listOf(LibraryFolderEntry(URI_MUSIC, "Music")))
+        library.scanLibraryFolder()
+        assertEquals(listOf("Private"), observedExcludedByScan.last())
+        assertEquals(listOf("Private"), LibraryScanSettings.excludedScanDirectories(context))
+
+        library.release()
     }
 
     @Test
@@ -313,6 +511,7 @@ class MultiFolderSafLibraryTest {
         private val songsByTree: Map<String, List<Song>> = emptyMap(),
         private val deviceSongs: List<Song> = emptyList(),
         private val onScanTrees: (suspend (List<Uri>) -> ScanResult)? = null,
+        private val onScanTreesWithExcluded: (suspend (List<Uri>, List<String>?) -> ScanResult)? = null,
     ) : LibraryScanner {
         override suspend fun scanDevice(
             cachedSongs: List<Song>,
@@ -350,10 +549,43 @@ class MultiFolderSafLibraryTest {
                 forceRefreshArtwork = forceRefreshArtwork,
                 onLyricsBatch = onLyricsBatch,
             )
+
+        override suspend fun scanFoldersWithExcludedDirectories(
+            treeUris: List<Uri>,
+            cachedSongs: List<Song>,
+            onProgress: (Int, Int) -> Unit,
+            forceRefreshLyrics: Boolean,
+            forceRefreshArtwork: Boolean,
+            onLyricsBatch: (suspend (LyricsScanBatch) -> Unit)?,
+            excludedDirectoriesOverride: List<String>?,
+        ): ScanResult = onScanTreesWithExcluded?.invoke(treeUris, excludedDirectoriesOverride)
+            ?: scanFolders(
+                treeUris = treeUris,
+                cachedSongs = cachedSongs,
+                onProgress = onProgress,
+                forceRefreshLyrics = forceRefreshLyrics,
+                forceRefreshArtwork = forceRefreshArtwork,
+                onLyricsBatch = onLyricsBatch,
+            )
     }
 
     private class InMemoryLibraryStore : LibraryStore {
         var persistedSongs: List<Song> = emptyList()
+        private val exclusions = mutableListOf<LibraryUserExclusion>()
+
+        override suspend fun loadUserExclusions(
+            sourceIdentity: SourceIdentityKey,
+        ): List<LibraryUserExclusion> = exclusions.filter { existing ->
+            sourceIdentity.sharesExclusionScopeWith(existing.sourceIdentity)
+        }
+
+        override suspend fun upsertUserExclusion(exclusion: LibraryUserExclusion) {
+            exclusions.removeAll {
+                it.sourceIdentity == exclusion.sourceIdentity &&
+                    it.stableObjectKey == exclusion.stableObjectKey
+            }
+            exclusions += exclusion
+        }
 
         override suspend fun loadCached(): CachedLibrary? = null
 

@@ -116,6 +116,30 @@ internal data class SourceIdentityKey(
 
     fun folderTreeUriOrNull(): String? = folderTreeUris().firstOrNull()
 
+    /**
+     * Whether user exclusions recorded under [other] apply when scanning this source.
+     *
+     * For DEVICE sources this requires exact identity equality. For SAF FOLDER sources, adding or
+     * removing folders or collapsing parent/child trees changes [stableIdentity] while retaining
+     * overlapping SAF documents, so any overlapping tree set shares user exclusions while disjoint
+     * SAF trees remain isolated.
+     */
+    fun sharesExclusionScopeWith(other: SourceIdentityKey): Boolean {
+        if (source != other.source) return false
+        if (stableIdentity == other.stableIdentity) return true
+        if (source != ScanSource.FOLDER) return false
+        val ours = folderTreeUris()
+        val theirs = other.folderTreeUris()
+        if (ours.isEmpty() || theirs.isEmpty()) return false
+        return ours.any { ourUri ->
+            theirs.any { theirUri ->
+                ourUri == theirUri ||
+                    com.mica.music.data.LibraryFolderSet.coversTree(ourUri, theirUri) ||
+                    com.mica.music.data.LibraryFolderSet.coversTree(theirUri, ourUri)
+            }
+        }
+    }
+
     companion object {
         private const val FOLDER_PREFIX = "saf:"
         private const val MULTI_FOLDER_PREFIX = "saf-multi:"

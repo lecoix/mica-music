@@ -294,6 +294,23 @@ internal interface LibraryScanner {
         }
     }
 
+    suspend fun scanFoldersWithExcludedDirectories(
+        treeUris: List<Uri>,
+        cachedSongs: List<Song>,
+        onProgress: (Int, Int) -> Unit,
+        forceRefreshLyrics: Boolean = false,
+        forceRefreshArtwork: Boolean = false,
+        onLyricsBatch: (suspend (LyricsScanBatch) -> Unit)? = null,
+        excludedDirectoriesOverride: List<String>? = null,
+    ): ScanResult = scanFolders(
+        treeUris = treeUris,
+        cachedSongs = cachedSongs,
+        onProgress = onProgress,
+        forceRefreshLyrics = forceRefreshLyrics,
+        forceRefreshArtwork = forceRefreshArtwork,
+        onLyricsBatch = onLyricsBatch,
+    )
+
     suspend fun scanFolderForSongs(
         treeUri: Uri,
         songIds: Set<String>,

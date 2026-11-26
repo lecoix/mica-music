@@ -55,7 +55,14 @@ internal sealed interface LyricsProbeResult {
 
     data object ReadFailed : LyricsProbeResult
 
-    data class Complete(val slots: LyricsSlots) : LyricsProbeResult
+    data class Complete(
+        val slots: LyricsSlots,
+        /**
+         * Slots whose probe hit a scoped-storage permission denial and therefore must keep their
+         * previously persisted `song_lyrics` row untouched instead of deleting it.
+         */
+        val preservedSlots: Set<LyricsSlot> = emptySet(),
+    ) : LyricsProbeResult
 }
 
 val DEFAULT_LYRICS_SLOT_PRIORITY = listOf(
@@ -68,6 +75,7 @@ data class ScannedSongLyrics(
     val songId: String,
     val revision: String,
     val slots: LyricsSlots,
+    val preservedSlots: Set<LyricsSlot> = emptySet(),
 )
 
 data class LyricsScanBatch(

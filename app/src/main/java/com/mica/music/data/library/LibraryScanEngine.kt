@@ -271,13 +271,27 @@ internal class LibraryScanEngine(
                     )
                 }
             }
+            if (
+                sideEffects.ownsGlobalLyricsMaintenance &&
+                !lyricsReadFailed &&
+                backing.isCurrentOperationToken(token)
+            ) {
+                if (lyricsParserUpgrade) {
+                    backing.scanEnvironment.persistLyricsParserVersion(CURRENT_LYRICS_PARSER_VERSION)
+                    backing.lyricsDataVersion = CURRENT_LYRICS_PARSER_VERSION
+                }
+                backing.scanEnvironment.persistLyricsRetryRequired(false)
+            }
             if (source == ScanSource.FOLDER && backing.isCurrentOperationToken(token)) {
+                folder.commitPendingFolderIfActivated(token)
+                val activeConfigFingerprint =
+                    com.mica.music.data.preferences.LibraryScanSettings.configFingerprint(backing.context)
                 val safCanonicalSnapshot = SafShadowCanonicalCatalog.snapshot(
                     songs = backing.songs,
                     context = SafShadowCanonicalContext(
                         sourceIdentityStorageKey = token.sourceIdentity.storageKey(),
                         activationEpoch = token.activationEpoch,
-                        configFingerprint = token.configFingerprint,
+                        configFingerprint = activeConfigFingerprint,
                     ),
                 )
                 logSafShadowCanonicalProjection(
@@ -285,7 +299,6 @@ internal class LibraryScanEngine(
                     result = safShadowCanonicalProjection.acceptFullSnapshot(safCanonicalSnapshot),
                 )
                 safShadowVideoInventory.seed(result.folderVideoFiles)
-                folder.commitPendingFolderIfActivated(token)
                 if (sideEffects.prefetchVideoCoverPosters) {
                     backing.scanEnvironment.enqueueVideoCoverPosterPrefetch(
                         songsForPublish.mapNotNull { song ->
@@ -297,17 +310,6 @@ internal class LibraryScanEngine(
                         },
                     )
                 }
-            }
-            if (
-                sideEffects.ownsGlobalLyricsMaintenance &&
-                !lyricsReadFailed &&
-                backing.isCurrentOperationToken(token)
-            ) {
-                if (lyricsParserUpgrade) {
-                    backing.scanEnvironment.persistLyricsParserVersion(CURRENT_LYRICS_PARSER_VERSION)
-                    backing.lyricsDataVersion = CURRENT_LYRICS_PARSER_VERSION
-                }
-                backing.scanEnvironment.persistLyricsRetryRequired(false)
             }
         } catch (e: CancellationException) {
             throw e

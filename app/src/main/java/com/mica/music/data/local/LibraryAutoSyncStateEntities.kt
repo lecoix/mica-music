@@ -288,6 +288,11 @@ interface LibraryUserExclusionDao {
     )
     suspend fun getBySource(source: String, stableIdentity: String): List<LibraryUserExclusionEntity>
 
+    @Query(
+        "SELECT * FROM library_user_exclusions WHERE source = :source",
+    )
+    suspend fun getBySourceKind(source: String): List<LibraryUserExclusionEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: LibraryUserExclusionEntity)
 

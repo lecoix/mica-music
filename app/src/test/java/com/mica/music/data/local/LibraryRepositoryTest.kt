@@ -37,6 +37,7 @@ import com.mica.music.data.library.PersistedLibraryState
 import com.mica.music.data.library.SourceActivation
 import com.mica.music.data.library.SourceIdentityKey
 import com.mica.music.data.library.LibrarySourceState
+import com.mica.music.data.library.LyricsStagingMode
 import com.mica.music.data.library.SafMassDeletionConfirmationPlanner
 import com.mica.music.testutil.SongFixtures
 import kotlinx.coroutines.test.runTest
@@ -1009,5 +1010,262 @@ class LibraryRepositoryTest {
         dao.replaceAll(SongFixtures.queue(2).mapIndexed { index, song -> song.toEntity(index) })
         dao.replaceAll(listOf(SongFixtures.song("replacement").toEntity(0)))
         assertEquals(listOf("replacement"), dao.getAllOrdered().map { it.id })
+    }
+
+    @Test
+    fun folderUserExclusionsMatchOverlappingFolderSetsAndIsolateDisjointTrees() = runTest {
+        val musicUri = "content://com.android.externalstorage.documents/tree/primary%3AMusic"
+        val jazzUri = "content://com.android.externalstorage.documents/tree/primary%3AMusic%2FJazz"
+        val downloadUri = "content://com.android.externalstorage.documents/tree/primary%3ADownload"
+        val podcastsUri = "content://com.android.externalstorage.documents/tree/primary%3APodcasts"
+
+        val singleJazz = SourceIdentityKey.folder(jazzUri)
+        val singleMusic = SourceIdentityKey.folder(musicUri)
+        val multiMusicDownload = SourceIdentityKey.folders(listOf(musicUri, downloadUri))!!
+        val disjointPodcasts = SourceIdentityKey.folder(podcastsUri)
+
+        val exclusion = LibraryUserExclusion(
+            sourceIdentity = singleJazz,
+            stableObjectKey = "saf-song-1",
+            exclusionRevision = 10L,
+            createdAtMs = 100L,
+        )
+        repository.upsertUserExclusion(exclusion)
+
+        assertEquals(listOf("saf-song-1"), repository.loadUserExclusions(singleJazz).map { it.stableObjectKey })
+        assertEquals(listOf("saf-song-1"), repository.loadUserExclusions(singleMusic).map { it.stableObjectKey })
+        assertEquals(listOf("saf-song-1"), repository.loadUserExclusions(multiMusicDownload).map { it.stableObjectKey })
+        assertTrue(repository.loadUserExclusions(disjointPodcasts).isEmpty())
+        assertTrue(repository.loadUserExclusions(SourceIdentityKey.device()).isEmpty())
+
+        repository.removeUserExclusion(multiMusicDownload, "saf-song-1")
+        assertTrue(repository.loadUserExclusions(singleJazz).isEmpty())
+        assertTrue(repository.loadUserExclusions(multiMusicDownload).isEmpty())
+    }
+
+    @Test
+    fun applyLyricsBatchPreservesPermissionDeniedExternalSlotWhileUpdatingEmbedded() = runTest {
+        val song = SongFixtures.song("song-preserve-direct")
+        repository.save(listOf(song), 100L, ScanSource.DEVICE, 1)
+
+        val cachedExternal = LyricsDocument(
+            format = LyricsFormat.LRC,
+            origin = LyricsOrigin.EXTERNAL,
+            lines = listOf(
+                com.mica.music.data.LyricLineNode(
+                    id = "0-1000",
+                    startMs = 1000,
+                    parts = listOf(
+                        com.mica.music.data.LyricTextPart(
+                            com.mica.music.data.LyricTextRole.ORIGINAL,
+                            "Cached External LRC",
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val oldEmbedded = LyricsDocument(
+            format = LyricsFormat.LRC,
+            origin = LyricsOrigin.EMBEDDED,
+            lines = listOf(
+                com.mica.music.data.LyricLineNode(
+                    id = "0-1000",
+                    startMs = 1000,
+                    parts = listOf(
+                        com.mica.music.data.LyricTextPart(
+                            com.mica.music.data.LyricTextRole.ORIGINAL,
+                            "Old Embedded",
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val freshEmbedded = LyricsDocument(
+            format = LyricsFormat.LRC,
+            origin = LyricsOrigin.EMBEDDED,
+            lines = listOf(
+                com.mica.music.data.LyricLineNode(
+                    id = "0-2000",
+                    startMs = 2000,
+                    parts = listOf(
+                        com.mica.music.data.LyricTextPart(
+                            com.mica.music.data.LyricTextRole.ORIGINAL,
+                            "Fresh Embedded",
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        repository.applyLyricsBatch(
+            listOf(
+                ScannedSongLyrics(
+                    songId = song.id,
+                    revision = "rev-1",
+                    slots = LyricsSlots(embedded = oldEmbedded, externalLrc = cachedExternal),
+                ),
+            ),
+        )
+        repository.applyLyricsBatch(
+            listOf(
+                ScannedSongLyrics(
+                    songId = song.id,
+                    revision = "rev-2",
+                    slots = LyricsSlots(embedded = freshEmbedded, externalLrc = null),
+                    preservedSlots = setOf(LyricsSlot.EXTERNAL_LRC),
+                ),
+            ),
+        )
+
+        val loadedExternal = repository.lyricsById(song.id, listOf(LyricsSlot.EXTERNAL_LRC))
+        val loadedEmbedded = repository.lyricsById(song.id, listOf(LyricsSlot.EMBEDDED))
+        assertEquals("Cached External LRC", loadedExternal.lines.single().parts.single().text)
+        assertEquals("Fresh Embedded", loadedEmbedded.lines.single().parts.single().text)
+    }
+
+    @Test
+    fun stagedLyricsPromotionPreservesPermissionDeniedExternalSlotInFullAndExternalOnlyModes() = runTest {
+        val song = SongFixtures.song("song-preserve-staged").copy(
+            lyricsDocument = LyricsDocument(),
+            lyricsLoaded = false,
+        )
+        repository.save(listOf(song), 100L, ScanSource.DEVICE, 1)
+
+        val cachedExternal = LyricsDocument(
+            format = LyricsFormat.LRC,
+            origin = LyricsOrigin.EXTERNAL,
+            lines = listOf(
+                com.mica.music.data.LyricLineNode(
+                    id = "0-1000",
+                    startMs = 1000,
+                    parts = listOf(
+                        com.mica.music.data.LyricTextPart(
+                            com.mica.music.data.LyricTextRole.ORIGINAL,
+                            "Cached External LRC",
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val freshEmbedded = LyricsDocument(
+            format = LyricsFormat.LRC,
+            origin = LyricsOrigin.EMBEDDED,
+            lines = listOf(
+                com.mica.music.data.LyricLineNode(
+                    id = "0-2000",
+                    startMs = 2000,
+                    parts = listOf(
+                        com.mica.music.data.LyricTextPart(
+                            com.mica.music.data.LyricTextRole.ORIGINAL,
+                            "Staged Embedded",
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val freshTtml = LyricsDocument(
+            format = LyricsFormat.TTML,
+            origin = LyricsOrigin.EXTERNAL,
+            lines = listOf(
+                com.mica.music.data.LyricLineNode(
+                    id = "0-3000",
+                    startMs = 3000,
+                    parts = listOf(
+                        com.mica.music.data.LyricTextPart(
+                            com.mica.music.data.LyricTextRole.ORIGINAL,
+                            "Staged TTML",
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        repository.applyLyricsBatch(
+            listOf(
+                ScannedSongLyrics(
+                    songId = song.id,
+                    revision = "rev-1",
+                    slots = LyricsSlots(externalLrc = cachedExternal),
+                ),
+            ),
+        )
+
+        val source = SourceIdentityKey.device()
+        val state = PersistedLibraryState(
+            intent = LibraryIntentState.ACTIVE,
+            access = LibraryAccessState.AVAILABLE,
+            sourceState = LibrarySourceState(active = SourceActivation(source, 1L)),
+            configFingerprint = "cfg",
+        )
+        val mutation = LibraryAutoSyncStateMutation(sourceIdentity = source)
+
+        // FULL_REPLACE preserves EXTERNAL_LRC while promoting EMBEDDED.
+        repository.stageLyrics(
+            scanId = "scan-full-preserve",
+            batch = listOf(
+                ScannedSongLyrics(
+                    songId = song.id,
+                    revision = "rev-2",
+                    slots = LyricsSlots(embedded = freshEmbedded, externalLrc = null),
+                    preservedSlots = setOf(LyricsSlot.EXTERNAL_LRC),
+                ),
+            ),
+        )
+        repository.commitAutoSyncSnapshotAuthority(
+            songs = listOf(song),
+            lastScanAtMs = 101L,
+            lastScanSource = ScanSource.DEVICE,
+            totalSizeMb = 1,
+            state = state,
+            autoSyncStateMutation = mutation,
+            followupOutboxItems = emptyList(),
+            stagedLyricsId = "scan-full-preserve",
+            stagedLyricsMode = LyricsStagingMode.FULL_REPLACE,
+        )
+        assertEquals(
+            "Cached External LRC",
+            repository.lyricsById(song.id, listOf(LyricsSlot.EXTERNAL_LRC)).lines.single().parts.single().text,
+        )
+        assertEquals(
+            "Staged Embedded",
+            repository.lyricsById(song.id, listOf(LyricsSlot.EMBEDDED)).lines.single().parts.single().text,
+        )
+
+        // EXTERNAL_ONLY preserves EXTERNAL_LRC and EMBEDDED while promoting EXTERNAL_TTML.
+        repository.stageLyrics(
+            scanId = "scan-ext-preserve",
+            batch = listOf(
+                ScannedSongLyrics(
+                    songId = song.id,
+                    revision = "rev-3",
+                    slots = LyricsSlots(externalLrc = null, externalTtml = freshTtml),
+                    preservedSlots = setOf(LyricsSlot.EXTERNAL_LRC),
+                ),
+            ),
+        )
+        repository.commitAutoSyncSnapshotAuthority(
+            songs = listOf(song),
+            lastScanAtMs = 102L,
+            lastScanSource = ScanSource.DEVICE,
+            totalSizeMb = 1,
+            state = state,
+            autoSyncStateMutation = mutation,
+            followupOutboxItems = emptyList(),
+            stagedExternalLyricsId = "scan-ext-preserve",
+        )
+        assertEquals(
+            "Cached External LRC",
+            repository.lyricsById(song.id, listOf(LyricsSlot.EXTERNAL_LRC)).lines.single().parts.single().text,
+        )
+        assertEquals(
+            "Staged Embedded",
+            repository.lyricsById(song.id, listOf(LyricsSlot.EMBEDDED)).lines.single().parts.single().text,
+        )
+        assertEquals(
+            "Staged TTML",
+            repository.lyricsById(song.id, listOf(LyricsSlot.EXTERNAL_TTML)).lines.single().parts.single().text,
+        )
+        assertEquals(0, pendingLyricsCount("scan-full-preserve"))
+        assertEquals(0, pendingLyricsCount("scan-ext-preserve"))
     }
 }

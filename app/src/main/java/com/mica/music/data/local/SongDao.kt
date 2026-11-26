@@ -127,6 +127,9 @@ interface SongLyricsDao {
     @Query("DELETE FROM song_lyrics WHERE songId IN (:songIds)")
     suspend fun deleteBySongIds(songIds: List<String>)
 
+    @Query("DELETE FROM song_lyrics WHERE songId = :songId AND slot IN (:slots)")
+    suspend fun deleteBySongIdAndSlots(songId: String, slots: List<String>)
+
     @Query("DELETE FROM song_lyrics")
     suspend fun deleteAll()
 
@@ -143,36 +146,44 @@ interface SongLyricsDao {
     suspend fun deletePendingScan(scanId: String)
 
     @Query(
-        "DELETE FROM song_lyrics WHERE songId IN " +
-            "(SELECT songId FROM song_lyrics_pending WHERE scanId = :scanId)",
+        "DELETE FROM song_lyrics WHERE slot = 'EMBEDDED' AND songId IN " +
+            "(SELECT songId FROM song_lyrics_pending WHERE scanId = :scanId " +
+            "AND (embeddedJson IS NULL OR embeddedJson != :preserveSentinel))",
     )
-    suspend fun deleteLyricsReplacedByPending(scanId: String)
+    suspend fun deleteEmbeddedLyricsReplacedByPending(scanId: String, preserveSentinel: String)
 
     @Query(
-        "DELETE FROM song_lyrics WHERE songId IN " +
-            "(SELECT songId FROM song_lyrics_pending WHERE scanId = :scanId) " +
-            "AND slot IN ('EXTERNAL_LRC', 'EXTERNAL_TTML')",
+        "DELETE FROM song_lyrics WHERE slot = 'EXTERNAL_LRC' AND songId IN " +
+            "(SELECT songId FROM song_lyrics_pending WHERE scanId = :scanId " +
+            "AND (externalLrcJson IS NULL OR externalLrcJson != :preserveSentinel))",
     )
-    suspend fun deleteExternalLyricsReplacedByPending(scanId: String)
+    suspend fun deleteExternalLrcLyricsReplacedByPending(scanId: String, preserveSentinel: String)
+
+    @Query(
+        "DELETE FROM song_lyrics WHERE slot = 'EXTERNAL_TTML' AND songId IN " +
+            "(SELECT songId FROM song_lyrics_pending WHERE scanId = :scanId " +
+            "AND (externalTtmlJson IS NULL OR externalTtmlJson != :preserveSentinel))",
+    )
+    suspend fun deleteExternalTtmlLyricsReplacedByPending(scanId: String, preserveSentinel: String)
 
     @Query(
         "INSERT OR REPLACE INTO song_lyrics(songId, slot, revision, lyricsJson) " +
             "SELECT songId, 'EMBEDDED', revision, embeddedJson FROM song_lyrics_pending " +
-            "WHERE scanId = :scanId AND embeddedJson IS NOT NULL",
+            "WHERE scanId = :scanId AND embeddedJson IS NOT NULL AND embeddedJson != :preserveSentinel",
     )
-    suspend fun promotePendingEmbedded(scanId: String)
+    suspend fun promotePendingEmbedded(scanId: String, preserveSentinel: String)
 
     @Query(
         "INSERT OR REPLACE INTO song_lyrics(songId, slot, revision, lyricsJson) " +
             "SELECT songId, 'EXTERNAL_LRC', revision, externalLrcJson FROM song_lyrics_pending " +
-            "WHERE scanId = :scanId AND externalLrcJson IS NOT NULL",
+            "WHERE scanId = :scanId AND externalLrcJson IS NOT NULL AND externalLrcJson != :preserveSentinel",
     )
-    suspend fun promotePendingExternalLrc(scanId: String)
+    suspend fun promotePendingExternalLrc(scanId: String, preserveSentinel: String)
 
     @Query(
         "INSERT OR REPLACE INTO song_lyrics(songId, slot, revision, lyricsJson) " +
             "SELECT songId, 'EXTERNAL_TTML', revision, externalTtmlJson FROM song_lyrics_pending " +
-            "WHERE scanId = :scanId AND externalTtmlJson IS NOT NULL",
+            "WHERE scanId = :scanId AND externalTtmlJson IS NOT NULL AND externalTtmlJson != :preserveSentinel",
     )
-    suspend fun promotePendingExternalTtml(scanId: String)
+    suspend fun promotePendingExternalTtml(scanId: String, preserveSentinel: String)
 }

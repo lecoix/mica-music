@@ -3,6 +3,7 @@ package com.mica.music.data.scanner
 import android.content.Context
 import android.net.Uri
 import android.provider.DocumentsContract
+import android.provider.MediaStore
 import androidx.documentfile.provider.DocumentFile
 import com.mica.music.data.LyricLine
 import com.mica.music.data.LyricsDocument
@@ -12,6 +13,19 @@ import com.mica.music.util.DiagnosticLog
 import java.io.File
 import java.io.InputStream
 import kotlinx.coroutines.CancellationException
+internal sealed interface ExternalLyricsProbeResult {
+    data class Found(val document: LyricsDocument?) : ExternalLyricsProbeResult
+
+    /**
+     * Scoped-storage MediaStore sidecar threw [SecurityException] (another app's `.lrc`/`.ttml`
+     * row listed by `MediaStore.Files` without read grant). Callers must preserve any previously
+     * cached slot for this sidecar while still allowing embedded lyrics to be extracted.
+     */
+    data object PermissionDenied : ExternalLyricsProbeResult
+
+    data class Failed(val reason: String) : ExternalLyricsProbeResult
+}
+
 /**
  * 读取与音频同目录的外挂 `.lrc`（同名或 displayName 去扩展名）。
  */
@@ -33,18 +47,28 @@ internal object ExternalLyricsReader {
     fun probeDirectDocuments(
         context: Context,
         uriStrings: List<String>,
-    ): ProbeResult<LyricsDocument?> {
-        if (uriStrings.isEmpty()) return ProbeResult.Ok(null)
+    ): ProbeResult<LyricsDocument?> = when (val result = probeDirectDocumentsDetailed(context, uriStrings)) {
+        is ExternalLyricsProbeResult.Found -> ProbeResult.Ok(result.document)
+        ExternalLyricsProbeResult.PermissionDenied -> ProbeResult.Failed("externalLyricsPermissionDenied")
+        is ExternalLyricsProbeResult.Failed -> ProbeResult.Failed(result.reason)
+    }
+
+    fun probeDirectDocumentsDetailed(
+        context: Context,
+        uriStrings: List<String>,
+    ): ExternalLyricsProbeResult {
+        if (uriStrings.isEmpty()) return ExternalLyricsProbeResult.Found(null)
         val candidates = mutableListOf<LyricsDocument>()
+        var sawScopedMediaStorePermissionDenied = false
         for (uriString in uriStrings) {
+            val uri = uriString.takeIf { it.isNotBlank() }?.let(Uri::parse)
+                ?: return ExternalLyricsProbeResult.Failed("externalLyricsUri")
             try {
-                val uri = Uri.parse(uriString.takeIf { it.isNotBlank() }
-                    ?: return ProbeResult.Failed("externalLyricsUri"))
                 val stream = context.contentResolver.openInputStream(uri)
-                    ?: return ProbeResult.Failed("externalLyricsOpen")
+                    ?: return ExternalLyricsProbeResult.Failed("externalLyricsOpen")
                 val document = stream.use { input ->
                     val bytes = readBoundedLyricsBytes(input)
-                        ?: return ProbeResult.Failed("externalLyricsTooLarge")
+                        ?: return ExternalLyricsProbeResult.Failed("externalLyricsTooLarge")
                     val text = decodeLyricsBytes(bytes)
                     parseLyricsFile(text)
                 }
@@ -54,15 +78,23 @@ internal object ExternalLyricsReader {
             } catch (error: CancellationException) {
                 throw error
             } catch (_: SecurityException) {
-                // Android 11+ Scoped Storage can list another app's MediaStore.Files .lrc row
-                // without granting read access. Treat as unreadable for this sidecar rather than
-                // failing the whole track and discarding embedded lyrics forever.
-                continue
+                if (uri.authority == MediaStore.AUTHORITY) {
+                    sawScopedMediaStorePermissionDenied = true
+                    continue
+                }
+                return ExternalLyricsProbeResult.Failed("externalLyricsPermissionDenied")
             } catch (_: Exception) {
-                return ProbeResult.Failed("externalLyricsRead")
+                return ExternalLyricsProbeResult.Failed("externalLyricsRead")
             }
         }
-        return ProbeResult.Ok(LyricsSanitizer.pickBestDocument(candidates))
+        val selected = LyricsSanitizer.pickBestDocument(candidates)
+        if (selected != null) {
+            return ExternalLyricsProbeResult.Found(selected)
+        }
+        if (sawScopedMediaStorePermissionDenied) {
+            return ExternalLyricsProbeResult.PermissionDenied
+        }
+        return ExternalLyricsProbeResult.Found(null)
     }
 
     fun read(

@@ -86,6 +86,13 @@ fun SettingsScreen(
     val activity = context as ComponentActivity
 
     var scanState by remember { mutableStateOf(SettingsScanState.initial(context)) }
+    LaunchedEffect(library.libraryFolders) {
+        val persistedExcluded =
+            com.mica.music.data.preferences.LibraryScanSettings.excludedScanDirectories(context)
+        if (persistedExcluded != scanState.excludedDirectories) {
+            scanState = scanState.copy(excludedDirectories = persistedExcluded)
+        }
+    }
     var artistSplitConfig by remember { mutableStateOf(LibraryBrowseSettings.artistSplitConfig(context)) }
     var overlays by remember { mutableStateOf(SettingsOverlayState()) }
     var selectedCategory by rememberSaveable { mutableStateOf<SettingsCategory?>(null) }
