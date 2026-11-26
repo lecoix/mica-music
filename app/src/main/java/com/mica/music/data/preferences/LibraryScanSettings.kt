@@ -3,9 +3,13 @@ package com.mica.music.data.preferences
 import android.content.Context
 import android.net.Uri
 import androidx.core.net.toUri
+import com.mica.music.data.LibraryFolderEntry
+import com.mica.music.data.LibraryFolderSet
 import com.mica.music.data.ScanSource
 import com.mica.music.data.scanner.ExcludedScanDirectories
 import com.mica.music.data.scanner.ScanOptions
+import org.json.JSONArray
+import org.json.JSONObject
 
 /** 曲库扫描相关偏好：时长过滤、深度探测、排除目录、SAF 目录与扫描来源。 */
 internal object LibraryScanSettings {
@@ -15,8 +19,10 @@ internal object LibraryScanSettings {
     private const val KEY_EXCLUDED_SCAN_DIRECTORIES = "excluded_scan_directories"
     private const val KEY_LIBRARY_TREE_URI = "library_tree_uri"
     private const val KEY_LIBRARY_FOLDER_LABEL = "library_folder_label"
+    private const val KEY_LIBRARY_FOLDERS = "library_folders"
     private const val KEY_PENDING_LIBRARY_TREE_URI = "pending_library_tree_uri"
     private const val KEY_PENDING_LIBRARY_FOLDER_LABEL = "pending_library_folder_label"
+    private const val KEY_PENDING_LIBRARY_FOLDERS = "pending_library_folders"
     private const val KEY_LAST_SCAN_SOURCE = "last_scan_source"
     private const val KEY_LYRICS_PARSER_VERSION = "lyrics_parser_version"
     private const val KEY_LYRICS_RETRY_REQUIRED = "lyrics_retry_required"
@@ -62,45 +68,124 @@ internal object LibraryScanSettings {
             .apply()
     }
 
+    fun libraryFolders(context: Context): List<LibraryFolderEntry> {
+        val prefs = MicaSettingsStore.prefs(context)
+        val encoded = prefs.getString(KEY_LIBRARY_FOLDERS, null)
+        if (!encoded.isNullOrBlank()) {
+            val decoded = decodeFolders(encoded)
+            if (decoded.isNotEmpty()) return decoded
+        }
+        val legacyUri = prefs.getString(KEY_LIBRARY_TREE_URI, null)?.takeIf(String::isNotBlank)
+            ?: return emptyList()
+        val legacyLabel = prefs.getString(KEY_LIBRARY_FOLDER_LABEL, null).orEmpty()
+        return LibraryFolderSet.normalize(listOf(LibraryFolderEntry(legacyUri, legacyLabel)))
+    }
+
+    fun setLibraryFolders(context: Context, folders: List<LibraryFolderEntry>) {
+        val normalized = LibraryFolderSet.normalize(folders)
+        if (normalized.isEmpty()) {
+            clearLibraryFolder(context)
+            return
+        }
+        val first = normalized.first()
+        MicaSettingsStore.prefs(context).edit()
+            .putString(KEY_LIBRARY_FOLDERS, encodeFolders(normalized))
+            .putString(KEY_LIBRARY_TREE_URI, first.treeUri)
+            .putString(KEY_LIBRARY_FOLDER_LABEL, LibraryFolderSet.formatLabel(normalized) ?: first.label)
+            .apply()
+    }
+
     fun libraryTreeUri(context: Context): Uri? =
-        MicaSettingsStore.prefs(context).getString(KEY_LIBRARY_TREE_URI, null)?.toUri()
+        libraryFolders(context).firstOrNull()?.treeUri?.toUri()
 
     fun libraryFolderLabel(context: Context): String? =
-        MicaSettingsStore.prefs(context).getString(KEY_LIBRARY_FOLDER_LABEL, null)
+        LibraryFolderSet.formatLabel(libraryFolders(context))
 
     fun setLibraryFolder(context: Context, treeUri: Uri, label: String) {
-        MicaSettingsStore.prefs(context).edit()
-            .putString(KEY_LIBRARY_TREE_URI, treeUri.toString())
-            .putString(KEY_LIBRARY_FOLDER_LABEL, label)
-            .apply()
+        setLibraryFolders(context, listOf(LibraryFolderEntry(treeUri.toString(), label)))
     }
 
     fun clearLibraryFolder(context: Context) {
         MicaSettingsStore.prefs(context).edit()
+            .remove(KEY_LIBRARY_FOLDERS)
             .remove(KEY_LIBRARY_TREE_URI)
             .remove(KEY_LIBRARY_FOLDER_LABEL)
             .apply()
     }
 
+    fun pendingLibraryFolders(context: Context): List<LibraryFolderEntry>? {
+        val prefs = MicaSettingsStore.prefs(context)
+        val encoded = prefs.getString(KEY_PENDING_LIBRARY_FOLDERS, null)
+        if (!encoded.isNullOrBlank()) {
+            val decoded = decodeFolders(encoded)
+            if (decoded.isNotEmpty()) return decoded
+        }
+        val legacyUri = prefs.getString(KEY_PENDING_LIBRARY_TREE_URI, null)?.takeIf(String::isNotBlank)
+            ?: return null
+        val legacyLabel = prefs.getString(KEY_PENDING_LIBRARY_FOLDER_LABEL, null).orEmpty()
+        return LibraryFolderSet.normalize(listOf(LibraryFolderEntry(legacyUri, legacyLabel)))
+            .takeIf(List<LibraryFolderEntry>::isNotEmpty)
+    }
+
+    fun setPendingLibraryFolders(context: Context, folders: List<LibraryFolderEntry>) {
+        val normalized = LibraryFolderSet.normalize(folders)
+        if (normalized.isEmpty()) {
+            clearPendingLibraryFolder(context)
+            return
+        }
+        val first = normalized.first()
+        MicaSettingsStore.prefs(context).edit()
+            .putString(KEY_PENDING_LIBRARY_FOLDERS, encodeFolders(normalized))
+            .putString(KEY_PENDING_LIBRARY_TREE_URI, first.treeUri)
+            .putString(
+                KEY_PENDING_LIBRARY_FOLDER_LABEL,
+                LibraryFolderSet.formatLabel(normalized) ?: first.label,
+            )
+            .apply()
+    }
+
     fun pendingLibraryTreeUri(context: Context): Uri? =
-        MicaSettingsStore.prefs(context).getString(KEY_PENDING_LIBRARY_TREE_URI, null)?.toUri()
+        pendingLibraryFolders(context)?.firstOrNull()?.treeUri?.toUri()
 
     fun pendingLibraryFolderLabel(context: Context): String? =
-        MicaSettingsStore.prefs(context).getString(KEY_PENDING_LIBRARY_FOLDER_LABEL, null)
+        pendingLibraryFolders(context)?.let(LibraryFolderSet::formatLabel)
 
     fun setPendingLibraryFolder(context: Context, treeUri: Uri, label: String) {
-        MicaSettingsStore.prefs(context).edit()
-            .putString(KEY_PENDING_LIBRARY_TREE_URI, treeUri.toString())
-            .putString(KEY_PENDING_LIBRARY_FOLDER_LABEL, label)
-            .apply()
+        setPendingLibraryFolders(context, listOf(LibraryFolderEntry(treeUri.toString(), label)))
     }
 
     fun clearPendingLibraryFolder(context: Context) {
         MicaSettingsStore.prefs(context).edit()
+            .remove(KEY_PENDING_LIBRARY_FOLDERS)
             .remove(KEY_PENDING_LIBRARY_TREE_URI)
             .remove(KEY_PENDING_LIBRARY_FOLDER_LABEL)
             .apply()
     }
+
+    private fun encodeFolders(folders: List<LibraryFolderEntry>): String {
+        val array = JSONArray()
+        folders.forEach { entry ->
+            array.put(
+                JSONObject()
+                    .put("uri", entry.treeUri)
+                    .put("label", entry.label),
+            )
+        }
+        return array.toString()
+    }
+
+    private fun decodeFolders(encoded: String): List<LibraryFolderEntry> = runCatching {
+        val array = JSONArray(encoded)
+        val parsed = buildList(array.length()) {
+            for (index in 0 until array.length()) {
+                val obj = array.optJSONObject(index) ?: continue
+                val uri = obj.optString("uri").trim()
+                if (uri.isEmpty()) continue
+                add(LibraryFolderEntry(treeUri = uri, label = obj.optString("label")))
+            }
+        }
+        LibraryFolderSet.normalize(parsed)
+    }.getOrDefault(emptyList())
 
     fun lastScanSource(context: Context): ScanSource =
         ScanSource.fromStorage(MicaSettingsStore.prefs(context).getString(KEY_LAST_SCAN_SOURCE, null))

@@ -53,9 +53,9 @@ internal fun LibraryScanSettingsPanel(
             if (library.libraryFolderLabel != null && library.libraryFolderLabel != label) {
                 "待切换：$label · 当前：${library.libraryFolderLabel}"
             } else {
-                "当前：$label"
+                "当前：$label · 支持添加多个目录"
             }
-        } ?: "直接扫描目录及子目录 · 可发现系统尚未收录的音乐",
+        } ?: "支持多选目录直扫 · 可发现系统尚未收录的新歌",
         onClick = onChooseLibraryFolder,
         enabled = !library.isUserVisibleScanning,
     )
@@ -79,7 +79,7 @@ internal fun LibraryScanSettingsPanel(
     SettingsActionRow(
         title = "扫描系统音乐库",
         modifier = settingsSearchAnchor("library.scan-all"),
-        subtitle = "读取系统已收录的音乐 · 缺少歌曲时请选择曲库文件夹",
+        subtitle = "读取系统媒体库已收录音乐 · 新下载漏扫时请改用上方曲库文件夹",
         onClick = onScanAllMusic,
         enabled = !library.isUserVisibleScanning,
     )

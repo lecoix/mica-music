@@ -98,13 +98,27 @@ internal data class SourceIdentityKey(
 
     fun storageKey(): String = "${source.storageValue}|$stableIdentity"
 
-    fun folderTreeUriOrNull(): String? =
-        stableIdentity.takeIf { source == ScanSource.FOLDER && it.startsWith(FOLDER_PREFIX) }
-            ?.removePrefix(FOLDER_PREFIX)
-            ?.takeIf(String::isNotBlank)
+    fun folderTreeUris(): List<String> {
+        if (source != ScanSource.FOLDER) return emptyList()
+        return when {
+            stableIdentity.startsWith(MULTI_FOLDER_PREFIX) ->
+                stableIdentity.removePrefix(MULTI_FOLDER_PREFIX)
+                    .split('\n')
+                    .map(String::trim)
+                    .filter(String::isNotBlank)
+            stableIdentity.startsWith(FOLDER_PREFIX) ->
+                listOfNotNull(
+                    stableIdentity.removePrefix(FOLDER_PREFIX).takeIf(String::isNotBlank),
+                )
+            else -> emptyList()
+        }
+    }
+
+    fun folderTreeUriOrNull(): String? = folderTreeUris().firstOrNull()
 
     companion object {
         private const val FOLDER_PREFIX = "saf:"
+        private const val MULTI_FOLDER_PREFIX = "saf-multi:"
         private const val DEVICE_STABLE_IDENTITY = "mediastore:external"
 
         fun device(): SourceIdentityKey =
@@ -112,6 +126,24 @@ internal data class SourceIdentityKey(
 
         fun folder(treeUri: String): SourceIdentityKey =
             SourceIdentityKey(ScanSource.FOLDER, "$FOLDER_PREFIX$treeUri")
+
+        fun folders(treeUris: Collection<String>): SourceIdentityKey? {
+            val normalized = treeUris
+                .asSequence()
+                .map(String::trim)
+                .filter(String::isNotBlank)
+                .distinct()
+                .sorted()
+                .toList()
+            return when (normalized.size) {
+                0 -> null
+                1 -> folder(normalized.first())
+                else -> SourceIdentityKey(
+                    ScanSource.FOLDER,
+                    "$MULTI_FOLDER_PREFIX${normalized.joinToString("\n")}",
+                )
+            }
+        }
     }
 }
 

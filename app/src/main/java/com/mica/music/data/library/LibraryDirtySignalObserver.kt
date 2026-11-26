@@ -36,6 +36,7 @@ internal class LibraryDirtySignalObserver(
     private val markMediaStoreGenerationDirty: ((LibraryOperationCause) -> Long)? = null,
     private val activeSource: () -> ScanSource?,
     private val activeSafTreeUri: () -> Uri? = { null },
+    private val activeSafTreeUris: () -> List<Uri> = { listOfNotNull(activeSafTreeUri()) },
     private val readMediaStoreGeneration: suspend () -> DeviceGenerationSnapshot = {
         withContext(Dispatchers.IO) {
             AndroidDeviceMediaStoreGenerationApi(context.applicationContext).read()
@@ -53,7 +54,7 @@ internal class LibraryDirtySignalObserver(
     private var safGenerationWatchJob: Job? = null
     private var safGenerationAcknowledgeJob: Job? = null
     private var safGenerationBaseline: DeviceGenerationSnapshot.Available? = null
-    private var registeredSafTreeUri: Uri? = null
+    private var registeredSafTreeUris: List<Uri> = emptyList()
 
     private val audioObserver = causeObserver(LibraryOperationCause.MEDIASTORE_AUDIO_DIRTY)
     private val filesObserver = causeObserver(LibraryOperationCause.MEDIASTORE_FILES_DIRTY)
@@ -215,29 +216,33 @@ internal class LibraryDirtySignalObserver(
     private fun refreshSafTreeObserver() {
         unregisterSafTreeObserver()
         if (!foreground || released || activeSource() != ScanSource.FOLDER) return
-        val treeUri = activeSafTreeUri() ?: return
+        val treeUris = activeSafTreeUris().distinct()
+        if (treeUris.isEmpty()) return
 
-        runCatching {
-            appContext.contentResolver.registerContentObserver(
-                treeUri,
-                true,
-                safTreeObserver,
-            )
-            registeredSafTreeUri = treeUri
-        }.onFailure { error ->
-            registeredSafTreeUri = null
-            DiagnosticLog.event(
-                "LibraryAutoSync",
-                "saf tree observer registration failed uri=$treeUri",
-                error,
-            )
+        val registered = mutableListOf<Uri>()
+        treeUris.forEach { treeUri ->
+            runCatching {
+                appContext.contentResolver.registerContentObserver(
+                    treeUri,
+                    true,
+                    safTreeObserver,
+                )
+                registered += treeUri
+            }.onFailure { error ->
+                DiagnosticLog.event(
+                    "LibraryAutoSync",
+                    "saf tree observer registration failed uri=$treeUri",
+                    error,
+                )
+            }
         }
+        registeredSafTreeUris = registered
     }
 
     private fun unregisterSafTreeObserver() {
-        if (registeredSafTreeUri == null) return
+        if (registeredSafTreeUris.isEmpty()) return
         runCatching { appContext.contentResolver.unregisterContentObserver(safTreeObserver) }
-        registeredSafTreeUri = null
+        registeredSafTreeUris = emptyList()
     }
 
     private fun refreshSafGenerationWatchLoop() {

@@ -4,6 +4,8 @@ import android.Manifest
 import android.net.Uri
 import android.os.Build
 import androidx.core.net.toUri
+import com.mica.music.data.LibraryFolderEntry
+import com.mica.music.data.LibraryFolderSet
 import com.mica.music.data.LibraryFolderStore
 import com.mica.music.data.preferences.LibraryScanSettings
 import com.mica.music.util.DiagnosticLog
@@ -13,19 +15,24 @@ internal class LibraryFolderBinding(
     private val backing: MusicLibraryBacking,
 ) {
     fun reloadLibraryFolderFromPrefs() {
-        val activeUri = LibraryScanSettings.libraryTreeUri(backing.context)
-        val pendingUri = LibraryScanSettings.pendingLibraryTreeUri(backing.context)
-        backing.libraryFolderUri = activeUri?.toString()
-        backing.libraryFolderLabel = LibraryScanSettings.libraryFolderLabel(backing.context)
-        backing.pendingLibraryFolderUri = pendingUri?.toString()
-        backing.pendingLibraryFolderLabel = LibraryScanSettings.pendingLibraryFolderLabel(backing.context)
+        applyActiveFolders(LibraryScanSettings.libraryFolders(backing.context))
+        applyPendingFolders(LibraryScanSettings.pendingLibraryFolders(backing.context))
     }
 
-    fun hasLibraryFolder(): Boolean =
-        !backing.pendingLibraryFolderUri.isNullOrBlank() || !backing.libraryFolderUri.isNullOrBlank()
+    fun hasLibraryFolder(): Boolean = scanFolders().isNotEmpty()
 
-    fun scanTreeUri(): Uri? =
-        (backing.pendingLibraryFolderUri ?: backing.libraryFolderUri)?.toUri()
+    fun activeFolders(): List<LibraryFolderEntry> = backing.libraryFolders
+
+    fun scanFolders(): List<LibraryFolderEntry> =
+        backing.pendingLibraryFolders ?: backing.libraryFolders
+
+    fun activeTreeUris(): List<Uri> =
+        backing.libraryFolders.map { it.treeUri.toUri() }
+
+    fun scanTreeUris(): List<Uri> =
+        scanFolders().map { it.treeUri.toUri() }
+
+    fun scanTreeUri(): Uri? = scanTreeUris().firstOrNull()
 
     fun displayFolderLabel(): String? =
         backing.pendingLibraryFolderLabel ?: backing.libraryFolderLabel
@@ -33,9 +40,23 @@ internal class LibraryFolderBinding(
     fun setLibraryFolder(treeUri: Uri) {
         LibraryFolderStore.persistTreeAccess(backing.context, treeUri)
         val label = LibraryFolderStore.displayName(backing.context, treeUri)
-        LibraryScanSettings.setPendingLibraryFolder(backing.context, treeUri, label)
-        backing.pendingLibraryFolderUri = treeUri.toString()
-        backing.pendingLibraryFolderLabel = label
+        setPendingLibraryFolders(listOf(LibraryFolderEntry(treeUri.toString(), label)))
+    }
+
+    fun setPendingLibraryFolders(folders: List<LibraryFolderEntry>) {
+        val normalized = LibraryFolderSet.normalize(folders)
+        if (normalized.isEmpty()) {
+            clearLibraryFolder()
+            return
+        }
+        normalized.forEach { entry ->
+            val uri = entry.treeUri.toUri()
+            if (!LibraryFolderStore.hasPersistedTreeReadAccess(backing.context, uri)) {
+                runCatching { LibraryFolderStore.persistTreeAccess(backing.context, uri) }
+            }
+        }
+        LibraryScanSettings.setPendingLibraryFolders(backing.context, normalized)
+        applyPendingFolders(normalized)
         if (backing.accessState == LibraryAccessState.TEMP_UNAVAILABLE) {
             backing.operationExecutor.resetSafProviderDiscoveryBackoff()
             backing.launchAccessStateUpdate(LibraryAccessState.AVAILABLE)
@@ -43,22 +64,23 @@ internal class LibraryFolderBinding(
     }
 
     fun clearLibraryFolder() {
-        linkedSetOf(backing.pendingLibraryFolderUri, backing.libraryFolderUri)
-            .filterNotNull()
-            .map(String::toUri)
-            .forEach { uri ->
-                LibraryFolderStore.releaseTreeAccess(backing.context, uri)
-            }
+        val allUris = linkedSetOf<String>()
+        backing.pendingLibraryFolders.orEmpty().mapTo(allUris) { it.treeUri }
+        backing.libraryFolders.mapTo(allUris) { it.treeUri }
+        backing.pendingLibraryFolderUri?.let(allUris::add)
+        backing.libraryFolderUri?.let(allUris::add)
+        allUris.map(String::toUri).forEach { uri ->
+            LibraryFolderStore.releaseTreeAccess(backing.context, uri)
+        }
         LibraryScanSettings.clearPendingLibraryFolder(backing.context)
         LibraryScanSettings.clearLibraryFolder(backing.context)
-        backing.pendingLibraryFolderUri = null
-        backing.pendingLibraryFolderLabel = null
-        backing.libraryFolderUri = null
-        backing.libraryFolderLabel = null
+        applyPendingFolders(null)
+        applyActiveFolders(emptyList())
     }
 
     fun commitPendingFolderIfActivated(token: LibraryOperationToken) {
-        val target = token.sourceIdentity.folderTreeUriOrNull() ?: return
+        val targetUris = token.sourceIdentity.folderTreeUris()
+        if (targetUris.isEmpty()) return
         val active = backing.sourceState.active ?: return
         if (
             active.sourceIdentity != token.sourceIdentity ||
@@ -66,54 +88,91 @@ internal class LibraryFolderBinding(
         ) {
             return
         }
-        if (backing.pendingLibraryFolderUri != target) return
+        val pending = backing.pendingLibraryFolders ?: return
+        val pendingIdentity = SourceIdentityKey.folders(pending.map { it.treeUri }) ?: return
+        if (pendingIdentity != token.sourceIdentity) return
 
-        val uri = target.toUri()
-        val label = backing.pendingLibraryFolderLabel
-            ?: backing.libraryFolderLabel
-            ?: LibraryFolderStore.displayName(backing.context, uri)
-        LibraryScanSettings.setLibraryFolder(backing.context, uri, label)
+        val previousUris = backing.libraryFolders.mapTo(linkedSetOf()) { it.treeUri }
+        val committedUris = pending.mapTo(linkedSetOf()) { it.treeUri }
+        LibraryScanSettings.setLibraryFolders(backing.context, pending)
         LibraryScanSettings.clearPendingLibraryFolder(backing.context)
-        backing.libraryFolderUri = target
-        backing.libraryFolderLabel = label
-        backing.pendingLibraryFolderUri = null
-        backing.pendingLibraryFolderLabel = null
+        applyActiveFolders(pending)
+        applyPendingFolders(null)
+        (previousUris - committedUris).forEach { removed ->
+            LibraryFolderStore.releaseTreeAccess(backing.context, removed.toUri())
+        }
     }
 
     fun discardPendingFolderIfMatches(token: LibraryOperationToken) {
-        val target = token.sourceIdentity.folderTreeUriOrNull() ?: return
-        if (backing.pendingLibraryFolderUri != target) return
+        val pending = backing.pendingLibraryFolders ?: return
+        val pendingIdentity = SourceIdentityKey.folders(pending.map { it.treeUri }) ?: return
+        if (pendingIdentity != token.sourceIdentity) return
+        val activeUris = backing.libraryFolders.mapTo(linkedSetOf()) { it.treeUri }
+        pending.map { it.treeUri }
+            .filterNot { it in activeUris }
+            .forEach { unused ->
+                LibraryFolderStore.releaseTreeAccess(backing.context, unused.toUri())
+            }
         LibraryScanSettings.clearPendingLibraryFolder(backing.context)
-        backing.pendingLibraryFolderUri = null
-        backing.pendingLibraryFolderLabel = null
+        applyPendingFolders(null)
     }
 
     fun discardPendingFolderSelection() {
-        if (backing.pendingLibraryFolderUri == null) return
+        if (backing.pendingLibraryFolders == null && backing.pendingLibraryFolderUri == null) return
+        val activeUris = backing.libraryFolders.mapTo(linkedSetOf()) { it.treeUri }
+        backing.pendingLibraryFolders.orEmpty()
+            .map { it.treeUri }
+            .filterNot { it in activeUris }
+            .forEach { unused ->
+                LibraryFolderStore.releaseTreeAccess(backing.context, unused.toUri())
+            }
         LibraryScanSettings.clearPendingLibraryFolder(backing.context)
-        backing.pendingLibraryFolderUri = null
-        backing.pendingLibraryFolderLabel = null
+        applyPendingFolders(null)
     }
 
     fun reconcileWithPersistedSourceState() {
-        val activeUri = backing.sourceState.active
-            ?.sourceIdentity
-            ?.folderTreeUriOrNull()
-            ?: return
-        val activeTree = activeUri.toUri()
-        val pendingMatches = backing.pendingLibraryFolderUri == activeUri
-        val label = when {
-            pendingMatches -> backing.pendingLibraryFolderLabel
-            backing.libraryFolderUri == activeUri -> backing.libraryFolderLabel
-            else -> null
-        } ?: LibraryFolderStore.displayName(backing.context, activeTree)
+        val activeIdentity = backing.sourceState.active?.sourceIdentity ?: return
+        val activeUris = activeIdentity.folderTreeUris()
+        if (activeUris.isEmpty()) return
 
-        backing.libraryFolderUri = activeUri
-        backing.libraryFolderLabel = label
-        LibraryScanSettings.setLibraryFolder(backing.context, activeTree, label)
+        val pending = backing.pendingLibraryFolders
+        val pendingMatches = pending != null &&
+            SourceIdentityKey.folders(pending.map { it.treeUri }) == activeIdentity
+        val labelByUri = buildMap {
+            backing.libraryFolders.forEach { put(it.treeUri, it.label) }
+            pending.orEmpty().forEach { put(it.treeUri, it.label) }
+        }
+        val orderedEntries = when {
+            pendingMatches -> pending!!
+            SourceIdentityKey.folders(backing.libraryFolders.map { it.treeUri }) == activeIdentity ->
+                backing.libraryFolders
+            else -> activeUris.map { uriString ->
+                val label = labelByUri[uriString]
+                    ?: LibraryFolderStore.displayName(backing.context, uriString.toUri())
+                LibraryFolderEntry(uriString, label)
+            }
+        }
+        val normalized = LibraryFolderSet.normalize(orderedEntries)
+        applyActiveFolders(normalized)
+        LibraryScanSettings.setLibraryFolders(backing.context, normalized)
         if (pendingMatches) {
             LibraryScanSettings.clearPendingLibraryFolder(backing.context)
-            backing.pendingLibraryFolderUri = null
+            applyPendingFolders(null)
+        }
+    }
+
+    private fun applyActiveFolders(folders: List<LibraryFolderEntry>) {
+        val normalized = LibraryFolderSet.normalize(folders)
+        backing.libraryFolders = normalized
+        if (normalized.isEmpty()) {
+            backing.libraryFolderLabel = null
+        }
+    }
+
+    private fun applyPendingFolders(folders: List<LibraryFolderEntry>?) {
+        val normalized = folders?.let(LibraryFolderSet::normalize)?.takeIf(List<LibraryFolderEntry>::isNotEmpty)
+        backing.pendingLibraryFolders = normalized
+        if (normalized == null) {
             backing.pendingLibraryFolderLabel = null
         }
     }

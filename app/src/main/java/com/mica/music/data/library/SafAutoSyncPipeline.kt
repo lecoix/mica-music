@@ -46,8 +46,9 @@ internal class SafAutoSyncPipeline(
     ) {
         val before = backing.captureShadowObservationStamp(ScanSource.FOLDER) ?: return
         if (!before.matchesOperationToken(token)) return
-        val treeUriString = token.sourceIdentity.folderTreeUriOrNull() ?: return
-        val treeUri = android.net.Uri.parse(treeUriString)
+        val treeUriStrings = token.sourceIdentity.folderTreeUris()
+        if (treeUriStrings.isEmpty()) return
+        val treeUris = treeUriStrings.map(android.net.Uri::parse)
         val autoRequest = operation.request as? LibraryOperationRequest.AutoSync ?: return
         val targetedHintEligible = SafAutoSyncTargetedHintPolicy.shouldAttempt(autoRequest)
         val nowMs = backing.scanEnvironment.currentTimeMillis()
@@ -90,60 +91,62 @@ internal class SafAutoSyncPipeline(
                 return
             }
         }
-        if (!backing.scanEnvironment.canReadTree(treeUri)) {
-            val persistedGrant =
-                backing.scanEnvironment.hasPersistedTreeReadAccess(treeUri)
-            val providerAcquired = persistedGrant &&
-                backing.scanEnvironment.canAcquireTreeProvider(treeUri)
-            val recoveredAfterReacquire = providerAcquired &&
-                backing.scanEnvironment.canReadTree(treeUri)
-            if (recoveredAfterReacquire) {
-                DiagnosticLog.event(
-                    "LibraryAutoSync",
-                    "saf provider reacquired request=${operation.requestSequence} " +
-                        "persistedGrant=true uri=$treeUri",
-                )
-            } else {
-                val providerClientUnavailable = persistedGrant && !providerAcquired
-                val failureDetail = if (providerClientUnavailable) {
-                    "provider-client-unavailable"
+        for (treeUri in treeUris) {
+            if (!backing.scanEnvironment.canReadTree(treeUri)) {
+                val persistedGrant =
+                    backing.scanEnvironment.hasPersistedTreeReadAccess(treeUri)
+                val providerAcquired = persistedGrant &&
+                    backing.scanEnvironment.canAcquireTreeProvider(treeUri)
+                val recoveredAfterReacquire = providerAcquired &&
+                    backing.scanEnvironment.canReadTree(treeUri)
+                if (recoveredAfterReacquire) {
+                    DiagnosticLog.event(
+                        "LibraryAutoSync",
+                        "saf provider reacquired request=${operation.requestSequence} " +
+                            "persistedGrant=true uri=$treeUri",
+                    )
                 } else {
-                    "cannot-read-tree"
-                }
-                val failure = safProviderDiscoveryBackoff.recordFailure(
-                    scopeKey = providerScopeKey,
-                    nowMs = backing.scanEnvironment.elapsedRealtimeMillis(),
-                    detail = failureDetail,
-                )
-                if (
-                    publishAuthority &&
-                    providerClientUnavailable &&
-                    failure.failureCount >= SAF_PROVIDER_RESELECT_FAILURE_THRESHOLD
-                ) {
-                    backing.lastScanError = SAF_PROVIDER_RESELECT_REQUIRED_ERROR
-                    backing.launchAccessStateUpdate(LibraryAccessState.TEMP_UNAVAILABLE)
+                    val providerClientUnavailable = persistedGrant && !providerAcquired
+                    val failureDetail = if (providerClientUnavailable) {
+                        "provider-client-unavailable"
+                    } else {
+                        "cannot-read-tree"
+                    }
+                    val failure = safProviderDiscoveryBackoff.recordFailure(
+                        scopeKey = providerScopeKey,
+                        nowMs = backing.scanEnvironment.elapsedRealtimeMillis(),
+                        detail = failureDetail,
+                    )
+                    if (
+                        publishAuthority &&
+                        providerClientUnavailable &&
+                        failure.failureCount >= SAF_PROVIDER_RESELECT_FAILURE_THRESHOLD
+                    ) {
+                        backing.lastScanError = SAF_PROVIDER_RESELECT_REQUIRED_ERROR
+                        backing.launchAccessStateUpdate(LibraryAccessState.TEMP_UNAVAILABLE)
+                        DiagnosticLog.event(
+                            "LibraryAutoSync",
+                            "saf shadow unavailable request=${operation.requestSequence} " +
+                                "reason=$failureDetail failures=${failure.failureCount} " +
+                                "recovery=user-reselect-or-resume retryWake=false",
+                        )
+                        return
+                    }
+                    requestSafRetryWake(postCommit, token, publishAuthority, failure.delayMs)
                     DiagnosticLog.event(
                         "LibraryAutoSync",
                         "saf shadow unavailable request=${operation.requestSequence} " +
                             "reason=$failureDetail failures=${failure.failureCount} " +
-                            "recovery=user-reselect-or-resume retryWake=false",
+                            "persistedGrant=$persistedGrant providerAcquired=$providerAcquired " +
+                            "backoffMs=${failure.delayMs}",
                     )
                     return
                 }
-                requestSafRetryWake(postCommit, token, publishAuthority, failure.delayMs)
-                DiagnosticLog.event(
-                    "LibraryAutoSync",
-                    "saf shadow unavailable request=${operation.requestSequence} " +
-                        "reason=$failureDetail failures=${failure.failureCount} " +
-                        "persistedGrant=$persistedGrant providerAcquired=$providerAcquired " +
-                        "backoffMs=${failure.delayMs}",
-                )
-                return
             }
         }
 
         val targetedInitialAttempt = tryTargetedInitialDiscovery(
-            treeUri = treeUri,
+            treeUris = treeUris,
             requestSequence = operation.requestSequence,
             request = autoRequest,
             eligible = targetedHintEligible,
@@ -161,7 +164,7 @@ internal class SafAutoSyncPipeline(
                 )
             }
             withContext(backing.ioDispatcher) {
-                backing.libraryScanner.observeFolderMetadata(treeUri)
+                backing.libraryScanner.observeFoldersMetadata(treeUris)
             }
         } catch (error: Throwable) {
             if (error is CancellationException) throw error
@@ -190,7 +193,7 @@ internal class SafAutoSyncPipeline(
             publishAuthority = publishAuthority,
             postCommit = postCommit,
             before = before,
-            treeUri = treeUri,
+            treeUris = treeUris,
             nowMs = nowMs,
             providerScopeKey = providerScopeKey,
             snapshot = snapshot,
@@ -205,7 +208,7 @@ internal class SafAutoSyncPipeline(
         publishAuthority: Boolean,
         postCommit: AutoSyncPostCommitCollector,
         before: LibraryShadowObservationStamp,
-        treeUri: android.net.Uri,
+        treeUris: List<android.net.Uri>,
         nowMs: Long,
         providerScopeKey: String,
         snapshot: SafTreeMetadataSnapshot,
@@ -316,13 +319,14 @@ internal class SafAutoSyncPipeline(
             )
         }
         val retryItems = retryWorkingSet.retryItems
+        val effectiveProviderAuthority = treeUris.map { it.authority }.distinct().singleOrNull()
         val safPlaybackSnapshotProvider = {
-            backing.playbackIoSnapshot().withSafProviderSerialization(treeUri.authority)
+            backing.playbackIoSnapshot().withSafProviderSerialization(effectiveProviderAuthority)
         }
         val mutationBurstHeavyProbeBudget =
             SafAutoProbePlanner.heavyProbeBudgetForMutationBurst(plan)
         val mutationBurstHeavyProbeParallelism =
-            SafAutoProbePlanner.heavyProbeParallelismForProvider(treeUri.authority)
+            SafAutoProbePlanner.heavyProbeParallelismForProvider(effectiveProviderAuthority)
         val probePlan = SafAutoProbePlanner.plan(
             verifyPlan = plan,
             playback = safPlaybackSnapshotProvider(),
@@ -397,8 +401,8 @@ internal class SafAutoSyncPipeline(
         val postSnapshot = if (requiresPostValidation) {
             val observed = try {
                 withContext(backing.ioDispatcher) {
-                    backing.libraryScanner.observeFolderMetadataTargets(
-                        treeUri = treeUri,
+                    backing.libraryScanner.observeFoldersMetadataTargets(
+                        treeUris = treeUris,
                         folderPaths = postValidationFolderPaths,
                     )
                 }
@@ -619,8 +623,8 @@ internal class SafAutoSyncPipeline(
                     removedStableObjectKeys = plan.removedStableObjectKeys,
                 )
                 massDeletionVerification = withContext(backing.ioDispatcher) {
-                    backing.libraryScanner.verifyFolderObjectsMissing(
-                        treeUri = treeUri,
+                    backing.libraryScanner.verifyFoldersObjectsMissing(
+                        treeUris = treeUris,
                         songs = removedSongs,
                         startCursor = confirmationCursor,
                         budget = SafMissingVerificationBudget.Default,
@@ -891,7 +895,7 @@ internal class SafAutoSyncPipeline(
     )
 
     private suspend fun tryTargetedInitialDiscovery(
-        treeUri: android.net.Uri,
+        treeUris: List<android.net.Uri>,
         requestSequence: Long,
         request: LibraryOperationRequest.AutoSync,
         eligible: Boolean,
@@ -903,8 +907,8 @@ internal class SafAutoSyncPipeline(
 
         val folderPaths = try {
             withContext(backing.ioDispatcher) {
-                backing.libraryScanner.resolveFolderPathsForMediaStoreUris(
-                    treeUri = treeUri,
+                backing.libraryScanner.resolveFoldersPathsForMediaStoreUris(
+                    treeUris = treeUris,
                     mediaStoreUris = request.mediaStoreUriHints,
                 )
             }
@@ -918,8 +922,8 @@ internal class SafAutoSyncPipeline(
 
         val targeted = try {
             withContext(backing.ioDispatcher) {
-                backing.libraryScanner.observeFolderMetadataTargetsForInitialSync(
-                    treeUri = treeUri,
+                backing.libraryScanner.observeFoldersMetadataTargetsForInitialSync(
+                    treeUris = treeUris,
                     folderPaths = folderPaths,
                 )
             }

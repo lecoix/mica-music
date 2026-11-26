@@ -59,12 +59,29 @@ internal class AndroidLibraryScanner(
         options = LibraryScanSettings.scanOptions(context),
     )
 
+    override suspend fun observeFoldersMetadata(
+        treeUris: List<Uri>,
+    ): SafTreeMetadataSnapshot = FolderScanner.observeMetadataTrees(
+        context = context,
+        treeUris = treeUris,
+        options = LibraryScanSettings.scanOptions(context),
+    )
+
     override suspend fun resolveFolderPathsForMediaStoreUris(
         treeUri: Uri,
         mediaStoreUris: Set<String>,
     ): Set<String>? = FolderScanner.resolveMediaStoreFolderPaths(
         context = context,
         treeUri = treeUri,
+        mediaStoreUris = mediaStoreUris,
+    )
+
+    override suspend fun resolveFoldersPathsForMediaStoreUris(
+        treeUris: List<Uri>,
+        mediaStoreUris: Set<String>,
+    ): Set<String>? = FolderScanner.resolveMediaStoreFolderPathsTrees(
+        context = context,
+        treeUris = treeUris,
         mediaStoreUris = mediaStoreUris,
     )
 
@@ -78,12 +95,33 @@ internal class AndroidLibraryScanner(
         options = LibraryScanSettings.scanOptions(context),
     )
 
+    override suspend fun observeFoldersMetadataTargets(
+        treeUris: List<Uri>,
+        folderPaths: Set<String>,
+    ): SafTargetedMetadataSnapshot = FolderScanner.observeTargetedMetadataTrees(
+        context = context,
+        treeUris = treeUris,
+        folderPaths = folderPaths,
+        options = LibraryScanSettings.scanOptions(context),
+    )
+
     override suspend fun observeFolderMetadataTargetsForInitialSync(
         treeUri: Uri,
         folderPaths: Set<String>,
     ): SafTargetedMetadataSnapshot = FolderScanner.observeTargetedMetadata(
         context = context,
         treeUri = treeUri,
+        folderPaths = folderPaths,
+        options = LibraryScanSettings.scanOptions(context),
+        retainProbeDrafts = true,
+    )
+
+    override suspend fun observeFoldersMetadataTargetsForInitialSync(
+        treeUris: List<Uri>,
+        folderPaths: Set<String>,
+    ): SafTargetedMetadataSnapshot = FolderScanner.observeTargetedMetadataTrees(
+        context = context,
+        treeUris = treeUris,
         folderPaths = folderPaths,
         options = LibraryScanSettings.scanOptions(context),
         retainProbeDrafts = true,
@@ -102,6 +140,19 @@ internal class AndroidLibraryScanner(
         budget = budget,
     )
 
+    override suspend fun verifyFoldersObjectsMissing(
+        treeUris: List<Uri>,
+        songs: Collection<Song>,
+        startCursor: Int,
+        budget: SafMissingVerificationBudget,
+    ): SafIndependentMissingVerificationResult = FolderScanner.verifyMissingObjectsTrees(
+        context = context,
+        treeUris = treeUris,
+        songs = songs,
+        startCursor = startCursor,
+        budget = budget,
+    )
+
     override suspend fun scanFolder(
         treeUri: Uri,
         cachedSongs: List<Song>,
@@ -112,6 +163,25 @@ internal class AndroidLibraryScanner(
     ): ScanResult = FolderScanner.scan(
         context = context,
         treeUri = treeUri,
+        options = LibraryScanSettings.scanOptions(context).copy(
+            forceRefreshLyrics = forceRefreshLyrics,
+            forceRefreshArtwork = forceRefreshArtwork,
+        ),
+        cachedSongs = cachedSongs,
+        onProgress = onProgress,
+        onLyricsBatch = onLyricsBatch,
+    )
+
+    override suspend fun scanFolders(
+        treeUris: List<Uri>,
+        cachedSongs: List<Song>,
+        onProgress: (Int, Int) -> Unit,
+        forceRefreshLyrics: Boolean,
+        forceRefreshArtwork: Boolean,
+        onLyricsBatch: (suspend (LyricsScanBatch) -> Unit)?,
+    ): ScanResult = FolderScanner.scanTrees(
+        context = context,
+        treeUris = treeUris,
         options = LibraryScanSettings.scanOptions(context).copy(
             forceRefreshLyrics = forceRefreshLyrics,
             forceRefreshArtwork = forceRefreshArtwork,
@@ -143,6 +213,28 @@ internal class AndroidLibraryScanner(
         onLyricsBatch = onLyricsBatch,
     )
 
+    override suspend fun scanFoldersForSongs(
+        treeUris: List<Uri>,
+        songIds: Set<String>,
+        cachedSongs: List<Song>,
+        onProgress: (Int, Int) -> Unit,
+        forceRefreshLyrics: Boolean,
+        forceRefreshArtwork: Boolean,
+        onLyricsBatch: (suspend (LyricsScanBatch) -> Unit)?,
+    ): ScanResult = FolderScanner.scanTrees(
+        context = context,
+        treeUris = treeUris,
+        options = LibraryScanSettings.scanOptions(context).copy(
+            forceRefreshLyrics = forceRefreshLyrics,
+            forceRefreshArtwork = forceRefreshArtwork,
+            forceRefreshSongIds = songIds,
+            scanOnlySongIds = songIds,
+        ),
+        cachedSongs = cachedSongs,
+        onProgress = onProgress,
+        onLyricsBatch = onLyricsBatch,
+    )
+
     override suspend fun scanFolderArtworkForSongs(
         treeUri: Uri,
         songIds: Set<String>,
@@ -151,6 +243,19 @@ internal class AndroidLibraryScanner(
     ): ScanResult = FolderScanner.scanArtworkForSongs(
         context = context,
         treeUri = treeUri,
+        songIds = songIds,
+        cachedSongs = cachedSongs,
+        onProgress = onProgress,
+    )
+
+    override suspend fun scanFoldersArtworkForSongs(
+        treeUris: List<Uri>,
+        songIds: Set<String>,
+        cachedSongs: List<Song>,
+        onProgress: (Int, Int) -> Unit,
+    ): ScanResult = FolderScanner.scanArtworkForSongsTrees(
+        context = context,
+        treeUris = treeUris,
         songIds = songIds,
         cachedSongs = cachedSongs,
         onProgress = onProgress,

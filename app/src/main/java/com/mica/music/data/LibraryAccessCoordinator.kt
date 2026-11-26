@@ -67,6 +67,19 @@ object LibraryAccessCoordinator {
         return LibraryScanRequest.ScanLibraryFolder
     }
 
+    fun onFoldersUpdated(
+        library: MusicLibrary,
+        folders: List<LibraryFolderEntry>,
+    ): LibraryScanRequest? {
+        val normalized = LibraryFolderSet.normalize(folders)
+        if (normalized.isEmpty()) {
+            library.clearLibraryFolder()
+            return null
+        }
+        library.setLibraryFolders(normalized)
+        return LibraryScanRequest.ScanLibraryFolder
+    }
+
     fun resolveFullScanRequest(
         library: MusicLibrary,
         shouldOpenSettings: Boolean,

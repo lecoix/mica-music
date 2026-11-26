@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import com.mica.music.data.AppUiSettings
 import com.mica.music.data.ArtistSplitConfig
 import com.mica.music.data.CustomWallpaperCrop
+import com.mica.music.data.LibraryFolderEntry
 import com.mica.music.data.MusicLibrary
 import com.mica.music.data.scanner.scanDirectoryCandidates
 import com.mica.music.ui.screens.settings.color.CustomAccentColorDialog
@@ -13,6 +14,7 @@ data class SettingsOverlayState(
     val showCustomAccent: Boolean = false,
     val showCustomMica: Boolean = false,
     val showCustomWallpaperCrop: Boolean = false,
+    val showLibraryFolders: Boolean = false,
     val showExcludedDirectories: Boolean = false,
     val showArtistSplit: Boolean = false,
 )
@@ -28,6 +30,8 @@ internal fun SettingsOverlays(
     onDismissCustomMica: () -> Unit,
     onDismissCustomWallpaperCrop: () -> Unit,
     onConfirmCustomWallpaperCrop: (CustomWallpaperCrop) -> Unit,
+    onDismissLibraryFolders: () -> Unit,
+    onConfirmLibraryFolders: (List<LibraryFolderEntry>) -> Unit,
     onDismissExcludedDirectories: () -> Unit,
     onConfirmExcludedDirectories: (List<String>) -> Unit,
     onDismissArtistSplit: () -> Unit,
@@ -71,6 +75,18 @@ internal fun SettingsOverlays(
             blurDp = uiSettings.customWallpaperBlurDp,
             onDismiss = onDismissCustomWallpaperCrop,
             onConfirm = onConfirmCustomWallpaperCrop,
+        )
+    }
+
+    if (overlays.showLibraryFolders) {
+        LibraryFoldersDialog(
+            folders = library.scanLibraryFolders,
+            isScanning = library.isUserVisibleScanning,
+            onConfirm = { updated ->
+                onConfirmLibraryFolders(updated)
+                onDismissLibraryFolders()
+            },
+            onDismiss = onDismissLibraryFolders,
         )
     }
 

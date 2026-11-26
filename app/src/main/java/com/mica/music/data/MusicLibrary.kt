@@ -115,6 +115,10 @@ class MusicLibrary internal constructor(
 
     val libraryFolderUri get() = backing.libraryFolderUri
 
+    val libraryFolders: List<LibraryFolderEntry> get() = backing.libraryFolders
+
+    val scanLibraryFolders: List<LibraryFolderEntry> get() = backing.folder.scanFolders()
+
     val libraryFolderLabel get() = backing.libraryFolderLabel
 
     val scanLibraryFolderLabel get() = backing.folder.displayFolderLabel()
@@ -379,6 +383,9 @@ class MusicLibrary internal constructor(
     fun hasLibraryFolder(): Boolean = backing.folder.hasLibraryFolder()
 
     fun setLibraryFolder(treeUri: Uri) = backing.folder.setLibraryFolder(treeUri)
+
+    fun setLibraryFolders(folders: List<LibraryFolderEntry>) =
+        backing.folder.setPendingLibraryFolders(folders)
 
     fun clearLibraryFolder() = backing.folder.clearLibraryFolder()
 

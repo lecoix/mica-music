@@ -40,10 +40,11 @@ internal class ArtworkRepairExecutor(
     }
 
     private suspend fun repairFolder(operation: ScheduledLibraryOperation?) {
-        val uriString = backing.libraryFolderUri ?: return
-        val treeUri = uriString.toUri()
-        if (!backing.scanEnvironment.canReadTree(treeUri)) {
-            DiagnosticLog.important("AlbumArtCache", "repair-folder-skip cannot-read-tree uri=$treeUri")
+        val treeUris = backing.folder.activeTreeUris()
+        if (treeUris.isEmpty()) return
+        val unreadable = treeUris.firstOrNull { !backing.scanEnvironment.canReadTree(it) }
+        if (unreadable != null) {
+            DiagnosticLog.important("AlbumArtCache", "repair-folder-skip cannot-read-tree uri=$unreadable")
             return
         }
         scanEngine.performScan(
@@ -52,8 +53,8 @@ internal class ArtworkRepairExecutor(
             userVisible = false,
             operation = operation,
         ) { onProgress, cachedSongs, onLyricsBatch, policy ->
-            backing.libraryScanner.scanFolder(
-                treeUri = treeUri,
+            backing.libraryScanner.scanFolders(
+                treeUris = treeUris,
                 cachedSongs = cachedSongs,
                 onProgress = onProgress,
                 forceRefreshLyrics = policy.forceRefreshLyrics,

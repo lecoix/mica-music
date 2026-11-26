@@ -196,6 +196,8 @@ fun SettingsScreen(
                 uiSettings.updateCustomWallpaperCrop(crop)
             }
         },
+        onDismissLibraryFolders = { overlays = overlays.copy(showLibraryFolders = false) },
+        onConfirmLibraryFolders = libraryAccess.onUpdateLibraryFolders,
         onDismissExcludedDirectories = { overlays = overlays.copy(showExcludedDirectories = false) },
         onConfirmExcludedDirectories = ::updateExcludedDirectories,
         onDismissArtistSplit = { overlays = overlays.copy(showArtistSplit = false) },
@@ -375,7 +377,13 @@ fun SettingsScreen(
                                         deepProbe = scanState.deepProbe,
                                         artistSplitConfig = artistSplitConfig,
                                         remoteLibrarySidebarEnabled = uiSettings.remoteLibrarySidebarEnabled,
-                                        onChooseLibraryFolder = libraryAccess.onChooseLibraryFolder,
+                                        onChooseLibraryFolder = {
+                                            if (library.scanLibraryFolders.isEmpty()) {
+                                                libraryAccess.onChooseLibraryFolder()
+                                            } else {
+                                                overlays = overlays.copy(showLibraryFolders = true)
+                                            }
+                                        },
                                         onRescan = libraryAccess.onRescan,
                                         onScanAllMusic = libraryAccess.onScanAllMusic,
                                         onDeepProbeChange = {

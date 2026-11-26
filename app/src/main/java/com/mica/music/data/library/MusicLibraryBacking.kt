@@ -117,10 +117,73 @@ internal class MusicLibraryBacking(
     var totalSizeMb by mutableIntStateOf(0)
     var lastScanAtMs by mutableStateOf<Long?>(null)
     var permissionGranted by mutableStateOf(false)
-    var libraryFolderUri by mutableStateOf<String?>(null)
-    var libraryFolderLabel by mutableStateOf<String?>(null)
-    var pendingLibraryFolderUri by mutableStateOf<String?>(null)
-    var pendingLibraryFolderLabel by mutableStateOf<String?>(null)
+    var libraryFolders by mutableStateOf<List<com.mica.music.data.LibraryFolderEntry>>(emptyList())
+    var pendingLibraryFolders by mutableStateOf<List<com.mica.music.data.LibraryFolderEntry>?>(null)
+    private var legacyFolderLabelHint: String? = null
+    private var legacyPendingFolderLabelHint: String? = null
+
+    var libraryFolderUri: String?
+        get() = libraryFolders.firstOrNull()?.treeUri
+        set(value) {
+            val clean = value?.trim()?.takeIf(String::isNotEmpty)
+            if (clean == null) {
+                libraryFolders = emptyList()
+                legacyFolderLabelHint = null
+            } else {
+                val label = legacyFolderLabelHint
+                    ?: libraryFolders.firstOrNull { it.treeUri == clean }?.label
+                    ?: ""
+                libraryFolders = com.mica.music.data.LibraryFolderSet.normalize(
+                    listOf(com.mica.music.data.LibraryFolderEntry(clean, label)),
+                )
+                legacyFolderLabelHint = null
+            }
+        }
+
+    var libraryFolderLabel: String?
+        get() = com.mica.music.data.LibraryFolderSet.formatLabel(libraryFolders)
+            ?: legacyFolderLabelHint
+        set(value) {
+            val clean = value?.trim()?.takeIf(String::isNotEmpty)
+            if (libraryFolders.size == 1 && clean != null) {
+                libraryFolders = listOf(libraryFolders[0].copy(label = clean))
+                legacyFolderLabelHint = null
+            } else if (libraryFolders.isEmpty()) {
+                legacyFolderLabelHint = clean
+            }
+        }
+
+    var pendingLibraryFolderUri: String?
+        get() = pendingLibraryFolders?.firstOrNull()?.treeUri
+        set(value) {
+            val clean = value?.trim()?.takeIf(String::isNotEmpty)
+            if (clean == null) {
+                pendingLibraryFolders = null
+                legacyPendingFolderLabelHint = null
+            } else {
+                val label = legacyPendingFolderLabelHint
+                    ?: pendingLibraryFolders?.firstOrNull { it.treeUri == clean }?.label
+                    ?: ""
+                pendingLibraryFolders = com.mica.music.data.LibraryFolderSet.normalize(
+                    listOf(com.mica.music.data.LibraryFolderEntry(clean, label)),
+                )
+                legacyPendingFolderLabelHint = null
+            }
+        }
+
+    var pendingLibraryFolderLabel: String?
+        get() = pendingLibraryFolders?.let(com.mica.music.data.LibraryFolderSet::formatLabel)
+            ?: legacyPendingFolderLabelHint
+        set(value) {
+            val clean = value?.trim()?.takeIf(String::isNotEmpty)
+            val current = pendingLibraryFolders
+            if (current != null && current.size == 1 && clean != null) {
+                pendingLibraryFolders = listOf(current[0].copy(label = clean))
+                legacyPendingFolderLabelHint = null
+            } else if (current == null) {
+                legacyPendingFolderLabelHint = clean
+            }
+        }
     var lastScanSource by mutableStateOf(ScanSource.DEVICE)
     var lastScanError by mutableStateOf<String?>(null)
     var lastScanSyncSummary by mutableStateOf<String?>(null)
@@ -152,11 +215,11 @@ internal class MusicLibraryBacking(
             syncScheduler.markMediaStoreGenerationDirty(cause)
         },
         activeSource = { sourceState.active?.sourceIdentity?.source },
-        activeSafTreeUri = {
+        activeSafTreeUris = {
             if (sourceState.active?.sourceIdentity?.source == ScanSource.FOLDER) {
-                libraryFolderUri?.let { android.net.Uri.parse(it) }
+                folder.activeTreeUris()
             } else {
-                null
+                emptyList()
             }
         },
     )

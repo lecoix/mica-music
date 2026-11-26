@@ -18,9 +18,9 @@ internal class LibraryOperationAuthority(
 
     fun sourceIdentityFor(source: ScanSource): SourceIdentityKey? = when (source) {
         ScanSource.DEVICE -> SourceIdentityKey.device()
-        ScanSource.FOLDER -> (backing.pendingLibraryFolderUri ?: backing.libraryFolderUri)
-            ?.takeIf(String::isNotBlank)
-            ?.let(SourceIdentityKey::folder)
+        ScanSource.FOLDER -> SourceIdentityKey.folders(
+            backing.folder.scanFolders().map { it.treeUri },
+        )
     }
 
     suspend fun captureShadowObservationStamp(

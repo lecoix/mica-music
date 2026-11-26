@@ -8,12 +8,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import com.mica.music.data.LibraryAccessCoordinator
 import com.mica.music.data.LibraryAccessRequest
+import com.mica.music.data.LibraryFolderEntry
 import com.mica.music.data.LibraryScanRequest
 import com.mica.music.data.MusicLibrary
 import com.mica.music.util.openAppSettings
 
 class SettingsLibraryAccessHandle(
     val onChooseLibraryFolder: () -> Unit,
+    val onUpdateLibraryFolders: (List<LibraryFolderEntry>) -> Unit,
     val onRescan: () -> Unit,
     val onScanAllMusic: () -> Unit,
 )
@@ -72,8 +74,14 @@ fun rememberSettingsLibraryAccess(
         }
     }
 
+    fun dispatchUpdateLibraryFolders(folders: List<LibraryFolderEntry>) {
+        val scan = LibraryAccessCoordinator.onFoldersUpdated(library, folders)
+        scan?.let { LibraryAccessCoordinator.executeScan(library, it) }
+    }
+
     return SettingsLibraryAccessHandle(
         onChooseLibraryFolder = { folderPickerLauncher.launch(null) },
+        onUpdateLibraryFolders = ::dispatchUpdateLibraryFolders,
         onRescan = ::dispatchRescan,
         onScanAllMusic = ::dispatchScanAllMusic,
     )

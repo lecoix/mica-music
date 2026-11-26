@@ -435,7 +435,16 @@ internal class LibraryScanEngine(
                         backing.lastScanSource = source
                         backing.lastScanError = null
                         backing.scanEnvironment.persistLastScanSource(source)
-                        backing.lastScanSyncSummary = committed.toSummary()
+                        backing.lastScanSyncSummary = if (
+                            source == ScanSource.DEVICE &&
+                            !committed.hasChanges &&
+                            previousPublished.isNotEmpty() &&
+                            token.cause == LibraryOperationCause.USER_RESCAN
+                        ) {
+                            "扫描完成，未发现新歌曲；若新下载文件未出现，请在设置中改用「曲库文件夹」直扫"
+                        } else {
+                            committed.toSummary()
+                        }
                     }
                     catalog.persistPreparedCustomOrderIfCurrent(prepared)
                 },

@@ -39,11 +39,20 @@ internal class FullLibraryScanExecutor(
         operation: ScheduledLibraryOperation? = null,
         artworkOnly: Boolean = false,
     ) {
-        val treeUri = folder.scanTreeUri() ?: return
-        if (!backing.scanEnvironment.canReadTree(treeUri)) {
+        val folders = folder.scanFolders()
+        if (folders.isEmpty()) return
+        val treeUris = folders.map { android.net.Uri.parse(it.treeUri) }
+        val unreadable = folders.zip(treeUris).firstOrNull { (_, uri) ->
+            !backing.scanEnvironment.canReadTree(uri)
+        }
+        if (unreadable != null) {
             folder.discardPendingFolderSelection()
             if (userVisible) {
-                backing.lastScanError = "无法访问所选文件夹，请重新选择"
+                backing.lastScanError = if (folders.size == 1) {
+                    "无法访问所选文件夹，请重新选择"
+                } else {
+                    "无法访问文件夹「${unreadable.first.label}」，请重新授权或移除"
+                }
             }
             return
         }
@@ -55,8 +64,8 @@ internal class FullLibraryScanExecutor(
             operation = operation,
         ) {
                 onProgress, cachedSongs, onLyricsBatch, policy ->
-            scanFolder(
-                treeUri = treeUri,
+            scanFolders(
+                treeUris = treeUris,
                 cachedSongs = cachedSongs,
                 onProgress = onProgress,
                 onLyricsBatch = onLyricsBatch,
@@ -90,16 +99,16 @@ internal class FullLibraryScanExecutor(
         )
     }
 
-    private suspend fun scanFolder(
-        treeUri: android.net.Uri,
+    private suspend fun scanFolders(
+        treeUris: List<android.net.Uri>,
         cachedSongs: List<com.mica.music.data.Song>,
         onProgress: (Int, Int) -> Unit,
         onLyricsBatch: suspend (com.mica.music.data.LyricsScanBatch) -> Unit,
         policy: ScanProbePolicy,
         artworkOnly: Boolean,
     ): ScanResult = if (policy.forceRefreshSongIds.isEmpty()) {
-        backing.libraryScanner.scanFolder(
-            treeUri = treeUri,
+        backing.libraryScanner.scanFolders(
+            treeUris = treeUris,
             cachedSongs = cachedSongs,
             onProgress = onProgress,
             forceRefreshLyrics = policy.forceRefreshLyrics,
@@ -107,15 +116,15 @@ internal class FullLibraryScanExecutor(
             onLyricsBatch = onLyricsBatch,
         )
     } else if (artworkOnly) {
-        backing.libraryScanner.scanFolderArtworkForSongs(
-            treeUri = treeUri,
+        backing.libraryScanner.scanFoldersArtworkForSongs(
+            treeUris = treeUris,
             songIds = policy.forceRefreshSongIds,
             cachedSongs = cachedSongs,
             onProgress = onProgress,
         )
     } else {
-        backing.libraryScanner.scanFolderForSongs(
-            treeUri = treeUri,
+        backing.libraryScanner.scanFoldersForSongs(
+            treeUris = treeUris,
             songIds = policy.forceRefreshSongIds,
             cachedSongs = cachedSongs,
             onProgress = onProgress,

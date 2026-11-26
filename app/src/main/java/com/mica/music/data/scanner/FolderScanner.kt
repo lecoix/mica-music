@@ -9,6 +9,7 @@ import android.os.SystemClock
 import android.provider.MediaStore
 import androidx.documentfile.provider.DocumentFile
 import com.mica.music.data.DsdSupport
+import com.mica.music.data.LibraryFolderSet
 import com.mica.music.data.Song
 import com.mica.music.data.ScannedSongLyrics
 import com.mica.music.data.LyricsScanBatch
@@ -104,6 +105,7 @@ internal object FolderScanner {
         context: Context,
         treeUri: Uri,
         options: ScanOptions = ScanOptions(),
+        initialParentPath: String = "",
     ): SafTreeMetadataSnapshot = withContext(Dispatchers.IO) {
         val profiler = ScanProfiler("FolderMetadata")
         val observationStartedAtMs = SystemClock.elapsedRealtime()
@@ -128,6 +130,7 @@ internal object FolderScanner {
                     discoveryQueries = discoveryQueries,
                     querySession = querySession,
                     allowDocumentFileFallback = false,
+                    initialParentPath = initialParentPath,
                 )
             }
         }
@@ -150,6 +153,472 @@ internal object FolderScanner {
             videoCovers = loaded.videoCovers,
             observationStats = observationStats(),
         )
+    }
+
+    internal suspend fun observeMetadataTrees(
+        context: Context,
+        treeUris: List<Uri>,
+        options: ScanOptions = ScanOptions(),
+    ): SafTreeMetadataSnapshot = withContext(Dispatchers.IO) {
+        if (treeUris.isEmpty()) {
+            return@withContext SafTreeMetadataSnapshot(
+                entries = emptyList(),
+                discoveryReport = DiscoveryReport.of(
+                    DiscoveryPartitionStatus(
+                        partitionKey = DiscoveryPartitions.SAF_TREE,
+                        completeness = DiscoveryCompleteness.UNAVAILABLE,
+                        detail = "no-saf-trees",
+                    ),
+                ),
+            )
+        }
+        if (treeUris.size == 1) {
+            return@withContext observeMetadata(context, treeUris.first(), options)
+        }
+        val prefixes = LibraryFolderSet.rootPrefixes(context, treeUris)
+        val entriesByKey = LinkedHashMap<String, SafTreeMetadataEntry>()
+        val videoCovers = mutableListOf<VideoCoverFile>()
+        val statuses = mutableListOf<DiscoveryPartitionStatus>()
+        var totalProviderQueries = 0
+        var totalDirectQueries = 0
+        var totalFallbackListings = 0
+        var totalWallTimeMs = 0L
+
+        treeUris.zip(prefixes).forEach { (treeUri, prefix) ->
+            val snapshot = observeMetadata(
+                context = context,
+                treeUri = treeUri,
+                options = options,
+                initialParentPath = prefix,
+            )
+            snapshot.entries.forEach { entry ->
+                if (entry.stableObjectKey !in entriesByKey) {
+                    entriesByKey[entry.stableObjectKey] = entry
+                }
+            }
+            videoCovers += snapshot.videoCovers
+            statuses += snapshot.discoveryReport.partitions[DiscoveryPartitions.SAF_TREE]
+                ?: DiscoveryPartitionStatus(
+                    partitionKey = DiscoveryPartitions.SAF_TREE,
+                    completeness = snapshot.discoveryReport.aggregate,
+                )
+            totalProviderQueries += snapshot.observationStats.providerQueryCount
+            totalDirectQueries += snapshot.observationStats.directQueryCount
+            totalFallbackListings += snapshot.observationStats.fallbackListingCount
+            totalWallTimeMs += snapshot.observationStats.wallTimeMs
+        }
+
+        SafTreeMetadataSnapshot(
+            entries = entriesByKey.values.toList(),
+            discoveryReport = aggregateSafTreeDiscoveryReport(statuses),
+            videoCovers = videoCovers,
+            observationStats = SafTreeMetadataObservationStats(
+                providerQueryCount = totalProviderQueries,
+                directQueryCount = totalDirectQueries,
+                fallbackListingCount = totalFallbackListings,
+                wallTimeMs = totalWallTimeMs,
+            ),
+        )
+    }
+
+    internal suspend fun resolveMediaStoreFolderPathsTrees(
+        context: Context,
+        treeUris: List<Uri>,
+        mediaStoreUris: Set<String>,
+    ): Set<String>? = withContext(Dispatchers.IO) {
+        if (treeUris.isEmpty() || mediaStoreUris.isEmpty()) return@withContext null
+        if (treeUris.size == 1) {
+            return@withContext resolveMediaStoreFolderPaths(context, treeUris.first(), mediaStoreUris)
+        }
+        val prefixes = LibraryFolderSet.rootPrefixes(context, treeUris)
+        val resolved = linkedSetOf<String>()
+        for (rawUri in mediaStoreUris.sorted()) {
+            var matched = false
+            for ((treeUri, prefix) in treeUris.zip(prefixes)) {
+                val paths = resolveMediaStoreFolderPaths(context, treeUri, setOf(rawUri)) ?: continue
+                paths.forEach { rel ->
+                    resolved += combineFolderPrefix(prefix, rel)
+                }
+                matched = true
+                break
+            }
+            if (!matched) return@withContext null
+        }
+        resolved.takeIf { it.isNotEmpty() }
+    }
+
+    internal suspend fun verifyMissingObjectsTrees(
+        context: Context,
+        treeUris: List<Uri>,
+        songs: Collection<Song>,
+        startCursor: Int = 0,
+        budget: SafMissingVerificationBudget = SafMissingVerificationBudget.Default,
+    ): SafIndependentMissingVerificationResult = withContext(Dispatchers.IO) {
+        if (treeUris.isEmpty()) {
+            return@withContext SafIndependentMissingVerificationResult(
+                verifiedMissingStableObjectKeys = emptySet(),
+                presentStableObjectKeys = emptySet(),
+                indeterminateStableObjectKeys = songs.mapTo(linkedSetOf(), Song::id),
+                nextCursor = startCursor,
+            )
+        }
+        if (treeUris.size == 1) {
+            return@withContext verifyMissingObjects(context, treeUris.first(), songs, startCursor, budget)
+        }
+        val authorities = treeUris.mapNotNullTo(linkedSetOf()) { it.authority }
+        val primaryAuthority = if (authorities.size == 1) authorities.first() else null
+        SafAutoQuerySession(context, primaryAuthority).use { querySession ->
+            verifyMissingObjectsBoundedMultiAuthority(
+                allowedAuthorities = authorities,
+                songs = songs,
+                startCursor = startCursor,
+                budget = budget,
+                queryDocumentExists = querySession::queryDocumentExists,
+            )
+        }
+    }
+
+    private suspend fun verifyMissingObjectsBoundedMultiAuthority(
+        allowedAuthorities: Set<String>,
+        songs: Collection<Song>,
+        startCursor: Int,
+        budget: SafMissingVerificationBudget,
+        elapsedRealtimeMs: () -> Long = SystemClock::elapsedRealtime,
+        queryDocumentExists: suspend (Uri) -> Boolean,
+    ): SafIndependentMissingVerificationResult {
+        val startedAtMs = elapsedRealtimeMs()
+        val targets = songs.distinctBy(Song::id).sortedBy(Song::id)
+        val cursor = startCursor.coerceIn(0, targets.size)
+        val missing = linkedSetOf<String>()
+        val present = linkedSetOf<String>()
+        val indeterminate = linkedSetOf<String>()
+        var queryCount = 0
+        var processedCount = 0
+        var budgetExhausted = false
+        if (cursor >= targets.size) {
+            return SafIndependentMissingVerificationResult(
+                verifiedMissingStableObjectKeys = emptySet(),
+                presentStableObjectKeys = emptySet(),
+                indeterminateStableObjectKeys = emptySet(),
+                wallTimeMs = 0L,
+                nextCursor = targets.size,
+            )
+        }
+        fun elapsedMs(): Long = (elapsedRealtimeMs() - startedAtMs).coerceAtLeast(0L)
+        for (index in cursor until targets.size) {
+            if (
+                processedCount >= budget.maxObjects ||
+                queryCount >= budget.maxQueries ||
+                elapsedMs() >= budget.maxWallTimeMs
+            ) {
+                budgetExhausted = true
+                break
+            }
+            val song = targets[index]
+            val uri = runCatching { Uri.parse(song.mediaUri) }.getOrNull()
+            if (uri == null || uri.authority !in allowedAuthorities) {
+                indeterminate += song.id
+                processedCount += 1
+                break
+            }
+            val remainingMs = (budget.maxWallTimeMs - elapsedMs()).coerceAtLeast(0L)
+            if (remainingMs == 0L) {
+                budgetExhausted = true
+                break
+            }
+            try {
+                queryCount += 1
+                val exists = withTimeoutOrNull(remainingMs) {
+                    queryDocumentExists(uri)
+                }
+                if (exists == null) {
+                    budgetExhausted = true
+                    break
+                }
+                if (exists) {
+                    present += song.id
+                } else {
+                    missing += song.id
+                }
+                processedCount += 1
+                if (exists) break
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                if (isConfirmedMissingDocumentFailure(uri.authority, error)) {
+                    missing += song.id
+                    processedCount += 1
+                } else {
+                    indeterminate += song.id
+                    processedCount += 1
+                    break
+                }
+            }
+        }
+        val nextCursor = (cursor + processedCount).coerceAtMost(targets.size)
+        val hasMore = nextCursor < targets.size
+        return SafIndependentMissingVerificationResult(
+            verifiedMissingStableObjectKeys = missing,
+            presentStableObjectKeys = present,
+            indeterminateStableObjectKeys = indeterminate,
+            providerQueryCount = queryCount,
+            wallTimeMs = elapsedMs(),
+            nextCursor = nextCursor,
+            hasMore = hasMore,
+            budgetExhausted = budgetExhausted && hasMore,
+        )
+    }
+
+    internal suspend fun observeTargetedMetadataTrees(
+        context: Context,
+        treeUris: List<Uri>,
+        folderPaths: Set<String>,
+        options: ScanOptions = ScanOptions(),
+        retainProbeDrafts: Boolean = false,
+    ): SafTargetedMetadataSnapshot = withContext(Dispatchers.IO) {
+        if (treeUris.size == 1) {
+            return@withContext observeTargetedMetadata(
+                context = context,
+                treeUri = treeUris.first(),
+                folderPaths = folderPaths,
+                options = options,
+                retainProbeDrafts = retainProbeDrafts,
+            )
+        }
+        val requested = folderPaths.asSequence().map { it.trim('/') }.toCollection(linkedSetOf())
+        if (requested.isEmpty() || treeUris.isEmpty()) {
+            return@withContext SafTargetedMetadataSnapshot(
+                entries = emptyList(),
+                requestedFolderPaths = requested,
+                completeFolderPaths = emptySet(),
+                failedFolderPaths = requested,
+            )
+        }
+        val prefixes = LibraryFolderSet.rootPrefixes(context, treeUris)
+        val entriesByKey = LinkedHashMap<String, SafTreeMetadataEntry>()
+        val videoCovers = mutableListOf<VideoCoverFile>()
+        val completeFolders = linkedSetOf<String>()
+        val failedFolders = linkedSetOf<String>()
+        var totalProviderQueries = 0
+        var totalDirectQueries = 0
+        var totalWallTimeMs = 0L
+
+        val matchedRequests = linkedSetOf<String>()
+        treeUris.zip(prefixes).forEach { (treeUri, prefix) ->
+            val relToFull = linkedMapOf<String, String>()
+            requested.forEach { fullPath ->
+                val rel = stripFolderPrefix(fullPath, prefix) ?: return@forEach
+                relToFull[rel] = fullPath
+                matchedRequests += fullPath
+            }
+            if (relToFull.isEmpty()) return@forEach
+            val sub = observeTargetedMetadata(
+                context = context,
+                treeUri = treeUri,
+                folderPaths = relToFull.keys,
+                options = options,
+                retainProbeDrafts = retainProbeDrafts,
+            )
+            sub.entries.forEach { entry ->
+                val prefixedFolder = combineFolderPrefix(prefix, entry.folderPath)
+                val prefixedFilePath = combineFolderPrefix(prefix, entry.filePath)
+                val prefixedDraft = entry.probeDraft?.copy(
+                    folderPath = prefixedFolder,
+                    filePath = prefixedFilePath,
+                )
+                val prefixedEntry = entry.copy(
+                    folderPath = prefixedFolder,
+                    filePath = prefixedFilePath,
+                    probeDraft = prefixedDraft,
+                )
+                if (prefixedEntry.stableObjectKey !in entriesByKey) {
+                    entriesByKey[prefixedEntry.stableObjectKey] = prefixedEntry
+                }
+            }
+            sub.videoCovers.forEach { cover ->
+                videoCovers += cover.copy(
+                    folderPath = combineFolderPrefix(prefix, cover.folderPath),
+                )
+            }
+            sub.completeFolderPaths.forEach { rel ->
+                relToFull[rel]?.let(completeFolders::add)
+            }
+            sub.failedFolderPaths.forEach { rel ->
+                relToFull[rel]?.let(failedFolders::add)
+            }
+            totalProviderQueries += sub.observationStats.providerQueryCount
+            totalDirectQueries += sub.observationStats.directQueryCount
+            totalWallTimeMs += sub.observationStats.wallTimeMs
+        }
+        requested.filterNot { it in matchedRequests }.forEach(failedFolders::add)
+
+        SafTargetedMetadataSnapshot(
+            entries = entriesByKey.values.toList(),
+            videoCovers = videoCovers,
+            requestedFolderPaths = requested,
+            completeFolderPaths = completeFolders,
+            failedFolderPaths = failedFolders,
+            observationStats = SafTreeMetadataObservationStats(
+                providerQueryCount = totalProviderQueries,
+                directQueryCount = totalDirectQueries,
+                fallbackListingCount = 0,
+                wallTimeMs = totalWallTimeMs,
+            ),
+        )
+    }
+
+    suspend fun scanTrees(
+        context: Context,
+        treeUris: List<Uri>,
+        options: ScanOptions = ScanOptions(),
+        cachedSongs: List<Song> = emptyList(),
+        onProgress: ((done: Int, total: Int) -> Unit)? = null,
+        onLyricsBatch: (suspend (LyricsScanBatch) -> Unit)? = null,
+    ): ScanResult = withContext(Dispatchers.IO) {
+        if (treeUris.isEmpty()) {
+            val profiler = ScanProfiler("Folder")
+            return@withContext unavailableFolderResult(profiler, "No SAF trees configured")
+        }
+        if (treeUris.size == 1) {
+            return@withContext scan(
+                context = context,
+                treeUri = treeUris.first(),
+                options = options,
+                cachedSongs = cachedSongs,
+                onProgress = onProgress,
+                onLyricsBatch = onLyricsBatch,
+            )
+        }
+        val profiler = ScanProfiler("FolderMulti")
+        AudioMetadataProbe.clearArtCache()
+        val prefixes = LibraryFolderSet.rootPrefixes(context, treeUris)
+        val mergedDraftsById = LinkedHashMap<String, TrackDraft>()
+        val mergedVideoCovers = mutableListOf<VideoCoverFile>()
+        val statuses = mutableListOf<DiscoveryPartitionStatus>()
+
+        treeUris.zip(prefixes).forEach { (treeUri, prefix) ->
+            val root = DocumentFile.fromTreeUri(context, treeUri)
+            if (root == null || !root.isDirectory) {
+                statuses += DiscoveryPartitionStatus(
+                    partitionKey = DiscoveryPartitions.SAF_TREE,
+                    completeness = DiscoveryCompleteness.UNAVAILABLE,
+                    detail = "Cannot resolve SAF tree: $prefix",
+                )
+                return@forEach
+            }
+            val loaded = profiler.measureSuspend("loadDrafts[$prefix]") {
+                loadDrafts(
+                    context = context,
+                    treeUri = treeUri,
+                    root = root,
+                    options = options,
+                    profiler = profiler,
+                    initialParentPath = prefix,
+                )
+            }
+            loaded.drafts.forEach { draft ->
+                val id = draft.scanSongId()
+                if (id !in mergedDraftsById) {
+                    mergedDraftsById[id] = draft
+                }
+            }
+            mergedVideoCovers += loaded.videoCovers
+            statuses += loaded.discoveryReport.partitions[DiscoveryPartitions.SAF_TREE]
+                ?: DiscoveryPartitionStatus(
+                    partitionKey = DiscoveryPartitions.SAF_TREE,
+                    completeness = loaded.discoveryReport.aggregate,
+                )
+        }
+
+        val aggregatedReport = aggregateSafTreeDiscoveryReport(statuses)
+        val drafts = mergedDraftsById.values.toList().withinScanScope(options)
+        if (drafts.isEmpty()) {
+            return@withContext ScanResult(
+                songs = emptyList(),
+                totalSizeMb = 0,
+                performanceSummary = profiler.finish(total = 0, reused = 0, probed = 0),
+                discoveryReport = aggregatedReport,
+                folderVideoFiles = mergedVideoCovers,
+            )
+        }
+        probeLoadedDrafts(
+            context = context,
+            drafts = drafts,
+            videoCovers = mergedVideoCovers,
+            discoveryReport = aggregatedReport,
+            options = options,
+            cachedSongs = cachedSongs,
+            profiler = profiler,
+            onProgress = onProgress,
+            onLyricsBatch = onLyricsBatch,
+        )
+    }
+
+    suspend fun scanArtworkForSongsTrees(
+        context: Context,
+        treeUris: List<Uri>,
+        songIds: Set<String>,
+        cachedSongs: List<Song>,
+        onProgress: ((done: Int, total: Int) -> Unit)? = null,
+    ): ScanResult {
+        val anchor = treeUris.firstOrNull() ?: return ScanResult(songs = emptyList(), totalSizeMb = 0)
+        return scanArtworkForSongs(
+            context = context,
+            treeUri = anchor,
+            songIds = songIds,
+            cachedSongs = cachedSongs,
+            onProgress = onProgress,
+        )
+    }
+
+    private fun aggregateSafTreeDiscoveryReport(
+        statuses: List<DiscoveryPartitionStatus>,
+    ): DiscoveryReport {
+        if (statuses.isEmpty()) {
+            return DiscoveryReport.of(
+                DiscoveryPartitionStatus(
+                    partitionKey = DiscoveryPartitions.SAF_TREE,
+                    completeness = DiscoveryCompleteness.UNAVAILABLE,
+                    detail = "no-saf-trees",
+                ),
+            )
+        }
+        val completeness = when {
+            statuses.all { it.completeness == DiscoveryCompleteness.COMPLETE } ->
+                DiscoveryCompleteness.COMPLETE
+            statuses.all { it.completeness == DiscoveryCompleteness.UNAVAILABLE } ->
+                DiscoveryCompleteness.UNAVAILABLE
+            else -> DiscoveryCompleteness.PARTIAL
+        }
+        val detail = statuses.mapNotNull { it.detail.takeIf(String::isNotBlank) }.joinToString("; ")
+        return DiscoveryReport.of(
+            DiscoveryPartitionStatus(
+                partitionKey = DiscoveryPartitions.SAF_TREE,
+                completeness = completeness,
+                detail = detail,
+            ),
+        )
+    }
+
+    private fun combineFolderPrefix(prefix: String, relative: String): String {
+        val cleanPrefix = prefix.trim('/')
+        val cleanRelative = relative.trim('/')
+        return when {
+            cleanPrefix.isEmpty() -> cleanRelative
+            cleanRelative.isEmpty() -> cleanPrefix
+            else -> "$cleanPrefix/$cleanRelative"
+        }
+    }
+
+    private fun stripFolderPrefix(fullPath: String, prefix: String): String? {
+        val cleanFull = fullPath.trim('/')
+        val cleanPrefix = prefix.trim('/')
+        if (cleanPrefix.isEmpty()) return cleanFull
+        return when {
+            cleanFull == cleanPrefix -> ""
+            cleanFull.startsWith("$cleanPrefix/") -> cleanFull.removePrefix("$cleanPrefix/")
+            else -> null
+        }
     }
 
     /**
@@ -617,6 +1086,30 @@ internal object FolderScanner {
                 folderVideoFiles = loaded.videoCovers,
             )
         }
+        probeLoadedDrafts(
+            context = context,
+            drafts = drafts,
+            videoCovers = loaded.videoCovers,
+            discoveryReport = loaded.discoveryReport,
+            options = options,
+            cachedSongs = cachedSongs,
+            profiler = profiler,
+            onProgress = onProgress,
+            onLyricsBatch = onLyricsBatch,
+        )
+    }
+
+    private suspend fun probeLoadedDrafts(
+        context: Context,
+        drafts: List<TrackDraft>,
+        videoCovers: List<VideoCoverFile>,
+        discoveryReport: DiscoveryReport,
+        options: ScanOptions,
+        cachedSongs: List<Song>,
+        profiler: ScanProfiler,
+        onProgress: ((done: Int, total: Int) -> Unit)?,
+        onLyricsBatch: (suspend (LyricsScanBatch) -> Unit)?,
+    ): ScanResult {
         val cachedById = cachedSongs.associateBy { it.id }
         val reused = AtomicInteger(0)
         val probed = AtomicInteger(0)
@@ -638,7 +1131,9 @@ internal object FolderScanner {
                     forceRefreshLyrics = forceRefreshLyrics,
                     forceRefreshArtwork = forceRefreshArtwork,
                     onReuseMiss = profiler::recordReuseMiss,
-                )?.let { song -> ScannedSong(song).also { reused.incrementAndGet() } }
+                )?.let { song ->
+                    ScannedSong(song.withDraftLocation(draft)).also { reused.incrementAndGet() }
+                }
                     ?: profiler.measure("quickSong") {
                         probed.incrementAndGet()
                         AudioMetadataProbe.quickSong(
@@ -682,7 +1177,9 @@ internal object FolderScanner {
                                 forceRefreshArtwork = forceRefreshArtwork,
                                 onReuseMiss = profiler::recordReuseMiss,
                             )
-                                ?.let { cached -> ScannedSong(cached).also { reused.incrementAndGet() } }
+                                ?.let { cached ->
+                                    ScannedSong(cached.withDraftLocation(draft)).also { reused.incrementAndGet() }
+                                }
                                 ?: profiler.measure("probeTrack") {
                                     probed.incrementAndGet()
                                     AudioMetadataProbe.probeTrack(
@@ -717,10 +1214,10 @@ internal object FolderScanner {
             reused = reused.get(),
             probed = probed.get(),
         )
-        ScanResult(
+        return ScanResult(
             songs = MusicVideoMatcher.attach(
-                attachVideoCovers(songs, loaded.videoCovers),
-                loaded.videoCovers,
+                attachVideoCovers(songs, videoCovers),
+                videoCovers,
             ),
             totalSizeMb = (totalBytes / (1024 * 1024)).toInt(),
             performanceSummary = summary,
@@ -728,9 +1225,22 @@ internal object FolderScanner {
                 technicalFailed = technicalFailed.get(),
                 lyricsReadFailed = lyricsReadFailed.get(),
             ),
-            discoveryReport = loaded.discoveryReport,
-            folderVideoFiles = loaded.videoCovers,
+            discoveryReport = discoveryReport,
+            folderVideoFiles = videoCovers,
         )
+    }
+
+    internal fun Song.withDraftLocation(draft: TrackDraft): Song {
+        val nextFileName = draft.displayName?.takeIf(String::isNotBlank) ?: fileName
+        return if (folderPath == draft.folderPath && filePath == draft.filePath && fileName == nextFileName) {
+            this
+        } else {
+            copy(
+                folderPath = draft.folderPath,
+                filePath = draft.filePath,
+                fileName = nextFileName,
+            )
+        }
     }
 
     private fun unavailableFolderResult(
@@ -758,6 +1268,7 @@ internal object FolderScanner {
         discoveryQueries: DiscoveryQueryCounter? = null,
         querySession: SafAutoQuerySession? = null,
         allowDocumentFileFallback: Boolean = true,
+        initialParentPath: String = "",
     ): LoadedFolderFiles {
         val files = mutableListOf<AudioFileEntry>()
         val lyricFiles = mutableListOf<LyricFileEntry>()
@@ -779,13 +1290,14 @@ internal object FolderScanner {
                         videoOut = videoCovers,
                         discoveryQueries = discoveryQueries,
                         querySession = querySession,
+                        initialParentPath = initialParentPath,
                     )
                 } else {
                     collectLibraryFiles(
                         context = context,
                         treeUri = treeUri,
                         documentId = rootDocumentId,
-                        parentPath = "",
+                        parentPath = initialParentPath,
                         options = options,
                         audioOut = files,
                         lyricOut = lyricFiles,
@@ -812,7 +1324,7 @@ internal object FolderScanner {
             profiler.measure("loadDrafts.fallback") {
                 collectLibraryFilesFallback(
                     dir = root,
-                    parentPath = "",
+                    parentPath = initialParentPath,
                     options = options,
                     audioOut = files,
                     lyricOut = lyricFiles,
@@ -1104,6 +1616,7 @@ internal object FolderScanner {
         videoOut: MutableList<VideoCoverFile>,
         discoveryQueries: DiscoveryQueryCounter?,
         querySession: SafAutoQuerySession,
+        initialParentPath: String = "",
     ) {
         val projection = arrayOf(
             DocumentsContract.Document.COLUMN_DOCUMENT_ID,
@@ -1112,7 +1625,7 @@ internal object FolderScanner {
             DocumentsContract.Document.COLUMN_SIZE,
             DocumentsContract.Document.COLUMN_LAST_MODIFIED,
         )
-        var frontier = listOf(PendingSafDirectory(rootDocumentId, ""))
+        var frontier = listOf(PendingSafDirectory(rootDocumentId, initialParentPath))
         while (frontier.isNotEmpty()) {
             val nextFrontier = mutableListOf<PendingSafDirectory>()
             frontier.chunked(SYSTEM_EXTERNAL_STORAGE_QUERY_PARALLELISM).forEach { chunk ->
