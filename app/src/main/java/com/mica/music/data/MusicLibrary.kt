@@ -332,6 +332,32 @@ class MusicLibrary internal constructor(
             backing.libraryStore.acknowledgeFollowupOutbox(eventId)
         }
 
+    suspend fun enqueueManualDeletePlaylistCleanup(
+        song: Song,
+        fileDeleted: Boolean,
+    ): Boolean {
+        if (backing.released) return false
+        val activeSource = backing.sourceState.active ?: return false
+        val expectedGeneration = backing.scanGeneration
+        val item = com.mica.music.data.library.LibraryFollowupProtocol.manualDeletePlaylistRemovalItem(
+            sourceIdentity = activeSource.sourceIdentity,
+            stableObjectKey = userExclusionStableObjectKey(song),
+            songId = song.id,
+            fileDeleted = fileDeleted,
+            libraryRevision = backing.libraryChangeRevision,
+            activationEpoch = activeSource.activationEpoch,
+            createdAtMs = backing.scanEnvironment.currentTimeMillis(),
+        )
+        return runCatching {
+            withContext(Dispatchers.IO) {
+                backing.enqueueFollowupOutboxIfCurrentGeneration(
+                    expectedGeneration = expectedGeneration,
+                    item = item,
+                )
+            }
+        }.getOrDefault(false)
+    }
+
     internal suspend fun consumeConfirmedMissingFollowups(
         playlistStore: PlaylistStore,
         requests: List<LibraryConfirmedMissingFollowup>,

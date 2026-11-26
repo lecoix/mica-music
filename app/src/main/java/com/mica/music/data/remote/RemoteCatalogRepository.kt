@@ -135,6 +135,10 @@ class RemoteCatalogRepository internal constructor(
         ownerForLocked(sourceInstanceId)?.beginOperationSnapshot()
     }
 
+    suspend fun beginCatalogRefresh(sourceInstanceId: String): RemoteOperationSnapshot? = mutex.withLock {
+        ownerForLocked(sourceInstanceId)?.beginCatalogRefreshSnapshot()
+    }
+
     /** Folder requests have their own generation; browsing/playback source tokens are unaffected. */
     internal suspend fun beginSmbFolderIndex(sourceInstanceId: String): SmbFolderIndexRequest? = mutex.withLock {
         val owner = ownerForLocked(sourceInstanceId) ?: return@withLock null

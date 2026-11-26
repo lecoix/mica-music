@@ -900,6 +900,12 @@ class LibraryRepository internal constructor(
                     action = LibraryFollowupProtocol.PLAYLIST_REMOVE_CONFIRMED_MISSING,
                     stableObjectKeys = stableObjectKeys,
                 )
+                followupOutboxDao.deleteBySourceObjectKeys(
+                    source = sourceIdentity.source.storageValue,
+                    stableIdentity = sourceIdentity.stableIdentity,
+                    action = LibraryFollowupProtocol.PLAYLIST_REMOVE_MANUAL_DELETE,
+                    stableObjectKeys = stableObjectKeys,
+                )
                 membershipEvidenceDao.deleteBySourceObjectKeys(
                     source = sourceIdentity.source.storageValue,
                     stableIdentity = sourceIdentity.stableIdentity,

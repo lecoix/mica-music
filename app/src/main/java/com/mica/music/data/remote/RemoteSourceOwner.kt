@@ -3,8 +3,9 @@ package com.mica.music.data.remote
 /**
  * Per-source lifecycle owner for remote configuration and in-flight operation fencing.
  *
- * A source edit or explicit invalidation advances the operation generation. Results captured from
- * an older generation must not publish after the source has changed.
+ * A source edit or explicit invalidation advances [operationGeneration], invalidating every
+ * in-flight operation. Starting a catalog refresh advances [catalogRefreshGeneration], fencing
+ * older same-config refreshes without interrupting concurrent playback, artwork, or lyrics reads.
  */
 class RemoteSourceOwner(
     initial: RemoteSourceInstance,
@@ -20,6 +21,7 @@ class RemoteSourceOwner(
     private var instance: RemoteSourceInstance = initial
     private var configRevision: Long = initialConfigRevision
     private var operationGeneration: Long = initialOperationGeneration
+    private var catalogRefreshGeneration: Long = 0L
 
     fun snapshot(): RemoteSourceSnapshot = synchronized(lock) {
         RemoteSourceSnapshot(instance, configRevision, operationGeneration)
@@ -28,6 +30,7 @@ class RemoteSourceOwner(
     fun beginOperation(): RemoteOperationToken = synchronized(lock) {
         RemoteOperationToken(instance.id, configRevision, operationGeneration)
     }
+
     fun beginOperationSnapshot(): RemoteOperationSnapshot = synchronized(lock) {
         val source = RemoteSourceSnapshot(instance, configRevision, operationGeneration)
         RemoteOperationSnapshot(
@@ -36,10 +39,35 @@ class RemoteSourceOwner(
         )
     }
 
+    fun beginCatalogRefresh(): RemoteOperationToken = synchronized(lock) {
+        catalogRefreshGeneration += 1L
+        RemoteOperationToken(
+            sourceInstanceId = instance.id,
+            configRevision = configRevision,
+            operationGeneration = operationGeneration,
+            catalogRefreshGeneration = catalogRefreshGeneration,
+        )
+    }
+
+    fun beginCatalogRefreshSnapshot(): RemoteOperationSnapshot = synchronized(lock) {
+        catalogRefreshGeneration += 1L
+        val source = RemoteSourceSnapshot(instance, configRevision, operationGeneration)
+        RemoteOperationSnapshot(
+            source = source,
+            token = RemoteOperationToken(
+                sourceInstanceId = instance.id,
+                configRevision = configRevision,
+                operationGeneration = operationGeneration,
+                catalogRefreshGeneration = catalogRefreshGeneration,
+            ),
+        )
+    }
+
     fun isCurrent(token: RemoteOperationToken): Boolean = synchronized(lock) {
         token.sourceInstanceId == instance.id &&
             token.configRevision == configRevision &&
-            token.operationGeneration == operationGeneration
+            token.operationGeneration == operationGeneration &&
+            (token.catalogRefreshGeneration == null || token.catalogRefreshGeneration == catalogRefreshGeneration)
     }
 
     fun replace(next: RemoteSourceInstance): RemoteSourceSnapshot = synchronized(lock) {

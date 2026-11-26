@@ -17,8 +17,12 @@ internal class NavidromeProtocolCatalogApi(
     private val executor: NavidromeHttpExecutor = UrlConnectionNavidromeHttpExecutor(),
     private val requestFactory: NavidromeRequestFactory = NavidromeRequestFactory(),
 ) : NavidromeCatalogApi {
-    suspend fun beginSession(): NavidromeCatalogSession {
-        val operation = sourceOwner.beginOperationSnapshot()
+    suspend fun beginSession(advanceCatalogRefresh: Boolean = false): NavidromeCatalogSession {
+        val operation = if (advanceCatalogRefresh) {
+            sourceOwner.beginCatalogRefreshSnapshot()
+        } else {
+            sourceOwner.beginOperationSnapshot()
+        }
         validateSource(operation.source)
         val credential = credentialStore.resolve(operation.source.instance.credentialRef)
             ?: throw NavidromeException(

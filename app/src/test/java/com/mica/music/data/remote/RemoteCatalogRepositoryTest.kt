@@ -75,6 +75,21 @@ class RemoteCatalogRepositoryTest {
     }
 
     @Test
+    fun staleSameConfigCatalogRefreshCannotOverwriteNewerRefreshPublication() = runTest {
+        val source = source("nav-same-config")
+        repository.upsertSource(source)
+
+        val readToken = repository.beginOperation(source.id)!!.token
+        val staleRefresh = repository.beginCatalogRefresh(source.id)!!.token
+        val newerRefresh = repository.beginCatalogRefresh(source.id)!!.token
+
+        assertTrue(repository.publishCatalogIfCurrent(newerRefresh, listOf(track(source.id, "newer"))))
+        assertFalse(repository.publishCatalogIfCurrent(staleRefresh, listOf(track(source.id, "stale"))))
+        assertEquals(listOf("newer"), repository.tracksForSource(source.id).map { it.ref.opaqueTrackId })
+        assertTrue(repository.sourceOwner(source.id)!!.isCurrent(readToken))
+    }
+
+    @Test
     fun sourceEditInvalidatesOldOperationWithoutClearingPublishedCatalog() = runTest {
         val source = source("nav-1")
         repository.upsertSource(source)

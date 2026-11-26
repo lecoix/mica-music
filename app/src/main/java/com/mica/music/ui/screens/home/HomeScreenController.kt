@@ -147,6 +147,7 @@ class HomeScreenController(
             removeFromLibrary = library::removeSongFromLibrary,
             removeFromAllPlaylists = playlistStore::removeSongFromAllPlaylists,
             removeFromQueue = removeFromQueue,
+            enqueuePlaylistCleanupFollowup = library::enqueueManualDeletePlaylistCleanup,
         ).message
 
     suspend fun deletePlaylist(

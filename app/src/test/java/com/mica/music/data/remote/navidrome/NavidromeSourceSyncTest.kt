@@ -11,6 +11,8 @@ import com.mica.music.data.remote.RemoteSourceType
 import com.mica.music.data.remote.RemoteTrackRef
 import com.mica.music.data.remote.RemoteTrackSummary
 import com.mica.music.data.remote.SecureRemoteCredentialStore
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -126,6 +128,55 @@ class NavidromeSourceSyncTest {
         assertEquals(NavidromeFailureKind.STALE_OPERATION, failure.kind)
         assertEquals(listOf("existing"), repository.tracksForSource(source.id).map { it.ref.opaqueTrackId })
         assertEquals("https://changed.example", repository.source(source.id)?.endpoint)
+    }
+
+    @Test
+    fun overlappingSameConfigSyncRejectsOlderSyncWithoutConfigEdit() = runTest {
+        val source = source()
+        repository.upsertSource(source)
+        val credentialStore = SecureRemoteCredentialStore {
+            RemoteCredentialSnapshot(
+                credentialRef = source.credentialRef,
+                revision = 1,
+                material = RemoteCredentialMaterial.UsernamePassword("alice", "secret"),
+            )
+        }
+        val oldInFlight = CompletableDeferred<Unit>()
+        val releaseOld = CompletableDeferred<Unit>()
+        var calls = 0
+        val executor = NavidromeHttpExecutor {
+            val callIndex = ++calls
+            if (callIndex == 1) {
+                oldInFlight.complete(Unit)
+                releaseOld.await()
+                searchResponse(songJson("stale", "Stale"))
+            } else {
+                searchResponse(songJson("fresh", "Fresh"))
+            }
+        }
+        val sync = NavidromeSourceSync(
+            catalogRepository = repository,
+            credentialStore = credentialStore,
+            executor = executor,
+            requestFactory = NavidromeRequestFactory(saltProvider = { "fixedsalt" }),
+            pageSize = 2,
+        )
+
+        val oldJob = async {
+            runCatching { sync.sync(source.id) }
+        }
+        oldInFlight.await()
+
+        val newerResult = sync.sync(source.id)
+        releaseOld.complete(Unit)
+        val oldOutcome = oldJob.await()
+
+        assertEquals(1, newerResult.trackCount)
+        assertEquals(1L, newerResult.configRevision)
+        val failure = oldOutcome.exceptionOrNull() as? NavidromeException
+        requireNotNull(failure)
+        assertEquals(NavidromeFailureKind.STALE_OPERATION, failure.kind)
+        assertEquals(listOf("fresh"), repository.tracksForSource(source.id).map { it.ref.opaqueTrackId })
     }
 
     private fun source() = RemoteSourceInstance(

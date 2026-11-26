@@ -31,7 +31,7 @@ internal class NavidromeSourceSync(
             credentialStore = credentialStore,
             executor = executor,
             requestFactory = requestFactory,
-        ).beginSession()
+        ).beginSession(advanceCatalogRefresh = true)
         val tracks = NavidromeCatalogPager(session, pageSize).listSongs(limit)
         val summaries = tracks.map { it.toRemoteTrackSummary(sourceInstanceId) }
         val published = catalogRepository.publishCatalogIfCurrent(

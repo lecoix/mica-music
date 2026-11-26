@@ -55,8 +55,12 @@ internal class EmbyCatalogClient(
     private val credentials: SecureRemoteCredentialStore,
     private val transport: EmbyJsonTransport = OkHttpEmbyJsonTransport(),
 ) {
-    suspend fun beginSession(): Session {
-        val operation = owner.beginOperationSnapshot()
+    suspend fun beginSession(advanceCatalogRefresh: Boolean = false): Session {
+        val operation = if (advanceCatalogRefresh) {
+            owner.beginCatalogRefreshSnapshot()
+        } else {
+            owner.beginOperationSnapshot()
+        }
         require(operation.source.instance.enabled && operation.source.instance.type == com.mica.music.data.remote.RemoteSourceType.EMBY) {
             "Emby source is unavailable"
         }

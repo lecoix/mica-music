@@ -186,9 +186,45 @@ class SongActionsTest {
         )
 
         assertFalse(result.playlistCleanupSucceeded)
+        assertFalse(result.playlistCleanupQueued)
         assertTrue(result.queueChanged)
         assertTrue(liveQueue.isEmpty())
         assertEquals("已从设备删除，但部分歌单引用清理失败", result.message)
+    }
+
+    @Test
+    fun deleteSongEverywhereEnqueuesPersistentFollowupWhenPlaylistCleanupFails() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val target = SongFixtures.song("target")
+        var liveQueue = listOf(target)
+        var queuedSongId: String? = null
+        var queuedFileDeleted: Boolean? = null
+
+        val result = deleteSongEverywhere(
+            context = context,
+            song = target,
+            removeFromLibrary = { _, _ -> true },
+            removeFromAllPlaylists = { false },
+            removeFromQueue = { songId ->
+                val before = liveQueue.size
+                liveQueue = liveQueue.filterNot { it.id == songId }
+                liveQueue.size != before
+            },
+            deleteFile = { _, _ -> true },
+            enqueuePlaylistCleanupFollowup = { song, deleted ->
+                queuedSongId = song.id
+                queuedFileDeleted = deleted
+                true
+            },
+        )
+
+        assertFalse(result.playlistCleanupSucceeded)
+        assertTrue(result.playlistCleanupQueued)
+        assertTrue(result.queueChanged)
+        assertTrue(liveQueue.isEmpty())
+        assertEquals("target", queuedSongId)
+        assertEquals(true, queuedFileDeleted)
+        assertEquals("已从设备删除，歌单引用将在稍后自动清理", result.message)
     }
 
     @Test

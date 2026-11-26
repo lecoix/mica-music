@@ -27,9 +27,10 @@ import kotlinx.coroutines.sync.withLock
  * source row to that ref. The currently published source therefore never observes new credential
  * material paired with its old endpoint/config revision.
  *
- * Catalog sync for a given source is single-flight: overlapping manual and automatic refreshes
- * serialize on one per-source mutex so they cannot publish concurrently under a shared operation
- * token. Operation generation is still advanced only by source edit / explicit invalidation.
+ * Catalog sync for a given source is single-flight and owner-fenced: overlapping manual and
+ * automatic refreshes serialize on one per-source mutex, and each refresh also advances the
+ * owner's catalog-refresh generation so stale same-config syncs cannot publish even if invoked
+ * concurrently. Source edit / explicit invalidation still advance the broader operation generation.
  */
 internal class RemoteSourceManager internal constructor(
     private val catalogRepository: RemoteCatalogRepository,

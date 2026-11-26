@@ -301,6 +301,98 @@ class PlaylistRepositoryFollowupTest {
         assertTrue(libraryRepository.loadFollowupOutbox().isEmpty())
     }
 
+    @Test
+    fun manualDeleteFollowupDrainsAndRemovesDeletedSongFromPlaylists() = runTest {
+        val kept = SongFixtures.song("kept")
+        val deleted = SongFixtures.song("deleted")
+        seedActiveLibrary(listOf(kept))
+        playlistRepository.insertPlaylist(
+            UserPlaylist(id = "pl-1", name = "Favorites", songIds = listOf(kept.id, deleted.id)),
+            position = 0,
+        )
+        val event = LibraryFollowupProtocol.manualDeletePlaylistRemovalItem(
+            sourceIdentity = source,
+            stableObjectKey = deleted.id,
+            songId = deleted.id,
+            fileDeleted = true,
+            libraryRevision = 2L,
+            activationEpoch = 1L,
+            createdAtMs = 500L,
+        )
+        libraryRepository.enqueueFollowupOutbox(event)
+        val revisionBefore = playlistRepository.currentRevision()
+
+        val consumer = LibraryFollowupConsumer(
+            loadOutboxPage = libraryRepository::loadFollowupOutboxPage,
+            consumeConfirmedMissing = { requests ->
+                playlistRepository.consumeConfirmedMissingFollowups(requests).acknowledgedCount
+            },
+        )
+        assertEquals(1, consumer.drainToTail())
+        assertEquals(revisionBefore + 1L, playlistRepository.currentRevision())
+        assertEquals(listOf(kept.id), playlistRepository.load().single().songIds)
+        assertTrue(libraryRepository.loadFollowupOutbox().isEmpty())
+    }
+
+    @Test
+    fun staleManualDeleteFollowupIsObsoletedWhenSongReappearsOnRescanBeforeDrain() = runTest {
+        val restored = SongFixtures.song("restored")
+        seedActiveLibrary(emptyList())
+        playlistRepository.insertPlaylist(
+            UserPlaylist(id = "pl-1", name = "Favorites", songIds = listOf(restored.id)),
+            position = 0,
+        )
+        val event = LibraryFollowupProtocol.manualDeletePlaylistRemovalItem(
+            sourceIdentity = source,
+            stableObjectKey = restored.id,
+            songId = restored.id,
+            fileDeleted = false,
+            libraryRevision = 2L,
+            activationEpoch = 1L,
+            createdAtMs = 500L,
+        )
+        libraryRepository.enqueueFollowupOutbox(event)
+
+        // Rescan restores the song in the active library and immediately deletes the stale outbox row.
+        seedActiveLibrary(listOf(restored))
+        assertTrue(libraryRepository.loadFollowupOutbox().isEmpty())
+
+        val revisionBefore = playlistRepository.currentRevision()
+        val outcome = playlistRepository.consumeConfirmedMissingFollowup(event, restored.id)
+        assertEquals(PlaylistFollowupDisposition.ALREADY_CONSUMED, outcome.disposition)
+        assertTrue(outcome.acknowledged)
+        assertEquals(revisionBefore, playlistRepository.currentRevision())
+        assertEquals(listOf(restored.id), playlistRepository.load().single().songIds)
+    }
+
+    @Test
+    fun lateManualDeleteFollowupEnqueuedAfterSongAlreadyPresentIsMarkedObsoleteAtConsume() = runTest {
+        val restored = SongFixtures.song("restored-late")
+        seedActiveLibrary(listOf(restored))
+        playlistRepository.insertPlaylist(
+            UserPlaylist(id = "pl-1", name = "Favorites", songIds = listOf(restored.id)),
+            position = 0,
+        )
+        val event = LibraryFollowupProtocol.manualDeletePlaylistRemovalItem(
+            sourceIdentity = source,
+            stableObjectKey = restored.id,
+            songId = restored.id,
+            fileDeleted = true,
+            libraryRevision = 2L,
+            activationEpoch = 1L,
+            createdAtMs = 500L,
+        )
+        libraryRepository.enqueueFollowupOutbox(event)
+        val revisionBefore = playlistRepository.currentRevision()
+
+        val outcome = playlistRepository.consumeConfirmedMissingFollowup(event, restored.id)
+        assertEquals(PlaylistFollowupDisposition.OBSOLETE, outcome.disposition)
+        assertTrue(outcome.acknowledged)
+        assertEquals(revisionBefore, playlistRepository.currentRevision())
+        assertEquals(listOf(restored.id), playlistRepository.load().single().songIds)
+        assertTrue(libraryRepository.loadFollowupOutbox().isEmpty())
+    }
+
     private suspend fun LibraryRepository.loadFollowupOutbox(): List<LibraryFollowupOutboxItem> {
         val items = mutableListOf<LibraryFollowupOutboxItem>()
         var cursor = LibraryFollowupOutboxCursor.Start

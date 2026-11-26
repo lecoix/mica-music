@@ -128,7 +128,7 @@ internal class WebDavSourceSync(
         limit: Int = Int.MAX_VALUE,
     ): WebDavSyncResult {
         require(limit >= 0) { "limit must not be negative" }
-        val session = beginSession(sourceInstanceId)
+        val session = beginSession(sourceInstanceId, advanceCatalogRefresh = true)
         val reusableCatalog = catalogRepository.reusableCatalogIfCurrent(session.operation.token).orEmpty()
         ensureCurrent(session)
         val scan = if (limit == 0) ScanResult(emptyList(), 0, 0) else scan(session, limit, reusableCatalog)
@@ -152,10 +152,17 @@ internal class WebDavSourceSync(
         )
     }
 
-    private suspend fun beginSession(sourceInstanceId: String): Session {
+    private suspend fun beginSession(
+        sourceInstanceId: String,
+        advanceCatalogRefresh: Boolean = false,
+    ): Session {
         val owner = catalogRepository.sourceOwner(sourceInstanceId)
             ?: throw WebDavException(WebDavFailureKind.PROTOCOL, "Unknown WebDAV source")
-        val operation = owner.beginOperationSnapshot()
+        val operation = if (advanceCatalogRefresh) {
+            owner.beginCatalogRefreshSnapshot()
+        } else {
+            owner.beginOperationSnapshot()
+        }
         val source = operation.source.instance
         if (source.type != RemoteSourceType.WEBDAV) {
             throw WebDavException(WebDavFailureKind.PROTOCOL, "Remote source is not WebDAV")

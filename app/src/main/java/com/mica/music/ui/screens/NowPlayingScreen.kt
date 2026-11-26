@@ -489,6 +489,7 @@ fun NowPlayingContent(
                 removeFromLibrary = library::removeSongFromLibrary,
                 removeFromAllPlaylists = playlistStore::removeSongFromAllPlaylists,
                 removeFromQueue = actions.removeSongById,
+                enqueuePlaylistCleanupFollowup = library::enqueueManualDeletePlaylistCleanup,
             )
             snackbarHostState.showSnackbar(result.message)
         }

@@ -42,6 +42,7 @@ data class RemoteOperationToken(
     val sourceInstanceId: String,
     val configRevision: Long,
     val operationGeneration: Long,
+    val catalogRefreshGeneration: Long? = null,
 )
 data class RemoteOperationSnapshot(
     val source: RemoteSourceSnapshot,

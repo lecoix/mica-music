@@ -146,10 +146,16 @@ internal class PlaylistRepository(
                 return@forEach
             }
             val persisted = persistedEntity.toModel()
+            val validConfirmedMissing =
+                persisted.action == LibraryFollowupProtocol.PLAYLIST_REMOVE_CONFIRMED_MISSING &&
+                    persisted.removalReason == MembershipRemovalReason.CONFIRMED_MISSING
+            val validManualDelete =
+                persisted.action == LibraryFollowupProtocol.PLAYLIST_REMOVE_MANUAL_DELETE &&
+                    (persisted.removalReason == MembershipRemovalReason.CONFIRMED_MISSING ||
+                        persisted.removalReason == MembershipRemovalReason.USER_EXCLUDED)
             if (
                 persisted != expected ||
-                persisted.action != LibraryFollowupProtocol.PLAYLIST_REMOVE_CONFIRMED_MISSING ||
-                persisted.removalReason != MembershipRemovalReason.CONFIRMED_MISSING ||
+                (!validConfirmedMissing && !validManualDelete) ||
                 persisted.evidenceRevision.isBlank() ||
                 persistedState == null
             ) {
@@ -160,8 +166,12 @@ internal class PlaylistRepository(
         }
 
         val activeSourceIdentity = persistedState?.sourceState?.active?.sourceIdentity
-        val activeObjectKeys = validated.values.mapNotNull { (_, persisted) ->
-            persisted.stableObjectKey.takeIf { persisted.sourceIdentity == activeSourceIdentity }
+        val activeObjectKeys = validated.values.flatMap { (request, persisted) ->
+            if (persisted.sourceIdentity == activeSourceIdentity) {
+                listOf(persisted.stableObjectKey, request.songId)
+            } else {
+                emptyList()
+            }
         }.distinct()
         val presentActiveObjectKeys = if (activeObjectKeys.isEmpty()) {
             emptySet()
@@ -171,6 +181,9 @@ internal class PlaylistRepository(
 
         val evidenceByIdentity = buildMap {
             validated.values
+                .filter { (_, persisted) ->
+                    persisted.action == LibraryFollowupProtocol.PLAYLIST_REMOVE_CONFIRMED_MISSING
+                }
                 .groupBy { (_, persisted) -> persisted.sourceIdentity }
                 .forEach { (sourceIdentity, group) ->
                     membershipEvidenceDao.getBySourceObjectKeys(
@@ -193,18 +206,23 @@ internal class PlaylistRepository(
             val (request, persisted) = pair
             val objectIsPresentAgain =
                 persisted.sourceIdentity == activeSourceIdentity &&
-                    persisted.stableObjectKey in presentActiveObjectKeys
-            val currentEvidence = evidenceByIdentity[
-                Triple(
-                    persisted.sourceIdentity.source.storageValue,
-                    persisted.sourceIdentity.stableIdentity,
-                    persisted.stableObjectKey,
-                )
-            ]
-            val removalEvidenceStillCurrent =
-                currentEvidence?.removalReason == MembershipRemovalReason.CONFIRMED_MISSING.name &&
-                    currentEvidence.evidenceRevision == persisted.evidenceRevision &&
-                    currentEvidence.songId == request.songId
+                    (persisted.stableObjectKey in presentActiveObjectKeys ||
+                        request.songId in presentActiveObjectKeys)
+            val removalEvidenceStillCurrent = when (persisted.action) {
+                LibraryFollowupProtocol.PLAYLIST_REMOVE_MANUAL_DELETE -> true
+                else -> {
+                    val currentEvidence = evidenceByIdentity[
+                        Triple(
+                            persisted.sourceIdentity.source.storageValue,
+                            persisted.sourceIdentity.stableIdentity,
+                            persisted.stableObjectKey,
+                        )
+                    ]
+                    currentEvidence?.removalReason == MembershipRemovalReason.CONFIRMED_MISSING.name &&
+                        currentEvidence.evidenceRevision == persisted.evidenceRevision &&
+                        currentEvidence.songId == request.songId
+                }
+            }
 
             if (objectIsPresentAgain || !removalEvidenceStillCurrent) {
                 dispositions[eventId] = PlaylistFollowupDisposition.OBSOLETE

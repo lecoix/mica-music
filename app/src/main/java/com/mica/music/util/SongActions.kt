@@ -143,9 +143,16 @@ data class DeleteSongResult(
     val libraryRemoved: Boolean,
     val playlistCleanupSucceeded: Boolean,
     val queueChanged: Boolean,
+    val playlistCleanupQueued: Boolean = false,
 ) {
     val message: String
         get() = when {
+            !playlistCleanupSucceeded && playlistCleanupQueued && fileDeleted && libraryRemoved ->
+                "已从设备删除，歌单引用将在稍后自动清理"
+            !playlistCleanupSucceeded && playlistCleanupQueued && fileDeleted ->
+                "已从设备删除，歌单引用将在稍后自动清理（曲库将在下次扫描更新）"
+            !playlistCleanupSucceeded && playlistCleanupQueued && libraryRemoved ->
+                "已从曲库移除，歌单引用将在稍后自动清理（无法删除文件）"
             !playlistCleanupSucceeded && fileDeleted && libraryRemoved -> "已从设备删除，但部分歌单引用清理失败"
             !playlistCleanupSucceeded && fileDeleted -> "已从设备删除，但部分歌单引用清理失败（曲库将在下次扫描更新）"
             !playlistCleanupSucceeded && libraryRemoved -> "已从曲库移除，但部分歌单引用清理失败（无法删除文件）"
@@ -163,6 +170,7 @@ suspend fun deleteSongEverywhere(
     removeFromAllPlaylists: suspend (String) -> Boolean,
     removeFromQueue: (songId: String) -> Boolean,
     deleteFile: (Context, Song) -> Boolean = ::deleteSongFile,
+    enqueuePlaylistCleanupFollowup: (suspend (Song, fileDeleted: Boolean) -> Boolean)? = null,
 ): DeleteSongResult {
     val fileDeleted = deleteFile(context, song)
     val libraryRemoved = removeFromLibrary(song, !fileDeleted)
@@ -172,12 +180,19 @@ suspend fun deleteSongEverywhere(
     } else {
         true
     }
+    val playlistCleanupQueued = if (shouldRemoveReferences && !playlistCleanupSucceeded) {
+        runCatching { enqueuePlaylistCleanupFollowup?.invoke(song, fileDeleted) == true }
+            .getOrDefault(false)
+    } else {
+        false
+    }
     val queueChanged = if (shouldRemoveReferences) removeFromQueue(song.id) else false
     return DeleteSongResult(
         fileDeleted = fileDeleted,
         libraryRemoved = libraryRemoved,
         playlistCleanupSucceeded = playlistCleanupSucceeded,
         queueChanged = queueChanged,
+        playlistCleanupQueued = playlistCleanupQueued,
     )
 }
 

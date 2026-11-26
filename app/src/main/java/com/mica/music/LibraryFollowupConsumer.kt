@@ -56,7 +56,9 @@ internal class LibraryFollowupConsumer(
 
             page.items.forEach { item ->
                 when (item.action) {
-                    LibraryFollowupProtocol.PLAYLIST_REMOVE_CONFIRMED_MISSING -> {
+                    LibraryFollowupProtocol.PLAYLIST_REMOVE_CONFIRMED_MISSING,
+                    LibraryFollowupProtocol.PLAYLIST_REMOVE_MANUAL_DELETE,
+                    -> {
                         val songId = LibraryFollowupProtocol.playlistRemovalSongId(item.payload)
                         if (songId.isNullOrBlank()) {
                             DiagnosticLog.important(

@@ -43,7 +43,8 @@ internal class EmbySourceSync(
 
     suspend fun sync(sourceInstanceId: String, limit: Int = MAX_TRACKS): EmbySyncResult {
         val owner = repository.sourceOwner(sourceInstanceId) ?: throw IOException("Unknown Emby source")
-        val session = EmbyCatalogClient(owner, credentials, transport).beginSession()
+        val session = EmbyCatalogClient(owner, credentials, transport)
+            .beginSession(advanceCatalogRefresh = true)
         val hardCap = limit.coerceIn(0, MAX_TRACKS)
         val tracks = ArrayList<RemoteTrackSummary>(minOf(hardCap, pageSize))
         val seen = HashSet<String>()
